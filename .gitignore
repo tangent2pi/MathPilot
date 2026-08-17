@@ -14,3 +14,4 @@ deploy/dev/.env
 reference/
 sidecars/pybkt/.venv
 sidecars/pybkt/state/
+__pycache__/
