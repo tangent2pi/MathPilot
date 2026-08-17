@@ -1,0 +1,286 @@
+/* AGMATH apps/web — 设计系统：数学卷宗
+ * 方格草稿纸 / 蓝黑墨水 / 朱砂批注。判定落章是签名时刻。
+ * 色系：蓝黑墨为主，朱砂只用于判定/印章，松绿用于程序基准（科学锚点）。
+ */
+
+:root {
+  --paper: #FBFBF9;
+  --paper-deep: #F3F1EA;
+  --grid-line: #D9E2EC;
+  --ink: #1E2A38;
+  --ink-soft: #51606F;
+  --ink-faint: #8A97A5;
+  --cinnabar: #B3413C;
+  --cinnabar-deep: #8F2F2B;
+  --amber: #C08A2D;
+  --pine: #33735A;
+  --hairline: #E3E0D6;
+  --shadow: 0 1px 2px rgba(30, 42, 56, .08), 0 8px 24px rgba(30, 42, 56, .06);
+  --serif: "Noto Serif SC", "Songti SC", serif;
+  --sans: "Noto Sans SC", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html { font-size: 16px; }
+.mono { font-family: var(--mono); font-size: .7rem; color: var(--ink-faint); }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: rgba(192, 138, 45, .28); }
+a { color: inherit; }
+button { font: inherit; cursor: pointer; color: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible,
+textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ── 卷宗头 ─────────────────────────────── */
+.masthead {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 1.05rem 1.6rem;
+  border-bottom: 1px solid var(--ink);
+  position: sticky; top: 0; z-index: 30;
+  background: var(--paper);
+}
+.brand {
+  font-family: var(--serif); font-weight: 700; font-size: 1.22rem;
+  letter-spacing: .08em; text-decoration: none; display: flex; align-items: baseline; gap: .55rem;
+}
+.brand .mark { color: var(--cinnabar); font-size: 1.05rem; }
+.brand small {
+  font-family: var(--mono); font-size: .66rem; color: var(--ink-faint);
+  letter-spacing: .14em; font-weight: 400;
+}
+.masthead nav { display: flex; gap: 1.3rem; font-size: .88rem; }
+.masthead nav a { text-decoration: none; border-bottom: 2px solid transparent; padding-bottom: 2px; }
+.masthead nav a[aria-current="page"] { border-bottom-color: var(--cinnabar); }
+
+/* ── 布局：证据目录 + 主卷宗 + 草稿区 ─────── */
+.dossier {
+  max-width: 1280px; margin: 0 auto; padding: 1.6rem 1.4rem 6rem;
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 300px;
+  gap: 1.4rem;
+  align-items: start;
+}
+@media (max-width: 1080px) { .dossier { grid-template-columns: 150px minmax(0,1fr); } .draft-pane { display: none; } }
+@media (max-width: 760px) { .dossier { grid-template-columns: 1fr; } .evidence-rail { display: none; } }
+
+/* ── 证据目录（左栏，mono） ───────────────── */
+.evidence-rail {
+  position: sticky; top: 4.8rem;
+  font-family: var(--mono); font-size: .72rem;
+}
+.rail-title {
+  font-size: .68rem; letter-spacing: .18em; color: var(--ink-faint);
+  border-bottom: 1px solid var(--hairline); padding-bottom: .5rem; margin-bottom: .7rem;
+}
+.rail-item {
+  display: flex; gap: .5rem; align-items: baseline;
+  padding: .32rem 0; color: var(--ink-soft); text-decoration: none;
+  border-left: 2px solid transparent; padding-left: .5rem;
+  transition: color .15s, border-color .15s;
+}
+.rail-item:hover { color: var(--ink); }
+.rail-item.done { color: var(--ink); border-left-color: var(--cinnabar); }
+.rail-item .no { color: var(--ink-faint); }
+.rail-item.done .no { color: var(--cinnabar); }
+
+/* ── 主卷宗流 ────────────────────────────── */
+.flow { display: flex; flex-direction: column; gap: 1.1rem; }
+
+/* 状态印章行 */
+.seals {
+  display: flex; gap: .35rem; flex-wrap: wrap;
+  font-family: var(--serif); font-size: .78rem;
+}
+.seal {
+  border: 1.5px solid var(--ink-faint); color: var(--ink-faint);
+  padding: .18rem .6rem; border-radius: 2px; letter-spacing: .1em;
+  transition: all .35s ease;
+}
+.seal.done { border-color: var(--cinnabar); color: var(--cinnabar); background: rgba(179, 65, 60, .05); }
+.seal.stamping { animation: sealStrike .5s cubic-bezier(.2,.8,.3,1.2); }
+
+@keyframes sealStrike {
+  0% { transform: scale(1.7) rotate(-14deg); opacity: 0; }
+  60% { transform: scale(.92) rotate(2deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* 题目卡 */
+.question-card {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  box-shadow: var(--shadow);
+  padding: 1.3rem 1.5rem;
+  position: relative;
+}
+.q-meta {
+  display: flex; gap: .8rem; align-items: baseline;
+  font-family: var(--mono); font-size: .7rem; color: var(--ink-faint);
+  border-bottom: 1px solid var(--hairline); padding-bottom: .55rem; margin-bottom: .9rem;
+}
+.q-meta .mode-tag {
+  color: var(--cinnabar); border: 1px solid var(--cinnabar); padding: 0 .35rem; border-radius: 2px;
+  letter-spacing: .12em;
+}
+.q-meta .indep-tag { color: var(--pine); border: 1px solid var(--pine); padding: 0 .35rem; border-radius: 2px; }
+.q-stem {
+  font-family: var(--serif); font-size: 1.12rem; line-height: 1.9; margin: 0;
+}
+.q-stem .hint { color: var(--ink-soft); font-size: .95rem; }
+
+/* 作答区 */
+.answer-panel { border: 1px dashed var(--ink-soft); padding: 1rem 1.2rem; background: var(--paper); }
+.answer-panel label { font-family: var(--serif); font-size: .9rem; display: block; margin-bottom: .5rem; }
+.answer-panel textarea {
+  width: 100%; min-height: 110px; resize: vertical;
+  border: none; outline: none; background: transparent;
+  font-family: var(--serif); font-size: 1rem; line-height: 1.9; color: var(--ink);
+}
+.answer-actions { display: flex; justify-content: space-between; align-items: center; margin-top: .6rem; }
+.answer-actions .btn { margin: 0; }
+
+.btn {
+  border: 1px solid var(--ink); background: transparent;
+  padding: .45rem 1.2rem; font-size: .88rem; letter-spacing: .06em;
+  transition: background .15s, color .15s;
+}
+.btn:hover { background: var(--ink); color: var(--paper); }
+.btn.ghost { border-color: var(--ink-faint); color: var(--ink-soft); }
+.btn.ghost:hover { border-color: var(--ink); color: var(--ink); background: transparent; }
+.btn.cinnabar { border-color: var(--cinnabar); color: var(--cinnabar); }
+.btn.cinnabar:hover { background: var(--cinnabar); color: var(--paper); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn:disabled:hover { background: transparent; color: inherit; }
+
+/* 证据条目 */
+.evidence {
+  border: 1px solid var(--hairline); background: var(--paper);
+  padding: 1.1rem 1.3rem; position: relative;
+}
+.evidence .ev-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
+  margin-bottom: .6rem;
+}
+.evidence .ev-k {
+  font-family: var(--mono); font-size: .7rem; letter-spacing: .16em; color: var(--ink-faint);
+}
+.evidence .ev-id { font-family: var(--mono); font-size: .66rem; color: var(--ink-faint); }
+
+/* 判定落章（签名时刻） */
+.verdict-seal {
+  display: inline-flex; align-items: center; gap: 1rem;
+}
+.verdict-seal .stamp {
+  font-family: var(--serif); font-weight: 700; font-size: 1.5rem;
+  color: var(--cinnabar);
+  border: 3px double var(--cinnabar);
+  padding: .35rem .85rem;
+  border-radius: 4px;
+  transform: rotate(-4deg);
+  box-shadow: inset 0 0 0 1px rgba(179,65,60,.35);
+}
+.verdict-seal .stamp.landing { animation: sealStrike .55s cubic-bezier(.2,.8,.3,1.15); }
+.verdict-seal .stamp.pending { border-color: var(--ink-faint); color: var(--ink-faint); font-size: 1rem; transform: none; }
+.verdict-seal .stamp .zh { display: block; font-size: .62rem; letter-spacing: .3em; text-align: center; margin-top: .1rem; }
+.stamp.ok { border-color: var(--pine); color: var(--pine); box-shadow: inset 0 0 0 1px rgba(51,115,90,.35); }
+.stamp.bad { border-color: var(--cinnabar); color: var(--cinnabar); }
+.stamp.partial { border-color: var(--amber); color: var(--amber); box-shadow: inset 0 0 0 1px rgba(192,138,45,.35); }
+
+.verdict-note { color: var(--ink-soft); font-size: .9rem; margin: 0; }
+.verdict-summary { font-size: .92rem; color: var(--ink); margin: .4rem 0 0; }
+
+.rubric-list { list-style: none; padding: 0; margin: .8rem 0 0; display: flex; flex-direction: column; gap: .35rem; }
+.rubric-list li { display: flex; gap: .6rem; align-items: baseline; font-size: .9rem; }
+.mark { font-family: var(--mono); font-size: .68rem; padding: .05rem .4rem; border-radius: 2px; flex-shrink: 0; }
+.mark.met { background: rgba(51,115,90,.12); color: var(--pine); }
+.mark.not_met { background: rgba(179,65,60,.1); color: var(--cinnabar); }
+.mark.unclear { background: rgba(192,138,45,.14); color: var(--amber); }
+
+/* 程序基准 */
+.baseline { display: flex; align-items: center; gap: 1.3rem; flex-wrap: wrap; }
+.big-number { font-family: var(--serif); font-weight: 700; font-size: 2.1rem; line-height: 1; }
+.big-number small { font-size: .72rem; font-weight: 400; color: var(--ink-soft); letter-spacing: .1em; margin-left: .3rem; }
+.prior-flag {
+  font-family: var(--mono); font-size: .66rem; letter-spacing: .12em;
+  border: 1px solid var(--amber); color: var(--amber); padding: .1rem .45rem; border-radius: 2px;
+}
+.baseline .mono-line { font-family: var(--mono); font-size: .7rem; color: var(--ink-faint); }
+.bar-row { display: flex; align-items: center; gap: .6rem; font-size: .8rem; }
+.bar-track { flex: 1; min-width: 140px; height: 8px; background: var(--paper-deep); border: 1px solid var(--hairline); }
+.bar-fill { height: 100%; }
+.bar-fill.ink { background: var(--ink); }
+.bar-fill.cinnabar { background: var(--cinnabar); }
+
+/* 教学总结 */
+.teaching-summary { font-family: var(--serif); font-size: 1rem; line-height: 2; margin: 0; }
+
+/* 探针卡（可跳过） */
+.probe-card {
+  border: 1px solid var(--ink); background: var(--paper-deep);
+  padding: 1.1rem 1.3rem;
+}
+.probe-card .p-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: .6rem; }
+.probe-card .p-k { font-family: var(--mono); font-size: .68rem; letter-spacing: .16em; color: var(--ink-soft); }
+.probe-card .p-skip { font-size: .8rem; color: var(--ink-faint); text-decoration: underline dotted; cursor: pointer; }
+.probe-options { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .7rem; }
+
+/* 等待动效 */
+.pending-line { display: flex; align-items: center; gap: .7rem; color: var(--ink-soft); font-size: .9rem; }
+.spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--ink-faint); border-top-color: var(--cinnabar);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 空态 */
+.empty-note { color: var(--ink-faint); font-size: .9rem; border: 1px dashed var(--hairline); padding: 1.2rem; text-align: center; }
+
+/* 动作条 */
+.action-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  background: var(--paper); border-top: 1px solid var(--ink);
+  padding: .7rem 1.4rem;
+  display: flex; gap: .7rem; justify-content: center;
+}
+.action-bar .btn { font-size: .85rem; padding: .4rem 1rem; }
+.hint-level {
+  font-family: var(--mono); font-size: .68rem; color: var(--ink-faint);
+  position: absolute; right: 1.4rem; align-self: center;
+}
+
+/* 草稿区（右栏，阶段 B 接入实时笔迹） */
+.draft-pane { position: sticky; top: 4.8rem; }
+.draft-pane .draft-title {
+  font-family: var(--mono); font-size: .68rem; letter-spacing: .18em; color: var(--ink-faint);
+  display: flex; justify-content: space-between; margin-bottom: .5rem;
+}
+.draft-sheet {
+  border: 1px solid var(--ink-soft);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-color: var(--paper);
+  min-height: 340px; position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+.draft-placeholder { font-size: .78rem; color: var(--ink-faint); text-align: center; padding: 1rem; font-family: var(--serif); }
+.draft-ref { font-family: var(--mono); font-size: .68rem; color: var(--cinnabar); margin-top: .4rem; text-align: center; }
+
+/* 错误卡 */
+.error-card { border: 1px solid var(--cinnabar); color: var(--cinnabar); padding: .9rem 1.1rem; font-size: .9rem; background: rgba(179,65,60,.04); }
+.error-card .code { font-family: var(--mono); font-size: .7rem; display: block; margin-top: .3rem; color: var(--ink-soft); }

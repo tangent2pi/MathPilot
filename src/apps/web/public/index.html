@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>单题诊断 · AGMATH</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="/"><span class="mark">◆</span>AGMATH<small>数学诊断卷宗</small></a>
+    <nav>
+      <a href="/" aria-current="page">单题诊断</a>
+      <a href="/report.html">报告与计划</a>
+      <a href="/teacher.html">教师复核</a>
+    </nav>
+  </header>
+
+  <main class="dossier">
+    <!-- 证据目录（左栏） -->
+    <aside class="evidence-rail" aria-label="证据目录">
+      <div class="rail-title">证据目录</div>
+      <a class="rail-item" href="#q" data-ev="出题"><span class="no">01</span>出题</a>
+      <a class="rail-item" href="#answer" data-ev="作答"><span class="no">02</span>作答</a>
+      <a class="rail-item" href="#verdict" data-ev="判定"><span class="no">03</span>判定</a>
+      <a class="rail-item" href="#baseline" data-ev="程序基准"><span class="no">04</span>程序基准</a>
+      <a class="rail-item" href="#summary" data-ev="教学总结"><span class="no">05</span>教学总结</a>
+      <a class="rail-item" href="#queue" data-ev="画像队列"><span class="no">06</span>画像队列</a>
+    </aside>
+
+    <!-- 主卷宗 -->
+    <section class="flow" aria-label="学习流">
+      <div class="seals" id="seals" aria-label="Session 状态">
+        <span class="seal" data-state="CREATE">创建</span>
+        <span class="seal" data-state="SUBMIT">提交</span>
+        <span class="seal" data-state="GRADE">判答</span>
+        <span class="seal" data-state="SCIENTIFIC_EVALUATE">程序评价</span>
+        <span class="seal" data-state="TEACHING_SESSION_SUMMARY">教学总结</span>
+        <span class="seal" data-state="QUEUE_DREAM">画像队列</span>
+      </div>
+
+      <!-- 01 出题 -->
+      <article class="question-card" id="q">
+        <div class="q-meta">
+          <span id="qid">Q_TRI_012</span>
+          <span id="pkgVer" class="mono">0.1.0</span>
+          <span class="mode-tag" id="modeTag">诊断</span>
+          <span class="indep-tag">计入独立证据</span>
+          <span style="margin-left:auto" id="hintLevel"></span>
+        </div>
+        <p class="q-stem" id="stem">在△ABC中，已知 a=√3，b=2，A=30°。求角 B（注意讨论解的个数）。</p>
+      </article>
+
+      <!-- 02 作答 -->
+      <section class="answer-panel" id="answer" hidden>
+        <label for="answerText">你的解答</label>
+        <textarea id="answerText" rows="4">由正弦定理 a/sinA = b/sinB，得 sinB = b·sinA/a = 2×0.5/√3 = 1/√3 ≈ 0.5774，故 B ≈ 35.3° 或 144.7°，均满足 A+B&lt;180°，两解都成立。</textarea>
+        <div class="answer-actions">
+          <span class="pending-line" id="grading" hidden><span class="spinner"></span>Teaching Agent 判读中（推理模型，可能需 30–90 秒）…</span>
+          <button class="btn" id="submitBtn" type="button">提交答案</button>
+        </div>
+      </section>
+
+      <!-- 03 判定（落章） -->
+      <div id="verdictSlot"></div>
+
+      <!-- 04 程序基准 -->
+      <div id="baselineSlot"></div>
+
+      <!-- 05 教学总结 -->
+      <div id="summarySlot"></div>
+
+      <!-- 06 画像队列 -->
+      <div id="queueSlot"></div>
+
+      <div class="empty-note" id="startNote">卷宗待启。开始本题后，判定、程序基准与教学证据会按顺序落在这里。</div>
+    </section>
+
+    <!-- 草稿区（右栏，阶段 B 接入实时笔迹） -->
+    <aside class="draft-pane" aria-label="草稿区">
+      <div class="draft-title"><span>草稿区</span><span id="draftStatus">未启用</span></div>
+      <div class="draft-sheet" id="draftSheet">
+        <div class="draft-placeholder">
+          手写草稿空间<br />
+          <span class="draft-ref">draft://s_xxx/seg-017?region=r2</span><br />
+          <span style="font-size:.7rem">设备支持时启用；无草稿不影响诊断</span>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- 固定动作条 -->
+  <div class="action-bar" role="toolbar" aria-label="本题动作">
+    <button class="btn ghost" id="actStuck" type="button">我卡住了</button>
+    <button class="btn ghost" id="actCheck" type="button">检查这一步</button>
+    <button class="btn ghost" id="actMethod" type="button">我不确定方法</button>
+    <button class="btn cinnabar" id="actDone" type="button">完成本题</button>
+    <span class="hint-level" id="hintLevelBar"></span>
+  </div>
+
+  <script>
+    const API = ""; // 同源：nginx 将 /api/ 反代至 api 服务
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+      (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+
+    const SEAL_ORDER = ["CREATE", "SUBMIT", "GRADE", "SCIENTIFIC_EVALUATE", "TEACHING_SESSION_SUMMARY", "QUEUE_DREAM"];
+    const ZH_VERDICT = { correct: "正确", partially_correct: "部分正确", incorrect: "不正确", unresolved: "待核" };
+    const VERDICT_CLS = { correct: "ok", partially_correct: "partial", incorrect: "bad", unresolved: "" };
+    const RUBRIC_ZH = { met: "达成", not_met: "未达成", unclear: "待澄清" };
+
+    let sessionId = null;
+    let flowState = 0;
+
+    function stamp(state) {
+      const el = document.querySelector(`.seal[data-state="${state}"]`);
+      if (!el) return;
+      el.classList.remove("done");
+      void el.offsetWidth; // 重启动画
+      el.classList.add("stamping", "done");
+    }
+    function markRail(idx) {
+      document.querySelectorAll(".rail-item").forEach((r, i) => r.classList.toggle("done", i <= idx));
+    }
+    function advance(to) {
+      const idx = SEAL_ORDER.indexOf(to);
+      for (let i = flowState; i <= idx; i++) stamp(SEAL_ORDER[i]);
+      flowState = Math.max(flowState, idx + 1);
+      markRail(idx);
+    }
+    function evidenceHtml(k, id, inner) {
+      return `<article class="evidence"><div class="ev-head"><span class="ev-k">${esc(k)}</span>` +
+        (id ? `<span class="ev-id">${esc(id)}</span>` : "") + `</div>${inner}</article>`;
+    }
+
+    document.getElementById("actStuck").onclick = () => note("求助", "提示路径（L0–L4 最小必要提示）在阶段 C 接入；当前模式为独立诊断。");
+    document.getElementById("actCheck").onclick = () => note("检查这一步", "分步检查在阶段 C 接入。");
+    document.getElementById("actMethod").onclick = () => note("方法求助", "方法级提示在阶段 C 接入。");
+    document.getElementById("actDone").onclick = () => {
+      if (!sessionId) return;
+      const slot = document.getElementById("queueSlot");
+      slot.innerHTML = evidenceHtml("画像队列", "QUEUE_DREAM",
+        `<p class="teaching-summary">本题证据已封装并进入 Dream 队列。长期画像只在 Dream 整理后更新——查看<a href="/report.html">报告与计划</a>。</p>`);
+      advance("QUEUE_DREAM");
+    };
+
+    function note(k, msg) {
+      const slot = document.getElementById("queueSlot");
+      slot.innerHTML = evidenceHtml(k, "·", `<p class="verdict-note">${esc(msg)}</p>`);
+    }
+
+    document.getElementById("submitBtn").onclick = async () => {
+      const answer = document.getElementById("answerText").value.trim();
+      if (!answer || !sessionId) return;
+      document.getElementById("submitBtn").disabled = true;
+      document.getElementById("grading").hidden = false;
+      advance("SUBMIT");
+
+      let res, data;
+      try {
+        res = await fetch(`${API}/api/sessions/${sessionId}/submit`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ answer_text: answer }),
+        });
+        data = await res.json();
+      } catch {
+        document.getElementById("grading").hidden = true;
+        document.getElementById("submitBtn").disabled = false;
+        document.getElementById("verdictSlot").innerHTML =
+          `<div class="error-card">请求失败：网络错误或服务不可达。<span class="code">network_error</span></div>`;
+        return;
+      }
+      document.getElementById("grading").hidden = true;
+      document.getElementById("submitBtn").disabled = false;
+
+      if (!res.ok) {
+        const msgs = {
+          502: "判答模型暂不可用（限流或超时）。系统不会伪造判定——请稍后重新开始本题。",
+          409: "本题会话已关闭，无法重复提交。",
+          404: "会话不存在或题目未发布，请重新开始本题。",
+          422: "提交内容不合法（答案为空、过长或维度非法）。",
+        };
+        document.getElementById("verdictSlot").innerHTML =
+          `<div class="error-card">${esc(msgs[res.status] ?? "判答被拒绝。")}<span class="code">${esc(data.error ?? res.status)}</span></div>`;
+        return;
+      }
+
+      // 03 判定落章
+      const v = data.judgment?.verdict;
+      document.getElementById("verdictSlot").innerHTML = evidenceHtml("判定 · ANSWER JUDGMENT", data.judgment?.judgment_id ?? "",
+        `<div class="verdict-seal"><span class="stamp ${esc(VERDICT_CLS[v])} landing">${esc(ZH_VERDICT[v] ?? v)}` +
+        `<span class="zh">${esc(data.judgment?.uncertainty ?? "")}${v === "unresolved" ? "·待复核" : ""}</span></span>` +
+        `<p class="verdict-note">${v === "unresolved" ? "判定不确定，已进入教师复核队列；本题不计入掌握证据。" : "模型主判 · 按评分点逐项判定"}</p></div>` +
+        `<p class="verdict-summary">${esc(data.judgment?.decision_summary ?? "")}</p>` +
+        `<ul class="rubric-list">${(data.judgment?.rubric_items ?? []).map((r) =>
+          `<li><span class="mark ${esc(r.status)}">${esc(RUBRIC_ZH[r.status] ?? r.status)}</span><span>${esc(r.id)}</span></li>`).join("")}</ul>`);
+      advance("GRADE");
+
+      // 04 程序基准
+      const ser = data.scientific_evaluation_report;
+      if (ser) {
+        document.getElementById("baselineSlot").innerHTML = evidenceHtml("程序基准 · SCIENTIFIC EVALUATION", ser.report_id ?? "",
+          `<div class="baseline">
+            <span class="big-number">${esc(ser.p_bkt_baseline)}<small>P(掌握)</small></span>
+            <span class="prior-flag">${esc(ser.calibration_status)} · 未校准</span>
+            <span class="mono-line">独立观测 ${esc(ser.independent_observation_count)} 次 · 参数集 ${esc(ser.parameter_set_id)}</span>
+          </div>`);
+        advance("SCIENTIFIC_EVALUATE");
+      }
+
+      // 05 教学总结
+      const tss = data.teaching_session_summary;
+      if (tss) {
+        document.getElementById("summarySlot").innerHTML = evidenceHtml("教学总结 · TEACHING SUMMARY", tss.summary_id ?? "",
+          `<p class="teaching-summary">${esc(tss.summary)}</p>`);
+        advance("TEACHING_SESSION_SUMMARY");
+      }
+
+      // 06 画像队列
+      document.getElementById("queueSlot").innerHTML = evidenceHtml("画像队列", data.session_learning_record_id ?? "",
+        `<p class="teaching-summary">双产物已封装并入队。长期画像只在 Dream 整理后更新——到<a href="/report.html">报告与计划</a>查看。</p>`);
+      advance("QUEUE_DREAM");
+    };
+
+    // 开始本题：经 api 网关创建 Session（题目/章节包来自已发布内容）
+    document.getElementById("actStart")?.remove();
+    const startBtn = document.createElement("button");
+    startBtn.className = "btn cinnabar";
+    startBtn.textContent = "开始本题";
+    startBtn.id = "startBtn";
+    document.getElementById("startNote").appendChild(startBtn);
+
+    startBtn.onclick = async () => {
+      const res = await fetch(`${API}/api/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          student_id: "usr_student01",
+          question_id: "Q_TRI_012",
+          chapter_package_version: "0.1.0",
+          mode: "diagnostic",
+          draft_enabled: false,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("startNote").innerHTML =
+          `<div class="error-card">无法创建会话：${esc(data.error ?? res.status)}<span class="code">${esc(data.detail ?? "")}</span></div>`;
+        return;
+      }
+      sessionId = data.session_id;
+      document.getElementById("startNote").hidden = true;
+      document.getElementById("answer").hidden = false;
+      document.getElementById("hintLevelBar").textContent = "L0 · 无提示";
+      document.getElementById("qid").textContent = data.question_id;
+      document.getElementById("pkgVer").textContent = data.chapter_package_version;
+      document.getElementById("modeTag").textContent =
+        data.mode === "diagnostic" ? "诊断" : data.mode === "help" ? "求助" : "复盘";
+      document.getElementById("modeTag").style.display = "";
+      stamp("CREATE");
+      markRail(0);
+      flowState = 1;
+    };
+  </script>
+</body>
+</html>
