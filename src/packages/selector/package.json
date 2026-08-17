@@ -1,0 +1,10 @@
+{
+  "name": "@agmath/selector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "自适应选题确定性内核（设计 §10 两阶段：目标选择由教学主模型判定，本包负责硬过滤与评分）",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit", "test": "node test/selector.test.ts" },
+  "devDependencies": { "typescript": "^5.6.0" }
+}

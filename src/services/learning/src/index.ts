@@ -17,11 +17,13 @@
 import { startService, createPool, withTenant, newId } from "./lib.ts";
 import { createAgentRuntimeClient } from "@agmath/providers-model";
 import { bktReplay, BKT_PRIOR_V1 } from "@agmath/mastery";
+import { selectNext, type QuestionCandidate, type SelectorContext, type SelectionGoal } from "@agmath/selector";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
 /** 模型调用统一经 agent-runtime（Pi 宿主）；本服务不直连任何模型供应商 */
 const AGENT_RUNTIME_URL = process.env.AGENT_RUNTIME_URL ?? "http://localhost:3005";
 const CONTENT_URL = process.env.CONTENT_URL ?? "http://localhost:3006";
+const PROFILE_URL = process.env.PROFILE_URL ?? "http://localhost:3003";
 const runtime = createAgentRuntimeClient({ baseUrl: AGENT_RUNTIME_URL });
 
 const MAX_PROBE_ROUNDS = 3;
@@ -477,6 +479,182 @@ startService({
       });
       if (!row) return reply.code(404).send({ error: "session not found" });
       return row.payload;
+    });
+
+    // ── 自适应测评（§10 / §7.4 测评统一：聊天式测评 = AssessmentRun） ──
+
+    /** 创建测评轮（AssessmentRun）：初始目标 coverage；后续目标由会话结束判定更新 */
+    app.post("/assessment-runs", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { student_id: studentId } = req.body as { student_id: string };
+      if (!studentId) return reply.code(422).send({ error: "student_id required" });
+      const runId = newId("run");
+      const now = new Date().toISOString();
+      await withTenant(pool, tenantId, async (c) => {
+        await c.query(
+          `insert into runtime_assessment_run (run_id, tenant_id, student_id, goal, budget, status, payload)
+           values ($1,$2,$3,'coverage',$4,'active',$5)`,
+          [runId, tenantId, studentId,
+           JSON.stringify({ max_questions: 10, max_minutes: 30 }),
+           JSON.stringify({ run_id: runId, student_id: studentId, goal: "coverage", seen: [], sessions: [], created_at: now })],
+        );
+      });
+      return reply.code(201).send({ run_id: runId, goal: "coverage", status: "active" });
+    });
+
+    /** 下一题（阶段 B：传统程序硬过滤+评分；题目候选来自已发布章节包） */
+    app.post("/assessment-runs/:id/next", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { id } = req.params as { id: string };
+
+      const run = await withTenant(pool, tenantId, async (c) => {
+        const r = await c.query("select * from runtime_assessment_run where run_id = $1", [id]);
+        return r.rows[0];
+      });
+      if (!run) return reply.code(404).send({ error: "assessment run not found" });
+      if (run.status !== "active") return reply.code(409).send({ error: `run ${run.status}` });
+
+      // 候选：已发布题目（content 边界）
+      let qRes: Response;
+      try {
+        qRes = await fetch(`${CONTENT_URL}/questions`, {
+          headers: { "x-tenant-id": tenantId }, signal: AbortSignal.timeout(10_000),
+        });
+      } catch {
+        return reply.code(502).send({ error: "content_unavailable" });
+      }
+      if (!qRes.ok) return reply.code(502).send({ error: "content_unavailable", detail: `http_${qRes.status}` });
+      const qd = (await qRes.json()) as { questions?: QuestionCandidate[] };
+      const candidates = (qd.questions ?? []).map((q) => ({
+        ...q,
+        measurement_targets: (q.measurement_targets ?? []) as { dim: string; role: "primary" | "secondary" | "prerequisite" }[],
+      }));
+
+      // 学生状态：画像投影（state 边界只读投影；教学 Session 无画像写权限，ADR-004）
+      let proj: { mastery?: { dimension_id: string; p_profile: number; state: string }[] } = {};
+      try {
+        const pRes = await fetch(`${PROFILE_URL}/students/${encodeURIComponent(run.student_id)}/projection`, {
+          headers: { "x-tenant-id": tenantId }, signal: AbortSignal.timeout(10_000),
+        });
+        if (pRes.ok) proj = (await pRes.json()) as typeof proj;
+      } catch { /* 投影不可达时用空掌握视图（不阻塞选题） */ }
+
+      const mastery: SelectorContext["mastery"] = {};
+      const masteryRows = (proj.mastery ?? []) as { dimension_id?: string; p_profile?: number; state?: string }[];
+      for (const m of masteryRows) {
+        if (!m.dimension_id) continue;
+        mastery[m.dimension_id] = {
+          ...(m.p_profile !== undefined ? { p_profile: m.p_profile } : {}),
+          ...(m.state ? { state: m.state as "weak" | "learning" | "possibly_mastered" | "mastered" | "insufficient_evidence" } : {}),
+          next_review_due_days: null,
+        };
+      }
+
+      const seen = new Set<string>(run.payload?.seen ?? []);
+      const ctx: SelectorContext = {
+        goal: run.goal as SelectionGoal,
+        candidates,
+        mastery,
+        seen,
+        self_weak: run.payload?.self_weak ?? [],
+      };
+      const pick = selectNext(ctx);
+      if (!pick) {
+        await withTenant(pool, tenantId, async (c) => {
+          await c.query(
+            `update runtime_assessment_run set status = 'exhausted',
+                    payload = payload || jsonb_build_object('exhausted_at', now())
+              where run_id = $1`,
+            [id],
+          );
+        });
+        return reply.send({ status: "exhausted", detail: "无符合硬过滤与目标的题目" });
+      }
+
+      seen.add(pick.question_id);
+      await withTenant(pool, tenantId, async (c) => {
+        await c.query(
+          `update runtime_assessment_run
+              set payload = payload || jsonb_build_object('seen', $2::jsonb, 'current_question', $3)
+            where run_id = $1`,
+          [id, JSON.stringify([...seen]), pick.question_id],
+        );
+      });
+      return reply.send({ run_id: id, question_id: pick.question_id, score: pick.score, goal: run.goal });
+    });
+
+    /** 会话结束目标判定（阶段 A：教学主模型，§10.1/§7.4）——只判定目标，不写画像 */
+    app.post("/assessment-runs/:id/decide", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { id } = req.params as { id: string };
+      const { session_id: sessionId } = req.body as { session_id: string };
+      if (!sessionId) return reply.code(422).send({ error: "session_id required" });
+
+      const run = await withTenant(pool, tenantId, async (c) => {
+        const r = await c.query("select * from runtime_assessment_run where run_id = $1", [id]);
+        return r.rows[0];
+      });
+      if (!run) return reply.code(404).send({ error: "assessment run not found" });
+
+      // 会话摘要（本题证据）+ 学生投影
+      const session = await withTenant(pool, tenantId, async (c) => {
+        const s = await c.query(
+          `select q.question_id, q.state, q.probe_rounds,
+                  (select jsonb_agg(jsonb_build_object('verdict', v.verdict, 'summary', v.payload->>'decision_summary'))
+                     from runtime_answer_verdict v where v.session_id = q.session_id) as verdicts,
+                  (select payload from runtime_diagnostic_claim dc
+                    where dc.session_id = q.session_id order by dc.created_at desc limit 1) as claim
+             from runtime_question_session q where q.session_id = $1`,
+          [sessionId],
+        );
+        return s.rows[0];
+      });
+      if (!session) return reply.code(404).send({ error: "session not found" });
+
+      let projText = "（投影不可达）";
+      try {
+        const pRes = await fetch(`${PROFILE_URL}/students/${encodeURIComponent(run.student_id)}/projection`, {
+          headers: { "x-tenant-id": tenantId }, signal: AbortSignal.timeout(10_000),
+        });
+        if (pRes.ok) projText = JSON.stringify(await pRes.json());
+      } catch { /* 同 next */ }
+
+      const res = await runtime.runTask({
+        taskType: "session_decision",
+        sessionRef: newId("sd"),
+        tenantId,
+        context: {
+          sessionSummary: JSON.stringify({
+            question_id: session.question_id,
+            state: session.state,
+            probe_rounds: session.probe_rounds,
+            verdicts: session.verdicts ?? [],
+            claim: session.claim ?? null,
+          }),
+          studentProjection: projText,
+        },
+      });
+      if (!res.ok) return reply.code(res.status ?? 502).send({ error: res.error, detail: res.detail });
+      const j = res.outputJson as { goal?: string; reason?: string; stop?: boolean } | undefined;
+      if (!j) return reply.code(502).send({ error: "model_output_invalid", detail: "无结构化输出" });
+      const goal = j.goal as SelectionGoal | undefined;
+      if (!goal || !["coverage", "disambiguation", "prerequisite", "review", "training", "transfer"].includes(goal)) {
+        return reply.code(502).send({ error: "model_output_invalid", detail: `goal=${String(j?.goal)}` });
+      }
+      await withTenant(pool, tenantId, async (c) => {
+        await c.query(
+          `update runtime_assessment_run
+              set goal = $2, status = $3,
+                  payload = payload || jsonb_build_object('last_decision', $4::jsonb)
+            where run_id = $1`,
+          [id, goal, j.stop ? "completed" : "active",
+           JSON.stringify({ goal, reason: j.reason ?? "", stop: j.stop ?? false, decided_at: new Date().toISOString() })],
+        );
+      });
+      return reply.send({ run_id: id, goal, reason: j.reason ?? "", stop: j.stop ?? false, status: j.stop ? "completed" : "active" });
     });
 
     /** 首次作答：GRADE → correct/unresolved 直接关闭；partial/incorrect → DIAGNOSE + 追问 */

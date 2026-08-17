@@ -622,6 +622,32 @@ startService({
       return row.payload;
     });
 
+    /** 已发布题目列表（选题器候选源，§10 阶段 B）：id/测量目标/可验证性 */
+    app.get("/questions", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const rows = await withTenant(pool, tenantId, async (c) => {
+        const r = await c.query(
+          `select question_id, tags, measurement_dims,
+                  (payload->'measurement_targets') as measurement_targets,
+                  (payload->'rubric'->'items') is not null as answer_verifiable
+             from content_question where published
+            order by question_id`,
+          [],
+        );
+        return r.rows;
+      });
+      return {
+        questions: rows.map((r) => ({
+          question_id: r.question_id,
+          tags: r.tags,
+          measurement_dims: r.measurement_dims,
+          measurement_targets: r.measurement_targets ?? [],
+          answer_verifiable: r.answer_verifiable === true,
+        })),
+      };
+    });
+
     /**
      * 诊断上下文（§8.3：候选只能来自题目关联 E-ID 与诊断规则）：
      * 已发布题目 + 租户级错因库/诊断规则只读投影，供 DIAGNOSE 归因使用。

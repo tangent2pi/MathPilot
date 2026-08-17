@@ -4,7 +4,15 @@
   "private": true,
   "type": "module",
   "description": "程序科学评价内核：保守 BKT 基准、状态门槛（设计 §9.2/§9.5）。参数 prior_only，禁止伪装成已校准概率。",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "typecheck": "tsc --noEmit", "test": "node test/bkt.test.ts" },
-  "devDependencies": { "typescript": "^5.6.0" }
+  "exports": {
+    ".": "./src/index.ts",
+    "./retention": "./src/retention.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node test/bkt.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
 }

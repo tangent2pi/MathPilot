@@ -88,6 +88,27 @@ startService({
       return relay(reply, await forward(p, `${LEARNING_URL}/sessions/${encodeURIComponent(id)}/submit`, { method: "POST", body: req.body }));
     });
 
+    // ── 自适应测评（§10 / §7.4） ─────────────────────────
+    app.post("/api/assessment-runs", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      const body = { ...(req.body as Record<string, unknown>) };
+      if (p.via === "oidc" && !p.roles.includes("teacher")) body.student_id = p.userId;
+      return relay(reply, await forward(p, `${LEARNING_URL}/assessment-runs`, { method: "POST", body }));
+    });
+    app.post("/api/assessment-runs/:id/next", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      const { id } = req.params as { id: string };
+      return relay(reply, await forward(p, `${LEARNING_URL}/assessment-runs/${encodeURIComponent(id)}/next`, { method: "POST", body: req.body }));
+    });
+    app.post("/api/assessment-runs/:id/decide", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      const { id } = req.params as { id: string };
+      return relay(reply, await forward(p, `${LEARNING_URL}/assessment-runs/${encodeURIComponent(id)}/decide`, { method: "POST", body: req.body }));
+    });
+
     // 错因追问作答（§8.3 消歧追问；学生只能操作自己的会话）
     app.post("/api/sessions/:id/probe", async (req, reply) => {
       const p = await principalOf(req, reply);
@@ -97,6 +118,29 @@ startService({
     });
 
     // ── 画像 ────────────────────────────────────────────
+    // 最小画像采集（§3.1）：学生只能填写/查看本人（OIDC 强制自域）
+    app.put("/api/students/:studentId/profile", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      let { studentId } = req.params as { studentId: string };
+      if (p.via === "oidc" && !p.roles.includes("teacher")) studentId = p.userId;
+      return relay(reply, await forward(p, `${PROFILE_URL}/students/${encodeURIComponent(studentId)}/profile`, { method: "PUT", body: req.body }));
+    });
+    app.get("/api/students/:studentId/profile", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      let { studentId } = req.params as { studentId: string };
+      if (p.via === "oidc" && !p.roles.includes("teacher")) studentId = p.userId;
+      return relay(reply, await forward(p, `${PROFILE_URL}/students/${encodeURIComponent(studentId)}/profile`));
+    });
+    app.get("/api/students/:studentId/projection", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      let { studentId } = req.params as { studentId: string };
+      if (p.via === "oidc" && !p.roles.includes("teacher")) studentId = p.userId;
+      return relay(reply, await forward(p, `${PROFILE_URL}/students/${encodeURIComponent(studentId)}/projection`));
+    });
+
     app.get("/api/snapshots/:studentId", async (req, reply) => {
       const p = await principalOf(req, reply);
       if (!p) return;

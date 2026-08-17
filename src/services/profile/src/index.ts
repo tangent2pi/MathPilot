@@ -137,6 +137,97 @@ startService({
   name: "profile",
   port: Number(process.env.PORT ?? 3003),
   register(app) {
+    /** 学生最小画像采集（设计 §3.1）：自报资料 upsert；只影响选题与计划，不写掌握结论 */
+    app.put("/students/:studentId/profile", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { studentId } = req.params as { studentId: string };
+      const body = req.body as {
+        grade?: string; current_score?: number; target_score?: number;
+        weekly_hours?: string; self_weak?: string[]; device_draft?: string;
+      };
+      if (!body.grade || !body.weekly_hours || !body.device_draft) {
+        return reply.code(422).send({ error: "grade/weekly_hours/device_draft required" });
+      }
+      if (!["1-3", "4-6", "7-10", "10+"].includes(body.weekly_hours)) {
+        return reply.code(422).send({ error: "weekly_hours must be 1-3|4-6|7-10|10+" });
+      }
+      if (!["触屏手写", "纸面拍照", "无草稿"].includes(body.device_draft)) {
+        return reply.code(422).send({ error: "device_draft must be 触屏手写|纸面拍照|无草稿" });
+      }
+      const now = new Date().toISOString();
+      const payload = {
+        student_id: studentId, tenant_id: tenantId,
+        grade: body.grade,
+        current_score: body.current_score ?? null,
+        target_score: body.target_score ?? null,
+        weekly_hours: body.weekly_hours,
+        self_weak: body.self_weak ?? [],
+        device_draft: body.device_draft,
+        updated_at: now,
+      };
+      await withTenant(pool, tenantId, async (c) => {
+        await c.query(
+          `insert into state_student_profile
+             (student_id, tenant_id, grade, current_score, target_score, weekly_hours, self_weak, device_draft, payload)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           on conflict (student_id)
+           do update set grade = excluded.grade, current_score = excluded.current_score,
+             target_score = excluded.target_score, weekly_hours = excluded.weekly_hours,
+             self_weak = excluded.self_weak, device_draft = excluded.device_draft,
+             payload = excluded.payload, updated_at = now()`,
+          [studentId, tenantId, body.grade, body.current_score ?? null, body.target_score ?? null,
+           body.weekly_hours, body.self_weak ?? [], body.device_draft, JSON.stringify(payload)],
+        );
+      });
+      return reply.send(payload);
+    });
+
+    app.get("/students/:studentId/profile", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { studentId } = req.params as { studentId: string };
+      const row = await withTenant(pool, tenantId, async (c) => {
+        const r = await c.query(
+          "select payload from state_student_profile where student_id = $1",
+          [studentId],
+        );
+        return r.rows[0];
+      });
+      if (!row) return reply.code(404).send({ error: "no profile", hint: "请先完成最小画像注册" });
+      return row.payload;
+    });
+
+    /**
+     * 只读投影（STUDENT.md 概念，Hermes/OpenClaw 借鉴）：供教学 Session 与报告读取。
+     * 画像 + 最新快照摘要 + 复测到期；只读、预算内注入（§5.3 文件层）。
+     */
+    app.get("/students/:studentId/projection", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { studentId } = req.params as { studentId: string };
+      const out = await withTenant(pool, tenantId, async (c) => {
+        const [profile, snapshot, mastery] = await Promise.all([
+          c.query("select payload from state_student_profile where student_id = $1", [studentId]),
+          c.query(
+            "select payload from state_student_snapshot where student_id = $1 order by published_at desc limit 1",
+            [studentId],
+          ),
+          c.query(
+            "select dimension_id, p_profile, state, updated_at from state_mastery_state where student_id = $1",
+            [studentId],
+          ),
+        ]);
+        return {
+          profile: profile.rows[0]?.payload ?? null,
+          snapshot: snapshot.rows[0]?.payload ?? null,
+          mastery: mastery.rows,
+          profile_lag: snapshot.rows.length === 0,
+        };
+      });
+      return out;
+    });
+
     app.get("/snapshots/:studentId", async (req, reply) => {
       const tenantId = tenantOf(req);
       if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });

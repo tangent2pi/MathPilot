@@ -30,6 +30,11 @@
       "file": "tasks/diagnose.md",
       "prompt_version": "diagnose@0.4.0",
       "role": "main"
+    },
+    "session_decision": {
+      "file": "tasks/session-decision.md",
+      "prompt_version": "session-decision@0.4.0",
+      "role": "main"
     }
   }
 }

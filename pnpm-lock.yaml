@@ -47,6 +47,12 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
+  src/packages/selector:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   src/services/agent-runtime:
     dependencies:
       '@earendil-works/pi-agent-core':
@@ -115,6 +121,9 @@ importers:
       '@agmath/providers-model':
         specifier: workspace:*
         version: link:../../packages/providers/model
+      '@agmath/selector':
+        specifier: workspace:*
+        version: link:../../packages/selector
       fastify:
         specifier: ^5.2.0
         version: 5.12.0
