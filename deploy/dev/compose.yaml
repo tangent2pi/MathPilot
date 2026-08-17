@@ -46,7 +46,7 @@ services:
   learning:
     build:
       context: ../..
-      dockerfile: services/Dockerfile
+      dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: learning }
     environment:
       DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
@@ -63,7 +63,7 @@ services:
   profile:
     build:
       context: ../..
-      dockerfile: services/Dockerfile
+      dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: profile }
     environment:
       DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
@@ -77,7 +77,7 @@ services:
   provider-broker:
     build:
       context: ../..
-      dockerfile: services/Dockerfile
+      dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: provider-broker }
     ports:
       - "3004:3004"
@@ -85,13 +85,13 @@ services:
   agent-runtime:
     build:
       context: ../..
-      dockerfile: services/Dockerfile
+      dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: agent-runtime }
 
   content:
     build:
       context: ../..
-      dockerfile: services/Dockerfile
+      dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: content }
     environment:
       DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
@@ -106,13 +106,13 @@ services:
   artifact:
     build:
       context: ../..
-      dockerfile: services/Dockerfile
+      dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: artifact }
 
   review:
     build:
       context: ../..
-      dockerfile: services/Dockerfile
+      dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: review }
     environment:
       DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
@@ -123,13 +123,13 @@ services:
   sandbox-runner:
     build:
       context: ../..
-      dockerfile: services/Dockerfile
+      dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: sandbox-runner }
 
   web-test:
     build:
       context: ../..
-      dockerfile: apps/web-test/Dockerfile
+      dockerfile: src/apps/web-test/Dockerfile
     depends_on:
       - api
     ports:
@@ -138,7 +138,7 @@ services:
   api:
     build:
       context: ../..
-      dockerfile: services/Dockerfile
+      dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: api }
     environment:
       LEARNING_URL: http://learning:3002

@@ -13,23 +13,24 @@
 遵循设计文档 §2.4 布局（略作执行化）：
 
 ```text
-apps/
-  web-test/            # 首期流程验证前端
-  web/                 # 后期正式前端（视觉专业模型接管）
-services/
-  api/                 # OpenAPI + SSE/WebSocket 网关
-  agent-runtime/       # Pi SDK/RPC 适配、Session 编排、沙箱 Broker
-  content/             # OCR、KTQ/ER、复核、发布
-  learning/            # 单题 Session、模型主判、教学
-  artifact/            # ArtifactPublisher、交互事件
-  profile/             # 双产物、EvidenceBundle、Decision 校验、快照
-  review/              # 教师复核、supersede、重放
-packages/
-  contracts/           # JSON Schema、OpenAPI、Provider 接口、事件名
-  providers/           # model / ocr / search / media / explanation / sandbox / auth 实现
-  mastery/             # 程序科学评价（BKT/保持率/错因统计）
-  provenance/          # 血缘、版本、审计工具
-  ui-sdk/              # 由 contracts 生成的 TS 客户端与类型
+src/
+  apps/
+    web-test/            # 首期流程验证前端
+    web/                 # 后期正式前端（视觉专业模型接管）
+  services/
+    api/                 # OpenAPI + SSE/WebSocket 网关
+    agent-runtime/       # Pi SDK/RPC 适配、Session 编排、沙箱 Broker
+    content/             # OCR、KTQ/ER、复核、发布
+    learning/            # 单题 Session、模型主判、教学
+    artifact/            # ArtifactPublisher、交互事件
+    profile/             # 双产物、EvidenceBundle、Decision 校验、快照
+    review/              # 教师复核、supersede、重放
+  packages/
+    contracts/           # JSON Schema、OpenAPI、Provider 接口、事件名
+    providers/           # model / ocr / search / media / explanation / sandbox / auth 实现
+    mastery/             # 程序科学评价（BKT/保持率/错因统计）
+    provenance/          # 血缘、版本、审计工具
+    ui-sdk/              # 由 contracts 生成的 TS 客户端与类型
 db/
   migrations/          # PostgreSQL 迁移（按 schema 版本管理）
   policies/            # RLS 策略、replica grants

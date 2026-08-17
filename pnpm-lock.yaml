@@ -15,21 +15,21 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  apps/web-test: {}
+  src/apps/web-test: {}
 
-  packages/contracts:
+  src/packages/contracts:
     devDependencies:
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
 
-  packages/mastery:
+  src/packages/mastery:
     devDependencies:
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
 
-  packages/service-kit:
+  src/packages/service-kit:
     dependencies:
       fastify:
         specifier: ^5.2.0
@@ -45,7 +45,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  services/agent-runtime:
+  src/services/agent-runtime:
     dependencies:
       '@agmath/service-kit':
         specifier: workspace:*
@@ -55,7 +55,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  services/api:
+  src/services/api:
     dependencies:
       '@agmath/service-kit':
         specifier: workspace:*
@@ -77,7 +77,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  services/artifact:
+  src/services/artifact:
     dependencies:
       '@agmath/service-kit':
         specifier: workspace:*
@@ -87,7 +87,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  services/content:
+  src/services/content:
     dependencies:
       '@agmath/service-kit':
         specifier: workspace:*
@@ -103,7 +103,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  services/learning:
+  src/services/learning:
     dependencies:
       '@agmath/mastery':
         specifier: workspace:*
@@ -122,7 +122,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  services/profile:
+  src/services/profile:
     dependencies:
       '@agmath/mastery':
         specifier: workspace:*
@@ -141,7 +141,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  services/provider-broker:
+  src/services/provider-broker:
     dependencies:
       '@agmath/service-kit':
         specifier: workspace:*
@@ -151,7 +151,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  services/review:
+  src/services/review:
     dependencies:
       '@agmath/mastery':
         specifier: workspace:*
@@ -170,7 +170,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  services/sandbox-runner:
+  src/services/sandbox-runner:
     dependencies:
       '@agmath/service-kit':
         specifier: workspace:*

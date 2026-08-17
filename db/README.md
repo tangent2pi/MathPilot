@@ -9,7 +9,7 @@ PostgreSQL 是唯一运行时事实源（实施规划一级决策 2）。CSV/XLS
 - 所有业务表必须含 `tenant_id`，且在 `0006_outbox_rls.sql` 统一启用 RLS；
 - 跨边界族（content/runtime/state/review）之间**不加外键**，一致性由应用层契约校验保证；同族内部允许外键；
 - 不可变事件表（runtime 事件、state 决策、review 纠正）由 trigger 禁止 UPDATE/DELETE；纠正只能 supersede + 重放（ADR-004）；
-- 契约对象主体以 `payload jsonb` 存储，查询字段提升为列；payload 必须符合 `packages/contracts/schemas/` 对应 schema。
+- 契约对象主体以 `payload jsonb` 存储，查询字段提升为列；payload 必须符合 `src/packages/contracts/schemas/` 对应 schema。
 
 ## 应用账号（部署时创建，迁移不内建）
 

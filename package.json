@@ -7,7 +7,7 @@
   "scripts": {
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test",
-    "contracts:validate": "python3 packages/contracts/test/validate_examples.py"
+    "contracts:validate": "python3 src/packages/contracts/test/validate_examples.py"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
