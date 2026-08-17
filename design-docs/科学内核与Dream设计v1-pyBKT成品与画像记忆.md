@@ -26,7 +26,7 @@ P    画像层：Dream 大模型最终更新      → 双产物 + pyBKT Roster �
 ### 1.2 pyBKT 侧车（Python，ADR-001 侧车规范）
 
 - **角色**：批量校准（fit/partial_fit）与画像级掌握度（`models.Roster`）——Dream 路径的程序基准；
-- **部署**：nix dev 环境（flake 增加 python312 + pandas + gcc；pyBKT 经 pip 安装，C++ 扩展）；
+- **部署**：nix dev 环境（flake 增加 python312 + gcc + LD_LIBRARY_PATH；`sidecars/pybkt/setup.sh` 建 venv 并钉版：numpy<2、scikit-learn<1.6；含一处受控 venv 补丁——pyBKT 纯 Python fit 路径的 numpy 广播 bug，不改克隆仓库）；
 - **契约**：薄 CLI 包装，stdin JSON-lines → stdout JSON，无状态、无数据库访问：
 
 ```text
@@ -119,4 +119,24 @@ OpenClaw 记忆五原则：①无隐藏状态（纯文件 + 索引，编辑器�
 
 **手off 显式链路**：旧 Session → 新 Session 的 upstream-link 记录 + 紧凑证据载荷——对应 §11.4 连续性包（handoff.md 显式引用上一题证据）。
 
-### 6.2 Hermes 记忆系统借鉴（补入中）
+### 6.2 Hermes 记忆系统借鉴（调研定稿）
+
+来源：`reference/hermes-agent/`（三层记忆：策展 MEMORY.md/USER.md + 外部 provider 生命周期 + SQLite 会话事件库）。
+
+**三层映射到 AGMATH 画像**：
+
+| Hermes 层 | AGMATH 映射 |
+|---|---|
+| 策展记忆（MEMORY.md/USER.md，有界、人类可编辑） | **每学生 STUDENT.md 画像卡**（维度掌握 + 错因 + 复测到期，预算内注入）|
+| 会话事件库（SQLite + FTS5，原始证据） | runtime 证据表（观测/判定/草稿引用，按需检索）|
+| 外部 provider 生命周期（prefetch → sync） | 教学 Session 打开时预取画像投影、关闭时写证据 |
+
+**直接采纳的五条机制**：
+
+1. **冻结快照模式（frozen snapshot）**：Session 开始时的画像投影进入 systemPrompt 后**冻结**，会话中写入不改变提示（前缀缓存稳定），下次 Session 刷新——对应我们"题间只传递结构化连续性包 + 快照摘要"（§1.1-7），投影只读；
+2. **写门（allow/block/stage）**：写入需要审批，staged 写入由审批者回放——对应 ADR-004"StudentSnapshot 只由通过校验的 PUD 物化"与教师 supersede：程序只出基准、大模型出决策、教师改判走 stage/approve 语义；
+3. **Curator（Hermes 的 Dream）**：**确定性规则通过先做，LLM 整理为 opt-in 层**（默认关）、间隔+空闲门控、归档不删除、结构化 YAML 决策（from/into/reason）、运行前快照、dry-run 报告——**我们的 Dream 首版应以确定性证据规约（六档错因、supersede 链、双产物配对校验）为基线**，LLM 整理层可 dry-run、可审查（v3.3 §11.3 已一致，此处给出实现次序）；
+4. **记忆卫生（durable facts only）**：只存持久声明性事实，任务进度/7 天内过期物不入记忆；过程性知识归 skills——对应画像只存掌握/保持率/错因状态，不存"今天做了第 3 题"（§11.4 连续性包另存）；
+5. **FTS5 确定性检索足矣（无需嵌入向量）**：结构化掌握事实用确定性 SQL 检索 + 有界策展卡，比向量库更可审计——对应教学阶段证据查询与错因排序分（§9.7）。
+
+**保留差异**：Hermes 每会话持久化原始转录；AGMATH 的事实层只存事件索引（对象存储在阶段 B），不保存模型隐藏推理（§16.5 可回放 ≠ 保存思维链）。

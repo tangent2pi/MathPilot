@@ -26,6 +26,16 @@
               git
               curl
               jq
+              # 算法侧车（ADR-001）：pyBKT 需 python3 + C++ 编译（venv 内 pip 安装）
+              python312
+              gcc
+            ];
+
+            # numpy/pyBKT 等 C 扩展依赖 libstdc++/libz 可加载
+            # （侧车 .venv 由 sidecars/pybkt/setup.sh 创建）
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+              pkgs.stdenv.cc.cc.lib
+              pkgs.zlib
             ];
           };
         });

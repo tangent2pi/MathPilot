@@ -65,7 +65,7 @@ packages/providers/model  客户端瘦身为一次 POST /runtime/tasks
 
 **Dream 路径修订**：`pyBKT Roster` 承担"程序科学评价 + 状态归约"的成品实现（不再手写 bktReplay）；Dream 画像大模型仍按 v3.3 §9.3 独立 Session 综合双产物，其数值基准（p_baseline）由 Roster 程序输出提供，Validator 不变。教学阶段的快速 BKT 用 OATutor 移植引擎（TS，零延迟），两者数学对拍。
 
-**落地进度**：✅ packages/mastery 已按 OATutor BKT-brain.js 移植（同型后验公式 + probMastery/probTransit/probSlip/probGuess 参数 schema + MASTERY_THRESHOLD=0.95 约定 + 契约测试，commit 5a83133 后追加）；⏳ pyBKT Roster 侧车（Python）、Qwen-MM-Plugins 四模块落地点、前端 apps/web 待动工。
+**落地进度**：✅ packages/mastery 已按 OATutor BKT-brain.js 移植（同型后验公式 + 参数 schema + MASTERY_THRESHOLD=0.95 + 契约测试）；✅ pyBKT 侧车（sidecars/pybkt：roster_update/roster_get/fit/predict，观测日志重放、order_id 幂等；**Roster 与 TS 引擎对拍差异 3e-13**，fit 真实 EM 路径通过）；⏳ Qwen-MM-Plugins 四模块落地点、前端 apps/web 待动工。
 
 ## 4. 修订后每开发一步的核对清单（用户要求的工作法）
 
