@@ -1,0 +1,40 @@
+{
+  "valid": {
+    "document_id": "doc_1q2w3e4r",
+    "tenant_id": "tnt_a1b2c3d4",
+    "kind": "pdf",
+    "original_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "storage_ref": "tenant/tnt_a1b2c3d4/raw/2026/08/doc_1q2w3e4r.pdf",
+    "mime_type": "application/pdf",
+    "byte_size": 1204423,
+    "uploaded_by": "usr_r1e2v3i4",
+    "uploaded_at": "2026-08-17T09:00:00Z",
+    "ocr_status": "parsed",
+    "fragments": [
+      {
+        "fragment_id": "frg_8h7g6f5d",
+        "document_id": "doc_1q2w3e4r",
+        "page_no": 3,
+        "fragment_type": "question_box",
+        "bbox": [0.12, 0.34, 0.76, 0.18],
+        "text_markdown": "在△ABC中，已知 a=2, b=√2, A=30°，求 B。",
+        "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ]
+  },
+  "missing_field": {
+    "document_id": "doc_1q2w3e4r",
+    "kind": "pdf",
+    "uploaded_at": "2026-08-17T09:00:00Z"
+  },
+  "invalid_source": {
+    "document_id": "doc_1q2w3e4r",
+    "tenant_id": "tnt_a1b2c3d4",
+    "kind": "pdf",
+    "original_hash": "md5:deadbeef",
+    "storage_ref": "https://evil.example.com/x.pdf",
+    "uploaded_by": "usr_r1e2v3i4",
+    "uploaded_at": "2026-08-17T09:00:00Z",
+    "_comment": "哈希算法非法 + storage_ref 为外部 URL，必须拒绝"
+  }
+}

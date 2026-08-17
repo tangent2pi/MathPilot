@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/profile/scientific-evaluation-report/v1",
+  "title": "ScientificEvaluationReport (SER)",
+  "$description": "教学阶段传统程序评价基准。written-by: 确定性程序评价器（packages/mastery）；read-by: Teaching Agent（追问/总结参考）、Dream、review-service。禁止写 StudentSnapshot，禁止产出最终掌握结论。对齐设计文档 §9.2。",
+  "type": "object",
+  "required": [
+    "report_id", "session_id", "student_id", "dimension_id",
+    "p_bkt_baseline", "independent_observation_count",
+    "parameter_set_id", "calibration_status", "input_event_refs",
+    "calculation_trace_ref", "created_at"
+  ],
+  "properties": {
+    "report_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ReportId" },
+    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
+    "prior_snapshot_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SnapshotId" },
+    "dimension_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
+    "p_bkt_baseline": { "type": "number", "minimum": 0, "maximum": 1 },
+    "retention_estimate": {
+      "type": "object",
+      "properties": {
+        "i90_days": { "type": "number" },
+        "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+        "stable": { "type": "boolean", "description": "false 时展示'复测估计不稳定'" }
+      },
+      "additionalProperties": false
+    },
+    "independent_observation_count": { "type": "integer", "minimum": 0 },
+    "hint_dependency_metrics": {
+      "type": "object",
+      "properties": {
+        "hinted_attempts": { "type": "integer", "minimum": 0 },
+        "independent_attempts": { "type": "integer", "minimum": 0 },
+        "max_hint_level_used": { "type": "integer", "minimum": 0, "maximum": 5 }
+      },
+      "additionalProperties": false
+    },
+    "misconception_stats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["error_cause_id", "state"],
+        "properties": {
+          "error_cause_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
+          "state": { "type": "string", "enum": ["suspected", "confirmed", "improving", "resolved", "superseded"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "data_quality_flags": { "type": "array", "items": { "type": "string" } },
+    "parameter_set_id": { "type": "string" },
+    "calibration_status": {
+      "type": "string",
+      "enum": ["prior_only", "calibrated"],
+      "description": "prior_only 时报告必须标注参数未校准"
+    },
+    "input_event_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "calculation_trace_ref": { "type": "string" },
+    "kernel_version": { "type": "string" },
+    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,39 @@
+{
+  "valid": {
+    "judgment_id": "jud_9i8u7y6t",
+    "session_id": "s_m3n4b5v6",
+    "attempt_id": "att_5r4e3w2q",
+    "verdict": "partially_correct",
+    "rubric_items": [
+      { "id": "setup_sine_rule", "status": "met", "evidence_refs": ["answer://s_m3n4b5v6/att_5r4e3w2q"] },
+      { "id": "ssa_branch_check", "status": "not_met", "evidence_refs": ["draft://s_m3n4b5v6/seg-17"] }
+    ],
+    "check_results": [
+      { "tool": "symbolic_equivalence", "result_ref": "chk_1", "adopted": true, "adoption_reason": "表达式等价但缺分支判断" }
+    ],
+    "decision_summary": "正弦定理列式正确，但只给出 B=45°，未检验补角分支。",
+    "alternate_interpretations": ["学生可能默认锐角解"],
+    "uncertainty": "low",
+    "injection_flags": [],
+    "model_id": "qwen3.8-max-preview",
+    "prompt_version": "teach-grade@2026-08-17",
+    "created_at": "2026-08-17T13:20:00Z"
+  },
+  "missing_field": {
+    "judgment_id": "jud_9i8u7y6t",
+    "verdict": "correct"
+  },
+  "invalid_source": {
+    "judgment_id": "jud_9i8u7y6t",
+    "session_id": "s_m3n4b5v6",
+    "attempt_id": "att_5r4e3w2q",
+    "verdict": "correct",
+    "rubric_items": [{ "id": "ssa_branch_check", "status": "met", "evidence_refs": ["file:///tmp/x.txt"] }],
+    "decision_summary": "……",
+    "uncertainty": "low",
+    "model_id": "qwen3.8-max-preview",
+    "prompt_version": "teach-grade@2026-08-17",
+    "created_at": "2026-08-17T13:20:00Z",
+    "_comment": "evidence_refs 出现 file:// 引用，必须拒绝"
+  }
+}

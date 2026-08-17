@@ -1,0 +1,45 @@
+{
+  "valid": {
+    "package_id": "pkg_5t6y7u8i",
+    "tenant_id": "tnt_a1b2c3d4",
+    "version": "0.1.0",
+    "manifest_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "contents": {
+      "knowledge_components": ["K_SINE_RULE", "K_SSA", "K_TRIANGLE_EXISTENCE"],
+      "question_types": ["T_SSA_SOLVE"],
+      "error_causes": ["E_SSA_MISSING_SUPPLEMENT"],
+      "questions": ["Q_TRI_012"],
+      "diagnosis_rules": ["R_SSA_BRANCH_PROBE"]
+    },
+    "validation_report": {
+      "passed": true,
+      "checks": [
+        { "check": "id_uniqueness", "passed": true },
+        { "check": "provenance_complete", "passed": true }
+      ]
+    },
+    "published_by": "usr_r1e2v3i4",
+    "published_at": "2026-08-17T12:00:00Z"
+  },
+  "missing_field": {
+    "package_id": "pkg_5t6y7u8i",
+    "version": "0.1.0"
+  },
+  "invalid_source": {
+    "package_id": "pkg_5t6y7u8i",
+    "tenant_id": "tnt_a1b2c3d4",
+    "version": "0.1.0",
+    "manifest_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "contents": {
+      "knowledge_components": [], "question_types": [], "error_causes": [],
+      "questions": [], "diagnosis_rules": []
+    },
+    "validation_report": {
+      "passed": true,
+      "checks": [{ "check": "provenance_complete", "passed": false }]
+    },
+    "published_by": "usr_r1e2v3i4",
+    "published_at": "2026-08-17T12:00:00Z",
+    "_comment": "passed=true 但存在失败检查项（尤其 provenance_complete=false），发布必须拒绝"
+  }
+}

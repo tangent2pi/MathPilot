@@ -1,0 +1,39 @@
+{
+  "valid": {
+    "validation_id": "pvr_5t6y7u8i",
+    "decision_id": "pud_2w3e4r5t",
+    "result": "passed",
+    "checks": [
+      { "check": "refs_exist_and_authorized", "passed": true },
+      { "check": "provenance_complete", "passed": true },
+      { "check": "lr_within_allowed_range", "passed": true },
+      { "check": "arithmetic_recomputable", "passed": true },
+      { "check": "no_double_counting", "passed": true },
+      { "check": "min_two_sessions_per_numeric_update", "passed": true },
+      { "check": "update_magnitude_review_threshold", "passed": true }
+    ],
+    "validator_version": "profile-validator-0.1.0",
+    "validated_at": "2026-08-18T00:16:00Z"
+  },
+  "missing_field": {
+    "validation_id": "pvr_5t6y7u8i",
+    "decision_id": "pud_2w3e4r5t",
+    "result": "passed"
+  },
+  "invalid_source": {
+    "validation_id": "pvr_5t6y7u8i",
+    "decision_id": "pud_2w3e4r5t",
+    "result": "passed",
+    "checks": [
+      { "check": "refs_exist_and_authorized", "passed": false, "failures": ["obs_71aaaaaa 不存在"] },
+      { "check": "provenance_complete", "passed": true },
+      { "check": "lr_within_allowed_range", "passed": true },
+      { "check": "arithmetic_recomputable", "passed": true },
+      { "check": "no_double_counting", "passed": true },
+      { "check": "min_two_sessions_per_numeric_update", "passed": true }
+    ],
+    "validator_version": "profile-validator-0.1.0",
+    "validated_at": "2026-08-18T00:16:00Z",
+    "_comment": "存在失败检查项却 result=passed：结果必须拒绝；且 Validator 不得改写 Decision 字段"
+  }
+}

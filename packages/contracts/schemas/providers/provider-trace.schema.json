@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/providers/provider-trace/v1",
+  "title": "ProviderTrace",
+  "$description": "所有 Provider 调用的统一追踪记录（fake 实现也必须产生同构字段）。written-by: provider-broker 及各 Provider 实现；read-by: 审计、成本核算、评测。对齐实施规划 §4：回退必须显式记录实际实现，禁止静默改变结论来源。",
+  "type": "object",
+  "required": [
+    "trace_id", "provider_kind", "implementation", "operation",
+    "status", "latency_ms", "created_at"
+  ],
+  "properties": {
+    "trace_id": { "type": "string", "pattern": "^ptr_[A-Za-z0-9]{8,}$" },
+    "correlation_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/CorrelationId" },
+    "causation_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/CausationId" },
+    "provider_kind": {
+      "type": "string",
+      "enum": ["model", "ocr", "search", "media", "explanation", "artifact", "sandbox", "auth"]
+    },
+    "implementation": {
+      "type": "string",
+      "description": "实际实现标识，如 model.qwen3.8-max-preview / ocr.paddleocr-local / fake.model"
+    },
+    "operation": { "type": "string", "description": "如 generate / parse / search / inspect / render" },
+    "model_id": { "type": "string" },
+    "region": { "type": "string" },
+    "status": { "type": "string", "enum": ["success", "retryable_error", "fatal_error", "timeout", "cancelled"] },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "fallback_chain": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "发生回退时按顺序记录实际尝试的实现"
+    },
+    "latency_ms": { "type": "integer", "minimum": 0 },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "pages": { "type": "integer", "minimum": 0 },
+        "cost_micros": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "request_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "response_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false
+}

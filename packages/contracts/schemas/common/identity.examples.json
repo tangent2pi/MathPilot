@@ -1,0 +1,18 @@
+{
+  "valid": {
+    "note": "identity 为 $defs 引用库；以下各值分别满足对应 $def",
+    "TenantId": "tnt_a1b2c3d4",
+    "StudentId": "stu_x9y8z7w6",
+    "SessionId": "s_m3n4b5v6",
+    "ArtifactRef": "artifact://s_m3n4b5v6/art_q1w2e3r4",
+    "EvidenceRef": "chat://s_m3n4b5v6/turn/8"
+  },
+  "missing_field": {
+    "note": "identity 无实例对象；非法示例见各 $def 的 pattern，如错误前缀",
+    "StudentId": "student_001"
+  },
+  "invalid_source": {
+    "note": "file:// 与外部 URL 一律禁止作为 EvidenceRef/ArtifactRef",
+    "ArtifactRef": "file:///tmp/evil.html"
+  }
+}

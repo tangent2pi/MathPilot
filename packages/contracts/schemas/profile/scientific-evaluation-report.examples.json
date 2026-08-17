@@ -1,0 +1,39 @@
+{
+  "valid": {
+    "report_id": "ser_4v5b6n7m",
+    "session_id": "s_m3n4b5v6",
+    "student_id": "stu_x9y8z7w6",
+    "prior_snapshot_id": "snap_1q2w3e4r",
+    "dimension_id": "K_SSA",
+    "p_bkt_baseline": 0.71,
+    "retention_estimate": { "i90_days": 4, "confidence": "low", "stable": false },
+    "independent_observation_count": 4,
+    "hint_dependency_metrics": { "hinted_attempts": 1, "independent_attempts": 3, "max_hint_level_used": 1 },
+    "data_quality_flags": [],
+    "parameter_set_id": "bkt_prior_v1",
+    "calibration_status": "prior_only",
+    "input_event_refs": ["obs_7u6y5t4r", "obs_8i7u6y5t"],
+    "calculation_trace_ref": "calc_2026-08-17_s_m3n4b5v6",
+    "kernel_version": "mastery-0.1.0",
+    "created_at": "2026-08-17T13:30:00Z"
+  },
+  "missing_field": {
+    "report_id": "ser_4v5b6n7m",
+    "session_id": "s_m3n4b5v6",
+    "p_bkt_baseline": 0.71
+  },
+  "invalid_source": {
+    "report_id": "ser_4v5b6n7m",
+    "session_id": "s_m3n4b5v6",
+    "student_id": "stu_x9y8z7w6",
+    "dimension_id": "K_SSA",
+    "p_bkt_baseline": 0.71,
+    "independent_observation_count": 4,
+    "parameter_set_id": "bkt_prior_v1",
+    "calibration_status": "prior_only",
+    "input_event_refs": [],
+    "calculation_trace_ref": "calc_x",
+    "created_at": "2026-08-17T13:30:00Z",
+    "_comment": "input_event_refs 为空：无输入事件的评价基准不可审计，必须拒绝"
+  }
+}

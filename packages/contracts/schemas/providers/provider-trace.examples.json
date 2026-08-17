@@ -1,0 +1,34 @@
+{
+  "valid": {
+    "trace_id": "ptr_1a2b3c4d",
+    "correlation_id": "cor_zz9y8x7w",
+    "causation_id": "cau_5v6b7n8m",
+    "provider_kind": "model",
+    "implementation": "model.qwen3.8-max-preview",
+    "operation": "generate",
+    "model_id": "qwen3.8-max-preview",
+    "region": "cn-hangzhou",
+    "status": "success",
+    "fallback_chain": [],
+    "latency_ms": 1830,
+    "usage": { "input_tokens": 2400, "output_tokens": 320, "cost_micros": 9000 },
+    "request_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "response_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "created_at": "2026-08-17T13:20:01Z"
+  },
+  "missing_field": {
+    "trace_id": "ptr_1a2b3c4d",
+    "provider_kind": "model"
+  },
+  "invalid_source": {
+    "trace_id": "ptr_1a2b3c4d",
+    "provider_kind": "model",
+    "implementation": "fake.model",
+    "operation": "generate",
+    "status": "success",
+    "fallback_chain": ["model.deepseek-v4-flash"],
+    "latency_ms": 12,
+    "created_at": "2026-08-17T13:20:01Z",
+    "_comment": "声称 fake 实现却存在未声明的回退链/缺少 usage 字段：回退必须显式完整记录，fake 也必须同构"
+  }
+}

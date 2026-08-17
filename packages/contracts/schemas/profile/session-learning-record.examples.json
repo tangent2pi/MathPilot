@@ -1,0 +1,37 @@
+{
+  "valid": {
+    "record_id": "slr_3e4r5t6y",
+    "session_id": "s_m3n4b5v6",
+    "student_id": "stu_x9y8z7w6",
+    "scientific_evaluation_report_id": "ser_4v5b6n7m",
+    "teaching_session_summary_id": "tss_6y7u8i9o",
+    "integrity_check": {
+      "session_id_match": true,
+      "cross_refs_present": true,
+      "provenance_complete": true,
+      "passed": true
+    },
+    "handoff_ref": "handoff/s_m3n4b5v6.md",
+    "dream_queued_at": "2026-08-17T13:36:00Z",
+    "created_at": "2026-08-17T13:36:00Z"
+  },
+  "missing_field": {
+    "record_id": "slr_3e4r5t6y",
+    "session_id": "s_m3n4b5v6"
+  },
+  "invalid_source": {
+    "record_id": "slr_3e4r5t6y",
+    "session_id": "s_m3n4b5v6",
+    "student_id": "stu_x9y8z7w6",
+    "scientific_evaluation_report_id": "ser_4v5b6n7m",
+    "teaching_session_summary_id": "tss_OTHER00",
+    "integrity_check": {
+      "session_id_match": false,
+      "cross_refs_present": false,
+      "provenance_complete": true,
+      "passed": true
+    },
+    "created_at": "2026-08-17T13:36:00Z",
+    "_comment": "完整性检查项失败但 passed=true：入队必须拒绝（双产物不配对不得进 Dream）"
+  }
+}

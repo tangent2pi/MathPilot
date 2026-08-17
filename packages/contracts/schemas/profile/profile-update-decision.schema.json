@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/profile/profile-update-decision/v1",
+  "title": "ProfileUpdateDecision (PUD)",
+  "$description": "Dream/Profile Update LLM 的最终画像更新决策，长期画像唯一模型写入口。written-by: Dream Agent；read-by: Decision Validator、reducer、review-service。数值生效必须引用 ≥2 个不同 Session 的有效证据；单题对错已进入 BKT 后不得再直接调整（防双计数）。对齐设计文档 §9.3、§9.4。",
+  "type": "object",
+  "required": [
+    "decision_id", "student_id", "prior_snapshot_id",
+    "baseline_report_refs", "teaching_summary_refs",
+    "dimension_updates", "review_required",
+    "model_id", "prompt_version", "skill_version", "created_at"
+  ],
+  "properties": {
+    "decision_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DecisionId" },
+    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
+    "evidence_bundle_id": { "type": "string" },
+    "prior_snapshot_id": {
+      "anyOf": [
+        { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SnapshotId" },
+        { "type": "null" }
+      ],
+      "description": "首次画像更新前无快照，显式 null"
+    },
+    "baseline_report_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ReportId" }
+    },
+    "teaching_summary_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SummaryId" }
+    },
+    "dimension_updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["dimension_id", "p_baseline", "p_final", "state_final", "evidence_ledger", "uncertainty"],
+        "properties": {
+          "dimension_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
+          "p_baseline": { "type": "number", "minimum": 0, "maximum": 1 },
+          "p_final": { "type": "number", "minimum": 0, "maximum": 1 },
+          "state_final": {
+            "type": "string",
+            "enum": ["insufficient_evidence", "weak", "learning", "possibly_mastered", "mastered"]
+          },
+          "evidence_ledger": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["code", "rubric_bin", "lr_used", "session_refs", "evidence_refs", "explanation"],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "TRANSFER_SUCCESS_DISTINCT_CONTEXT",
+                    "SELF_CORRECTION_RECURS",
+                    "METHOD_STABLE_ACROSS_CONTEXTS",
+                    "HINT_DEPENDENCY_DECLINES",
+                    "REPEATED_MISCONCEPTION",
+                    "TRANSFER_FAILURE_DISTINCT_CONTEXT",
+                    "METHOD_INSTABILITY"
+                  ]
+                },
+                "rubric_bin": { "type": "string", "enum": ["weak", "clear", "strong"] },
+                "lr_used": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "必须落在版本化证据码表允许区间内（Validator 校验）"
+                },
+                "session_refs": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+                  "description": "数值调整必须引用至少两个不同 Session"
+                },
+                "evidence_refs": { "type": "array", "items": { "type": "string" } },
+                "counterevidence_refs": { "type": "array", "items": { "type": "string" } },
+                "explanation": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "alternatives": { "type": "array", "items": { "type": "string" } },
+          "uncertainty": { "type": "string", "enum": ["low", "medium", "high"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "semantic_profile_updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field", "value", "evidence_refs"],
+        "properties": {
+          "field": { "type": "string", "description": "错因状态/方法稳定性/提示依赖/语义画像字段路径" },
+          "value": {},
+          "evidence_refs": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "review_required": { "type": "boolean" },
+    "supersedes": { "type": ["string", "null"], "description": "被取代的旧 decision_id" },
+    "model_id": { "type": "string" },
+    "prompt_version": { "type": "string" },
+    "skill_version": { "type": "string" },
+    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false
+}

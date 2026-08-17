@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/common/provenance/v1",
+  "title": "Field Lineage & Provenance",
+  "$description": "字段级血缘与来源声明。written-by: 所有产生正式语义字段的服务（content/learning/profile/review）；read-by: provenance 校验器、教师复核、发布校验。任何正式语义字段必须携带本对象；缺失者只能留在候选区（draft_only）。",
+  "type": "object",
+  "required": [
+    "entity_type",
+    "entity_id",
+    "field_path",
+    "provenance_status",
+    "derivation_type",
+    "created_at"
+  ],
+  "properties": {
+    "entity_type": {
+      "type": "string",
+      "description": "如 question / diagnosis_rule / profile_update_decision"
+    },
+    "entity_id": { "type": "string" },
+    "field_path": {
+      "type": "string",
+      "description": "JSON Pointer 风格字段路径，如 /measurement_targets/0/evidence_rule"
+    },
+    "provenance_status": {
+      "type": "string",
+      "enum": ["direct", "derived", "model_generated", "human_authored"]
+    },
+    "derivation_type": {
+      "type": "string",
+      "enum": ["ocr", "extraction_agent", "research_agent", "teaching_agent", "deterministic_service", "teacher_edit", "import"]
+    },
+    "package_version": { "type": "string" },
+    "source_fragment_id": { "type": "string" },
+    "source_span_or_bbox": {
+      "type": "string",
+      "description": "页内字符区间或 [x,y,w,h] 区域；与 source_fragment_id 同时出现"
+    },
+    "agent_run_id": { "type": "string" },
+    "prompt_version": { "type": "string" },
+    "skill_version": { "type": "string" },
+    "model_id": { "type": "string" },
+    "tool_call_ids": { "type": "array", "items": { "type": "string" } },
+    "reviewer_id": {
+      "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/UserId",
+      "description": "审核者为具有 teacher/content_reviewer 角色的领域用户（身份统一为 identity_user）"
+    },
+    "review_decision": {
+      "type": "string",
+      "enum": ["confirmed", "modified", "rejected", "merged", "pending"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false
+}

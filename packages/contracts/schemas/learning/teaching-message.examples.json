@@ -1,0 +1,29 @@
+{
+  "valid": {
+    "message_id": "msg_2q3w4e5r",
+    "session_id": "s_m3n4b5v6",
+    "turn": 8,
+    "role": "teaching_agent",
+    "parts": [
+      { "type": "text", "markdown": "先观察这个图，再判断补角是否也可能成立。" },
+      { "type": "image", "artifact_ref": "artifact://s_m3n4b5v6/art_q1w2e3r4", "alt": "三角形 SSA 两解示意图" },
+      { "type": "card", "artifact_ref": "artifact://s_m3n4b5v6/art_a1s2d3f4" }
+    ],
+    "hint_level": 1,
+    "created_at": "2026-08-17T13:22:00Z"
+  },
+  "missing_field": {
+    "message_id": "msg_2q3w4e5r",
+    "session_id": "s_m3n4b5v6"
+  },
+  "invalid_source": {
+    "message_id": "msg_2q3w4e5r",
+    "session_id": "s_m3n4b5v6",
+    "turn": 8,
+    "parts": [
+      { "type": "image", "artifact_ref": "https://tmp.example.com/x.png", "alt": "外部临时 URL" }
+    ],
+    "created_at": "2026-08-17T13:22:00Z",
+    "_comment": "artifact_ref 非 artifact:// 已发布 URI，必须拒绝"
+  }
+}

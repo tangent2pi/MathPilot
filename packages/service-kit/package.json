@@ -1,0 +1,17 @@
+{
+  "name": "@agmath/service-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "服务骨架共享件：Fastify 服务器、健康检查、租户事务助手（RLS 激活）",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit" },
+  "dependencies": {
+    "fastify": "^5.2.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.6.0"
+  }
+}

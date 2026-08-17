@@ -1,0 +1,60 @@
+{
+  "realm": "agmath",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "student" },
+      { "name": "guardian" },
+      { "name": "teacher" },
+      { "name": "content_reviewer" },
+      { "name": "tenant_admin" },
+      { "name": "platform_ops" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "agmath-web",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    },
+    {
+      "clientId": "agmath-api",
+      "bearerOnly": true
+    },
+    {
+      "clientId": "agmath-dev-cli",
+      "description": "仅 dev 组合根：smoke/脚本用 password grant 取 token；生产 realm 不导入本客户端",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true
+    }
+  ],
+  "users": [
+    {
+      "username": "teacher.dev",
+      "enabled": true,
+      "email": "teacher.dev@agmath.local",
+      "emailVerified": true,
+      "firstName": "Dev",
+      "lastName": "Teacher",
+      "requiredActions": [],
+      "realmRoles": ["teacher"],
+      "credentials": [{ "type": "password", "value": "dev-only", "temporary": false }]
+    },
+    {
+      "username": "student.dev",
+      "enabled": true,
+      "email": "student.dev@agmath.local",
+      "emailVerified": true,
+      "firstName": "Dev",
+      "lastName": "Student",
+      "requiredActions": [],
+      "realmRoles": ["student"],
+      "credentials": [{ "type": "password", "value": "dev-only", "temporary": false }]
+    }
+  ]
+}

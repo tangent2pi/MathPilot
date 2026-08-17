@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/learning/learning-artifact-manifest/v1",
+  "title": "LearningArtifact Manifest (agmath.learning-artifact/v1)",
+  "$description": "ArtifactPublisher 发布前的 manifest 校验契约。written-by: Teaching Agent / edu-agent（写入 /workspace/output/artifacts/<id>/manifest.json）；read-by: artifact-service、前端。发布失败（越界路径/符号链接逃逸/危险 MIME/缺 manifest）必须拒绝。对齐设计文档 §5.4。",
+  "type": "object",
+  "required": ["schema", "artifact_id", "session_id", "kind", "renderer", "entry", "files", "response_policy"],
+  "properties": {
+    "schema": { "const": "agmath.learning-artifact/v1" },
+    "artifact_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ArtifactId" },
+    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+    "kind": {
+      "type": "string",
+      "enum": ["knowledge_visualization", "question_card", "mixed_lesson"]
+    },
+    "renderer": {
+      "type": "string",
+      "enum": ["native_card", "sandboxed_html", "media"]
+    },
+    "entry": {
+      "type": "string",
+      "enum": ["index.html", "card.json"],
+      "description": "media 类可为 media/ 下文件，用 files 首项判定；此处仅允许固定入口名"
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "mime_type", "byte_size", "content_hash"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(index\\.html|card\\.json|content\\.md|manifest\\.json|media/[A-Za-z0-9._-]+)$",
+            "description": "仅允许固定文件名；禁止 ../ 与绝对路径"
+          },
+          "mime_type": { "type": "string" },
+          "byte_size": { "type": "integer", "minimum": 1, "maximum": 52428800 },
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "response_policy": {
+      "type": "object",
+      "required": ["required", "allow_skip", "allow_free_text_without_answer"],
+      "properties": {
+        "required": { "const": false, "description": "首版固定 false；未作答绝不判错" },
+        "allow_skip": { "const": true },
+        "allow_free_text_without_answer": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "source_refs": { "type": "array", "items": { "type": "string" } },
+    "generator": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string" },
+        "model_id": { "type": "string" },
+        "prompt_version": { "type": "string" },
+        "skill_version": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

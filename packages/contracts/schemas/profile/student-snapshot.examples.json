@@ -1,0 +1,43 @@
+{
+  "valid": {
+    "snapshot_id": "snap_9o8i7u6y",
+    "student_id": "stu_x9y8z7w6",
+    "source_decision_id": "pud_2w3e4r5t",
+    "supersedes": "snap_1q2w3e4r",
+    "dimensions": [
+      {
+        "dimension_id": "K_SSA",
+        "p_profile": 0.873,
+        "p_bkt_baseline": 0.71,
+        "state": "possibly_mastered",
+        "uncertainty": "medium",
+        "retention": { "i90_days": 4, "next_review_due": "2026-08-22T00:00:00Z", "stable": false },
+        "independent_observation_count": 4
+      }
+    ],
+    "misconceptions": [
+      {
+        "error_cause_id": "E_SSA_MISSING_SUPPLEMENT",
+        "state": "improving",
+        "evidence_refs": ["obs_7u6y5t4r", "chat://s_m3n4b5v6/turn/9"]
+      }
+    ],
+    "semantic_profile": { "hint_dependency": "low", "method_stability": "stable" },
+    "profile_lag": false,
+    "published_at": "2026-08-18T00:17:00Z"
+  },
+  "missing_field": {
+    "snapshot_id": "snap_9o8i7u6y",
+    "student_id": "stu_x9y8z7w6"
+  },
+  "invalid_source": {
+    "snapshot_id": "snap_9o8i7u6y",
+    "student_id": "stu_x9y8z7w6",
+    "source_decision_id": "ser_4v5b6n7m",
+    "dimensions": [
+      { "dimension_id": "K_SSA", "p_profile": 0.71, "state": "learning", "uncertainty": "low" }
+    ],
+    "published_at": "2026-08-18T00:17:00Z",
+    "_comment": "source_decision_id 指向 SER 而非通过校验的 PUD：程序评价器越权发布快照，必须拒绝"
+  }
+}

@@ -1,0 +1,8 @@
+.git
+references
+design-docs
+competition-info
+deploy
+node_modules
+**/node_modules
+**/*.tsbuildinfo

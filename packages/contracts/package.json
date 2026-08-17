@@ -1,0 +1,18 @@
+{
+  "name": "@agmath/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "跨模块契约：JSON Schema（唯一契约源）+ Provider TS 接口（ADR-003）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./providers/*": "./src/providers/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "python3 test/validate_examples.py"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

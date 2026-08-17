@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/learning/question-session/v1",
+  "title": "QuestionSession",
+  "$description": "一题一会话及其状态机。written-by: learning-service orchestrator；read-by: learning-service、profile-service、review-service、前端。状态转换只允许沿 state_history 追加，禁止重写历史。",
+  "type": "object",
+  "required": [
+    "session_id", "tenant_id", "student_id", "question_id",
+    "chapter_package_version", "mode", "draft_enabled", "state",
+    "state_history", "started_at"
+  ],
+  "properties": {
+    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+    "tenant_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/TenantId" },
+    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
+    "assessment_run_id": { "type": "string" },
+    "question_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/QuestionId" },
+    "chapter_package_version": { "type": "string" },
+    "mode": {
+      "type": "string",
+      "enum": ["diagnostic", "help", "review"],
+      "description": "诊断/求助/复盘；提示纪律见设计文档 §4.6"
+    },
+    "draft_enabled": { "type": "boolean" },
+    "counts_toward_independent_evidence": {
+      "type": "boolean",
+      "description": "诊断模式独立作答才为 true；提示后成功必须 false"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "CREATE", "PREPARE_WORKSPACE", "PRESENT", "OBSERVE", "WAIT",
+        "SUBMIT", "GRADE", "SCIENTIFIC_EVALUATE", "DIAGNOSE",
+        "PROBE", "TEACH", "RETEST", "CLOSE",
+        "FINAL_SCIENTIFIC_EVALUATE", "TEACHING_SESSION_SUMMARY",
+        "QUEUE_DREAM", "BUILD_HANDOFF", "CLOSED", "FAILED"
+      ]
+    },
+    "state_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["state", "entered_at"],
+        "properties": {
+          "state": { "type": "string" },
+          "entered_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
+          "actor": { "type": "string", "enum": ["orchestrator", "teaching_agent", "student", "system"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "hint_level": { "type": "integer", "minimum": 0, "maximum": 5, "default": 0 },
+    "probe_rounds": { "type": "integer", "minimum": 0, "maximum": 3, "default": 0 },
+    "termination_reason": {
+      "type": "string",
+      "enum": [
+        "coverage_complete", "info_gain_below_threshold", "budget_exhausted",
+        "student_ended", "fatigue_protection", "needs_teacher_review",
+        "needs_delayed_retest", "error"
+      ]
+    },
+    "started_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
+    "closed_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
+    "session_result_ref": {
+      "type": "string",
+      "description": "关闭后 session-result.json 的对象存储键"
+    }
+  },
+  "additionalProperties": false
+}

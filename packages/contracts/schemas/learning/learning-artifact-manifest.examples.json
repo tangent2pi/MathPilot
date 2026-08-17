@@ -1,0 +1,35 @@
+{
+  "valid": {
+    "schema": "agmath.learning-artifact/v1",
+    "artifact_id": "art_a1s2d3f4",
+    "session_id": "s_m3n4b5v6",
+    "kind": "question_card",
+    "renderer": "native_card",
+    "entry": "card.json",
+    "files": [
+      { "path": "manifest.json", "mime_type": "application/json", "byte_size": 812, "content_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+      { "path": "card.json", "mime_type": "application/json", "byte_size": 433, "content_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }
+    ],
+    "response_policy": { "required": false, "allow_skip": true, "allow_free_text_without_answer": true },
+    "source_refs": ["question://Q_TRI_012", "knowledge://K_SSA"],
+    "generator": { "provider": "teaching_agent", "model_id": "qwen3.8-max-preview", "prompt_version": "teach@2026-08-17" }
+  },
+  "missing_field": {
+    "schema": "agmath.learning-artifact/v1",
+    "artifact_id": "art_a1s2d3f4",
+    "kind": "question_card"
+  },
+  "invalid_source": {
+    "schema": "agmath.learning-artifact/v1",
+    "artifact_id": "art_a1s2d3f4",
+    "session_id": "s_m3n4b5v6",
+    "kind": "knowledge_visualization",
+    "renderer": "sandboxed_html",
+    "entry": "index.html",
+    "files": [
+      { "path": "../escape.html", "mime_type": "text/html", "byte_size": 100, "content_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" }
+    ],
+    "response_policy": { "required": true, "allow_skip": false, "allow_free_text_without_answer": false },
+    "_comment": "路径逃逸 + response_policy.required=true（首版固定 false），发布必须拒绝"
+  }
+}

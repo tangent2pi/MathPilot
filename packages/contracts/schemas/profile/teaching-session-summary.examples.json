@@ -1,0 +1,38 @@
+{
+  "valid": {
+    "summary_id": "tss_6y7u8i9o",
+    "session_id": "s_m3n4b5v6",
+    "scientific_evaluation_ref": "ser_4v5b6n7m",
+    "summary": "学生能独立列出正弦定理，但第一次遗漏 SSA 补角分支；中性追问后自行修正。",
+    "method_observations": [
+      { "observation": "先画图标已知量再列式", "evidence_refs": ["draft://s_m3n4b5v6/seg-9"] }
+    ],
+    "misconception_candidates": [
+      { "error_cause_id": "E_SSA_MISSING_SUPPLEMENT", "supporting_refs": ["answer://s_m3n4b5v6/att_5r4e3w2q"], "counter_refs": ["chat://s_m3n4b5v6/turn/9"] }
+    ],
+    "hint_dependency": "low",
+    "unresolved": ["补角分支是否为稳定错因需跨题确认"],
+    "evidence_refs": ["answer://s_m3n4b5v6/att_5r4e3w2q", "chat://s_m3n4b5v6/turn/8", "draft://s_m3n4b5v6/seg-9"],
+    "model_id": "qwen3.8-max-preview",
+    "prompt_version": "teach-summary@2026-08-17",
+    "created_at": "2026-08-17T13:35:00Z"
+  },
+  "missing_field": {
+    "summary_id": "tss_6y7u8i9o",
+    "session_id": "s_m3n4b5v6",
+    "summary": "……"
+  },
+  "invalid_source": {
+    "summary_id": "tss_6y7u8i9o",
+    "session_id": "s_m3n4b5v6",
+    "scientific_evaluation_ref": "ser_4v5b6n7m",
+    "summary": "……",
+    "hint_dependency": "low",
+    "evidence_refs": ["chat://s_OTHER000/turn/1"],
+    "model_id": "qwen3.8-max-preview",
+    "prompt_version": "teach-summary@2026-08-17",
+    "created_at": "2026-08-17T13:35:00Z",
+    "p_final": 0.9,
+    "_comment": "TSS 越权写长期画像字段 p_final（additionalProperties 拒绝）+ 引用其他 Session 证据，必须拒绝"
+  }
+}

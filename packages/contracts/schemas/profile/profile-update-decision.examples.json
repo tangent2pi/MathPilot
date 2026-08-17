@@ -1,0 +1,74 @@
+{
+  "valid": {
+    "decision_id": "pud_2w3e4r5t",
+    "student_id": "stu_x9y8z7w6",
+    "evidence_bundle_id": "peb_8u7y6t5r",
+    "prior_snapshot_id": "snap_1q2w3e4r",
+    "baseline_report_refs": ["ser_17aaaaaa", "ser_4v5b6n7m"],
+    "teaching_summary_refs": ["tss_17aaaaaa", "tss_6y7u8i9o"],
+    "dimension_updates": [
+      {
+        "dimension_id": "K_SSA",
+        "p_baseline": 0.71,
+        "p_final": 0.873,
+        "state_final": "possibly_mastered",
+        "evidence_ledger": [
+          {
+            "code": "TRANSFER_SUCCESS_DISTINCT_CONTEXT",
+            "rubric_bin": "clear",
+            "lr_used": 2.8,
+            "session_refs": ["s_17abcdef", "s_m3n4b5v6"],
+            "evidence_refs": ["obs_71aaaaaa", "draft://s_m3n4b5v6/seg-9"],
+            "counterevidence_refs": ["obs_82aaaaaa"],
+            "explanation": "不同表征且无提示的两题均保持分类讨论；一次近迁移失败降低证据强度。"
+          }
+        ],
+        "alternatives": ["题目表征差异可能仍不足"],
+        "uncertainty": "medium"
+      }
+    ],
+    "semantic_profile_updates": [],
+    "review_required": false,
+    "model_id": "deepseek-v4-flash",
+    "prompt_version": "dream-profile@2026-08-17",
+    "skill_version": "profile-skill@0.1.0",
+    "created_at": "2026-08-18T00:15:00Z"
+  },
+  "missing_field": {
+    "decision_id": "pud_2w3e4r5t",
+    "student_id": "stu_x9y8z7w6",
+    "dimension_updates": []
+  },
+  "invalid_source": {
+    "decision_id": "pud_2w3e4r5t",
+    "student_id": "stu_x9y8z7w6",
+    "prior_snapshot_id": "snap_1q2w3e4r",
+    "baseline_report_refs": ["ser_4v5b6n7m"],
+    "teaching_summary_refs": ["tss_6y7u8i9o"],
+    "dimension_updates": [
+      {
+        "dimension_id": "K_SSA",
+        "p_baseline": 0.71,
+        "p_final": 0.99,
+        "state_final": "mastered",
+        "evidence_ledger": [
+          {
+            "code": "TRANSFER_SUCCESS_DISTINCT_CONTEXT",
+            "rubric_bin": "strong",
+            "lr_used": 99.0,
+            "session_refs": ["s_m3n4b5v6"],
+            "evidence_refs": ["obs_7u6y5t4r"],
+            "explanation": "凭感觉直接给分"
+          }
+        ],
+        "uncertainty": "low"
+      }
+    ],
+    "review_required": false,
+    "model_id": "deepseek-v4-flash",
+    "prompt_version": "dream-profile@2026-08-17",
+    "skill_version": "profile-skill@0.1.0",
+    "created_at": "2026-08-18T00:15:00Z",
+    "_comment": "LR 超出允许区间 + 数值更新仅引用单 Session + 无反证说明：Validator 必须退回"
+  }
+}

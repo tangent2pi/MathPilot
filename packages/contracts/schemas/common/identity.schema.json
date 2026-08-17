@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/common/identity/v1",
+  "title": "Identity & Correlation",
+  "$description": "通用身份、租户、事件与追踪标识定义。written-by: 所有服务；read-by: 所有服务。仅作为 $defs 供其他 schema $ref 引用，不单独实例化。",
+  "type": "object",
+  "$defs": {
+    "TenantId": { "type": "string", "pattern": "^tnt_[A-Za-z0-9]{8,}$" },
+    "UserId": { "type": "string", "pattern": "^usr_[A-Za-z0-9]{8,}$" },
+    "StudentId": { "type": "string", "pattern": "^stu_[A-Za-z0-9]{8,}$" },
+    "TeacherId": { "type": "string", "pattern": "^tch_[A-Za-z0-9]{8,}$" },
+    "SessionId": { "type": "string", "pattern": "^s_[A-Za-z0-9]{8,}$" },
+    "AttemptId": { "type": "string", "pattern": "^att_[A-Za-z0-9]{8,}$" },
+    "EventId": { "type": "string", "pattern": "^evt_[A-Za-z0-9]{8,}$" },
+    "SnapshotId": { "type": "string", "pattern": "^snap_[A-Za-z0-9]{8,}$" },
+    "DecisionId": { "type": "string", "pattern": "^pud_[A-Za-z0-9]{8,}$" },
+    "ReportId": { "type": "string", "pattern": "^ser_[A-Za-z0-9]{8,}$" },
+    "SummaryId": { "type": "string", "pattern": "^tss_[A-Za-z0-9]{8,}$" },
+    "ArtifactId": { "type": "string", "pattern": "^art_[A-Za-z0-9]{8,}$" },
+    "ObservationId": { "type": "string", "pattern": "^obs_[A-Za-z0-9]{8,}$" },
+    "QuestionId": { "type": "string", "pattern": "^Q_[A-Z0-9_]{3,}$" },
+    "DimensionId": { "type": "string", "pattern": "^(K|T|E)_[A-Z0-9_]{2,}$" },
+    "CorrelationId": { "type": "string", "pattern": "^cor_[A-Za-z0-9]{8,}$" },
+    "CausationId": { "type": "string", "pattern": "^cau_[A-Za-z0-9]{8,}$" },
+    "ISODateTime": { "type": "string", "format": "date-time" },
+    "ArtifactRef": {
+      "type": "string",
+      "pattern": "^artifact://s_[A-Za-z0-9]+/art_[A-Za-z0-9]+(#.+)?$"
+    },
+    "DraftRef": {
+      "type": "string",
+      "pattern": "^draft://s_[A-Za-z0-9]+/[A-Za-z0-9-]+(\\?.*)?$"
+    },
+    "EvidenceRef": {
+      "type": "string",
+      "pattern": "^(chat|draft|answer|artifact|obs|question|knowledge)://\\S+$"
+    }
+  }
+}

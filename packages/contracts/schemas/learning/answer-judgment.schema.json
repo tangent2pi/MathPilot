@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/learning/answer-judgment/v1",
+  "title": "AnswerJudgment",
+  "$description": "模型主判答结果。written-by: Teaching Agent（GRADE 状态）；read-by: learning-service、程序评价器、review-service、Dream。程序校验工具结果只作为 check_results 输入；模型必须解释采纳/不采纳。对齐设计文档 §12.1。",
+  "type": "object",
+  "required": [
+    "judgment_id", "session_id", "attempt_id", "verdict",
+    "rubric_items", "decision_summary", "uncertainty",
+    "model_id", "prompt_version", "created_at"
+  ],
+  "properties": {
+    "judgment_id": { "type": "string", "pattern": "^jud_[A-Za-z0-9]{8,}$" },
+    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+    "attempt_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/AttemptId" },
+    "verdict": {
+      "type": "string",
+      "enum": ["correct", "partially_correct", "incorrect", "unresolved"]
+    },
+    "rubric_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "evidence_refs"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["met", "not_met", "unclear"] },
+          "evidence_refs": {
+            "type": "array",
+            "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/EvidenceRef" }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "check_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool", "result_ref"],
+        "properties": {
+          "tool": {
+            "type": "string",
+            "enum": [
+              "choice_normalization", "numeric_tolerance", "symbolic_equivalence",
+              "solution_set_compare", "geometric_constraint", "unit_check"
+            ]
+          },
+          "result_ref": { "type": "string" },
+          "adopted": { "type": "boolean" },
+          "adoption_reason": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "decision_summary": {
+      "type": "string",
+      "description": "面向审计的简短理由；禁止保存隐藏思维链"
+    },
+    "alternate_interpretations": { "type": "array", "items": { "type": "string" } },
+    "uncertainty": { "type": "string", "enum": ["low", "medium", "high"] },
+    "injection_flags": { "type": "array", "items": { "type": "string" } },
+    "second_review": {
+      "type": "object",
+      "properties": {
+        "triggered": { "type": "boolean" },
+        "reviewer": { "type": "string", "enum": ["second_model", "teacher"] },
+        "outcome": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "model_id": { "type": "string" },
+    "prompt_version": { "type": "string" },
+    "skill_version": { "type": "string" },
+    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false
+}

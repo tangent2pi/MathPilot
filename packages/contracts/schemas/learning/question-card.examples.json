@@ -1,0 +1,28 @@
+{
+  "valid": {
+    "schema": "agmath.question-card/v1",
+    "artifact_id": "art_a1s2d3f4",
+    "card_id": "card_1",
+    "type": "true_false",
+    "prompt": "在 SSA 情形下，由 sin B 得到的一个锐角解，其补角一定也是合法解吗？",
+    "response_policy": { "required": false, "allow_skip": true, "allow_free_text_without_answer": true },
+    "evidence_policy": "teaching_only",
+    "source_refs": ["question://Q_TRI_012", "chat://s_m3n4b5v6/turn/8"]
+  },
+  "missing_field": {
+    "schema": "agmath.question-card/v1",
+    "card_id": "card_1",
+    "type": "single_choice"
+  },
+  "invalid_source": {
+    "schema": "agmath.question-card/v1",
+    "artifact_id": "art_a1s2d3f4",
+    "card_id": "card_1",
+    "type": "single_choice",
+    "prompt": "……",
+    "options": [{ "id": "A", "content": "……" }],
+    "response_policy": { "required": true, "allow_skip": false, "allow_free_text_without_answer": false },
+    "evidence_policy": "eligible_if_independent",
+    "_comment": "response_policy 强制作答违反首版纪律（required 必须 false），必须拒绝"
+  }
+}

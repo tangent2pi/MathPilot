@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>教师复核 · AGMATH</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="/">AGMATH<small>WEB-TEST · 流程验证</small></a>
+    <nav>
+      <a href="/">每日练习</a>
+      <a href="/report.html">报告与计划</a>
+      <a href="/teacher.html" aria-current="page">教师复核</a>
+    </nav>
+  </header>
+
+  <main class="page">
+    <h1 class="page-title">复核与纠正</h1>
+    <p class="page-sub">改判不覆盖旧结论：系统保留原观测，以新观测取代它，并从最近快照向后重放。</p>
+
+    <div class="dossier">
+      <section>
+        <h2 style="font-family:var(--serif);font-size:1.1rem">复核队列</h2>
+        <div id="queue"><div class="empty">队列加载中…</div></div>
+      </section>
+
+      <section>
+        <h2 style="font-family:var(--serif);font-size:1.1rem">改判一条观测</h2>
+        <form id="corr">
+          <label for="target">观测 ID（obs_…）</label>
+          <input id="target" placeholder="obs_xxxxxxxxxxxx" autocomplete="off" required />
+          <label for="outcome">改判为</label>
+          <select id="outcome">
+            <option value="success">success（应判对）</option>
+            <option value="failure">failure（应判错）</option>
+            <option value="unresolved">unresolved（证据不足）</option>
+          </select>
+          <label for="reason">改判理由（必填，进入审计）</label>
+          <textarea id="reason" rows="3" required placeholder="例如：学生第二次作答实际已检验补角，原判读草稿不完整。"></textarea>
+          <button class="btn cinnabar" type="submit">提交改判并重放</button>
+        </form>
+        <div id="corrOut" style="margin-top:1.4rem"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const API = ""; // 同源：nginx 将 /api/ 反代至 api 服务
+    // 所有动态文本一律转义后再进 innerHTML（学生作答/后端字段都视为不可信数据）
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+      (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+
+    async function loadQueue() {
+      const res = await fetch(`${API}/api/review/tasks`);
+      const d = await res.json();
+      const el = document.getElementById("queue");
+      if (!d.tasks?.length) {
+        el.innerHTML = `<div class="empty">队列暂空。内容管线冻结 KTQ 后、或判答不确定时，任务会出现在这里。</div>`;
+        return;
+      }
+      el.innerHTML = `<table class="ledger"><thead><tr><th>任务</th><th>队列</th><th>对象</th><th>状态</th><th></th></tr></thead>
+        <tbody>${d.tasks.map((t) => `<tr>
+          <td class="mono">${esc(t.task_id)}</td><td>${esc(t.queue)}</td>
+          <td class="mono">${esc(t.target_id)}</td><td>${esc(t.status)}</td>
+          <td>${t.status === "pending"
+            ? `<button class="btn ghost" style="margin:0;padding:.2rem .8rem" data-task="${esc(t.task_id)}">确认</button>`
+            : ""}</td>
+        </tr>`).join("")}</tbody></table>`;
+      el.querySelectorAll("button[data-task]").forEach((b) => {
+        b.onclick = async () => {
+          b.disabled = true;
+          await fetch(`${API}/api/review/tasks/${encodeURIComponent(b.dataset.task)}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ status: "confirmed", assignee_id: "usr_teacher01" }),
+          });
+          loadQueue();
+        };
+      });
+    }
+
+    document.getElementById("corr").onsubmit = async (e) => {
+      e.preventDefault();
+      const out = document.getElementById("corrOut");
+      const res = await fetch(`${API}/api/review/corrections`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          target_id: document.getElementById("target").value.trim(),
+          replacement_outcome: document.getElementById("outcome").value,
+          reason: document.getElementById("reason").value,
+          reviewer_id: "usr_teacher01",
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) { out.innerHTML = `<div class="notice">改判被拒绝：${esc(d.error ?? res.status)}</div>`; return; }
+      out.innerHTML = `
+        <div class="record"><div class="k">纠正事件</div><div class="v mono">${esc(d.correction_id)}</div></div>
+        <div class="record"><div class="k">取代观测</div><div class="v mono">${esc(d.superseded_observation)} → ${esc(d.replacement_observation)}</div></div>
+        <div class="record"><div class="k">重放基准</div><div class="v"><span class="big-number">${esc(d.replay_report.p_bkt_baseline)}</span><span class="prior-flag">prior_only</span></div></div>
+        <div class="record"><div class="k">修订记录</div><div class="v mono">${esc(d.revision_record?.slr_id ?? "—")} 已重新入 Dream 队列</div></div>
+        <div class="notice" style="margin-top:1rem">${esc(d.note)}</div>`;
+    };
+
+    loadQueue();
+  </script>
+</body>
+</html>

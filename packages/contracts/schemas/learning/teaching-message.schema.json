@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/learning/teaching-message/v1",
+  "title": "TeachingMessage",
+  "$description": "Teaching Agent 多段回复。written-by: learning-service（ArtifactPublisher 校验通过后）；read-by: 前端、review-service、审计。只允许引用已发布的 artifact:// URI，禁止 file:// 与外部临时 URL。对齐设计文档 §5.4。",
+  "type": "object",
+  "required": ["message_id", "session_id", "turn", "parts", "created_at"],
+  "properties": {
+    "message_id": { "type": "string", "pattern": "^msg_[A-Za-z0-9]{8,}$" },
+    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+    "turn": { "type": "integer", "minimum": 1 },
+    "role": { "type": "string", "enum": ["teaching_agent", "system"], "default": "teaching_agent" },
+    "parts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/MessagePart" }
+    },
+    "hint_level": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "MessagePart": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "enum": ["text", "image", "video", "card"] },
+        "markdown": { "type": "string" },
+        "artifact_ref": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ArtifactRef" },
+        "alt": { "type": "string", "description": "图片必需替代文本" },
+        "caption_ref": { "type": "string", "description": "视频必需字幕/摘要引用" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "text" } } },
+          "then": { "required": ["markdown"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "image" } } },
+          "then": { "required": ["artifact_ref", "alt"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "video" } } },
+          "then": { "required": ["artifact_ref", "caption_ref"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "card" } } },
+          "then": { "required": ["artifact_ref"] }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

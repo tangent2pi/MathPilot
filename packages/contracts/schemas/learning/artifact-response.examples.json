@@ -1,0 +1,30 @@
+{
+  "valid": {
+    "response_id": "rsp_1z2x3c4v",
+    "session_id": "s_m3n4b5v6",
+    "artifact_id": "art_a1s2d3f4",
+    "card_id": "card_1",
+    "student_id": "stu_x9y8z7w6",
+    "response_type": "submitted",
+    "answer": { "true_false": "false" },
+    "interaction_token": "itok_9f8e7d6c5b4a",
+    "bridge_event": "card.answer_submitted",
+    "created_at": "2026-08-17T13:25:00Z"
+  },
+  "missing_field": {
+    "response_id": "rsp_1z2x3c4v",
+    "session_id": "s_m3n4b5v6",
+    "response_type": "submitted"
+  },
+  "invalid_source": {
+    "response_id": "rsp_1z2x3c4v",
+    "session_id": "s_m3n4b5v6",
+    "artifact_id": "art_a1s2d3f4",
+    "card_id": "card_1",
+    "student_id": "stu_00000000",
+    "response_type": "skipped",
+    "interaction_token": "",
+    "created_at": "2026-08-17T13:25:00Z",
+    "_comment": "student_id 不属于本 Session 租户 / interaction_token 为空：伪造交互事件，必须拒绝"
+  }
+}

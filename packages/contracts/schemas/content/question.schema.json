@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/content/question/v1",
+  "title": "Question & MeasurementTarget",
+  "$description": "题目、题图资产与测量目标。written-by: content-service（KTQ staging 冻结后）；read-by: learning-service、选题器、Dream。tags 仅用于检索展示；画像更新只依据 measurement_targets 与对应 evidence_rule 证据。",
+  "type": "object",
+  "required": [
+    "question_id",
+    "tenant_id",
+    "chapter_id",
+    "stem_markdown",
+    "answer",
+    "rubric",
+    "tags",
+    "measurement_targets",
+    "provenance"
+  ],
+  "properties": {
+    "question_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/QuestionId" },
+    "tenant_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/TenantId" },
+    "chapter_id": { "type": "string" },
+    "question_version": { "type": "integer", "minimum": 1 },
+    "stem_markdown": { "type": "string", "minLength": 1 },
+    "stem_format": {
+      "type": "string",
+      "enum": ["single_choice", "multiple_choice", "fill_blank", "true_false", "open_solution"]
+    },
+    "answer": {
+      "type": "object",
+      "description": "标准答案；结构随 stem_format 而定，发布校验必须齐全"
+    },
+    "rubric": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "description", "evidence_rule"],
+            "properties": {
+              "id": { "type": "string" },
+              "description": { "type": "string" },
+              "score_weight": { "type": "number", "minimum": 0 },
+              "evidence_rule": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "tags": {
+      "type": "array",
+      "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
+      "description": "检索与展示用标签；不得直接作为画像写入维度"
+    },
+    "measurement_targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/MeasurementTarget" }
+    },
+    "difficulty": { "type": "number", "minimum": 0, "maximum": 1 },
+    "assets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/QuestionAsset" }
+    },
+    "associated_error_causes": {
+      "type": "array",
+      "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" }
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "https://schemas.agmath.dev/common/provenance/v1" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "MeasurementTarget": {
+      "type": "object",
+      "required": ["dim", "role", "evidence_rule"],
+      "properties": {
+        "dim": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
+        "role": {
+          "type": "string",
+          "enum": ["primary", "secondary", "prerequisite"]
+        },
+        "evidence_rule": {
+          "type": "string",
+          "description": "如 rubric.ssa_branch_check / probe.existence_check"
+        }
+      },
+      "additionalProperties": false
+    },
+    "QuestionAsset": {
+      "type": "object",
+      "required": ["asset_id", "role", "image_bytes_ref", "mime_type", "content_hash"],
+      "properties": {
+        "asset_id": { "type": "string" },
+        "role": {
+          "type": "string",
+          "enum": ["stem_image", "option_image", "solution_attachment"]
+        },
+        "image_bytes_ref": {
+          "type": "string",
+          "description": "PostgreSQL bytea 引用键；题图必须与题干同事务入库"
+        },
+        "mime_type": { "type": "string" },
+        "source_fragment_id": { "type": "string" },
+        "page_no": { "type": "integer", "minimum": 1 },
+        "bbox": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+        "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

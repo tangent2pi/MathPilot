@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/profile/student-snapshot/v1",
+  "title": "StudentSnapshot",
+  "$description": "通过校验的 PUD 幂等物化的当前画像。written-by: profile-service reducer（只物化不决策）；read-by: learning-service（只读投影）、选题器、前端报告。snapshot_id 唯一（禁止只用日期）。对齐设计文档 §11.1、§11.3。",
+  "type": "object",
+  "required": [
+    "snapshot_id", "student_id", "source_decision_id",
+    "dimensions", "published_at"
+  ],
+  "properties": {
+    "snapshot_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SnapshotId" },
+    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
+    "source_decision_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DecisionId" },
+    "supersedes": { "type": ["string", "null"] },
+    "dimensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["dimension_id", "p_profile", "state", "uncertainty"],
+        "properties": {
+          "dimension_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
+          "p_profile": { "type": "number", "minimum": 0, "maximum": 1 },
+          "p_bkt_baseline": { "type": "number", "minimum": 0, "maximum": 1 },
+          "state": {
+            "type": "string",
+            "enum": ["insufficient_evidence", "weak", "learning", "possibly_mastered", "mastered"]
+          },
+          "uncertainty": { "type": "string", "enum": ["low", "medium", "high"] },
+          "retention": {
+            "type": "object",
+            "properties": {
+              "i90_days": { "type": "number" },
+              "next_review_due": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
+              "stable": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          },
+          "independent_observation_count": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "misconceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["error_cause_id", "state", "evidence_refs"],
+        "properties": {
+          "error_cause_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
+          "state": { "type": "string", "enum": ["suspected", "confirmed", "improving", "resolved", "superseded"] },
+          "evidence_refs": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "semantic_profile": {
+      "type": "object",
+      "description": "方法稳定性、提示依赖等语义画像字段，来源必须可追溯到 PUD"
+    },
+    "profile_lag": {
+      "type": "boolean",
+      "description": "Dream 未消费最新 SLR 时为 true；教学继续使用旧快照 + handoff"
+    },
+    "published_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false
+}

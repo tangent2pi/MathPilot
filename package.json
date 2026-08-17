@@ -1,0 +1,19 @@
+{
+  "name": "agmath",
+  "private": true,
+  "version": "0.0.0",
+  "description": "AGMATH — 高中数学知识掌握诊断与学习规划系统（契约先行 monorepo）",
+  "type": "module",
+  "scripts": {
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test",
+    "contracts:validate": "python3 packages/contracts/test/validate_examples.py"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

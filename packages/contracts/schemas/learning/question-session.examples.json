@@ -1,0 +1,43 @@
+{
+  "valid": {
+    "session_id": "s_m3n4b5v6",
+    "tenant_id": "tnt_a1b2c3d4",
+    "student_id": "stu_x9y8z7w6",
+    "assessment_run_id": "run_a1",
+    "question_id": "Q_TRI_012",
+    "chapter_package_version": "0.1.0",
+    "mode": "diagnostic",
+    "draft_enabled": true,
+    "counts_toward_independent_evidence": true,
+    "state": "OBSERVE",
+    "state_history": [
+      { "state": "CREATE", "entered_at": "2026-08-17T13:00:00Z", "actor": "orchestrator" },
+      { "state": "PREPARE_WORKSPACE", "entered_at": "2026-08-17T13:00:02Z", "actor": "orchestrator" },
+      { "state": "PRESENT", "entered_at": "2026-08-17T13:00:05Z", "actor": "system" },
+      { "state": "OBSERVE", "entered_at": "2026-08-17T13:00:06Z", "actor": "system" }
+    ],
+    "hint_level": 0,
+    "probe_rounds": 0,
+    "started_at": "2026-08-17T13:00:00Z"
+  },
+  "missing_field": {
+    "session_id": "s_m3n4b5v6",
+    "student_id": "stu_x9y8z7w6",
+    "question_id": "Q_TRI_012",
+    "state": "CREATE"
+  },
+  "invalid_source": {
+    "session_id": "s_m3n4b5v6",
+    "tenant_id": "tnt_a1b2c3d4",
+    "student_id": "stu_x9y8z7w6",
+    "question_id": "Q_TRI_012",
+    "chapter_package_version": "0.1.0",
+    "mode": "help",
+    "draft_enabled": false,
+    "counts_toward_independent_evidence": true,
+    "state": "GRADE",
+    "state_history": [{ "state": "CREATE", "entered_at": "2026-08-17T13:00:00Z" }],
+    "started_at": "2026-08-17T13:00:00Z",
+    "_comment": "help 模式且 hint_level 默认>0 路径下 counts_toward_independent_evidence=true 属越权声明，契约测试必须拒绝"
+  }
+}

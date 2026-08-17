@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/profile/profile-decision-validation/v1",
+  "title": "ProfileDecisionValidationResult",
+  "$description": "确定性 Validator 对 PUD 的校验结果。written-by: profile-service validator；read-by: profile-service、review-service、审计。Validator 只做引用/边界/算术/去重/来源检查，禁止修改 Decision 内容；失败只能退回模型或送教师复核。对齐设计文档 §9.4。",
+  "type": "object",
+  "required": ["validation_id", "decision_id", "result", "checks", "validator_version", "validated_at"],
+  "properties": {
+    "validation_id": { "type": "string", "pattern": "^pvr_[A-Za-z0-9]{8,}$" },
+    "decision_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DecisionId" },
+    "result": {
+      "type": "string",
+      "enum": ["passed", "returned_to_model", "escalated_to_teacher"]
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 6,
+      "items": {
+        "type": "object",
+        "required": ["check", "passed"],
+        "properties": {
+          "check": {
+            "type": "string",
+            "enum": [
+              "refs_exist_and_authorized",
+              "provenance_complete",
+              "lr_within_allowed_range",
+              "arithmetic_recomputable",
+              "no_double_counting",
+              "min_two_sessions_per_numeric_update",
+              "update_magnitude_review_threshold"
+            ]
+          },
+          "passed": { "type": "boolean" },
+          "failures": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "retry_of": { "type": ["string", "null"], "description": "退回模型重试时的前次 validation_id" },
+    "validator_version": { "type": "string" },
+    "validated_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false
+}

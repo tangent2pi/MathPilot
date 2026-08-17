@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/learning/artifact-response/v1",
+  "title": "ArtifactResponse",
+  "$description": "学生对卡片的交互事件。written-by: 前端（经受限 postMessage 桥或原生卡片）→ api → learning-service；read-by: learning-service、程序评价器。跳过/直接回复绝不生成失败观测。事件必须携带一次性 interaction_token。",
+  "type": "object",
+  "required": ["response_id", "session_id", "artifact_id", "card_id", "student_id", "response_type", "interaction_token", "created_at"],
+  "properties": {
+    "response_id": { "type": "string", "pattern": "^rsp_[A-Za-z0-9]{8,}$" },
+    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+    "artifact_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ArtifactId" },
+    "card_id": { "type": "string" },
+    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
+    "response_type": {
+      "type": "string",
+      "enum": ["submitted", "skipped", "bypassed_free_text"],
+      "description": "skipped=明确跳过；bypassed_free_text=不作答直接聊天回复"
+    },
+    "answer": {
+      "type": "object",
+      "description": "仅 response_type=submitted 时存在；结构随卡片类型而定",
+      "properties": {
+        "single": { "type": "string", "description": "single_choice：一个 option id" },
+        "multiple": { "type": "array", "items": { "type": "string" } },
+        "blanks": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "fill_blank：命名空格 → 学生文本"
+        },
+        "true_false": { "type": "string", "enum": ["true", "false", "unknown"] }
+      },
+      "additionalProperties": false
+    },
+    "interaction_token": {
+      "type": "string",
+      "description": "一次性 token；前端校验 origin/artifact/session 后换发"
+    },
+    "bridge_event": {
+      "type": "string",
+      "enum": [
+        "card.answer_submitted", "card.skipped", "card.free_text_requested",
+        "card.presented", "artifact.ready", "artifact.resize"
+      ]
+    },
+    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false
+}

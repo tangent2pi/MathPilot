@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agmath.dev/content/chapter-package/v1",
+  "title": "ChapterPackage Manifest",
+  "$description": "一次发布的不可变章节包清单。written-by: content-service 发布流程；read-by: learning-service（只读挂载）、选题器、Dream。发布后内容寻址共享，禁止修改；纠错只能发布新版本。",
+  "type": "object",
+  "required": [
+    "package_id",
+    "tenant_id",
+    "version",
+    "manifest_hash",
+    "contents",
+    "validation_report",
+    "published_by",
+    "published_at"
+  ],
+  "properties": {
+    "package_id": { "type": "string", "pattern": "^pkg_[A-Za-z0-9]{8,}$" },
+    "tenant_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/TenantId" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "contents": {
+      "type": "object",
+      "required": ["knowledge_components", "question_types", "error_causes", "questions", "diagnosis_rules"],
+      "properties": {
+        "knowledge_components": { "type": "array", "items": { "type": "string" } },
+        "question_types": { "type": "array", "items": { "type": "string" } },
+        "error_causes": { "type": "array", "items": { "type": "string" } },
+        "questions": { "type": "array", "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/QuestionId" } },
+        "diagnosis_rules": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "validation_report": {
+      "type": "object",
+      "required": ["passed", "checks"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["check", "passed"],
+            "properties": {
+              "check": {
+                "type": "string",
+                "enum": [
+                  "id_uniqueness", "references_exist", "prerequisite_acyclic",
+                  "answer_rubric_complete", "measurement_targets_nonempty",
+                  "foreign_keys_valid", "license_complete", "question_dedup",
+                  "difficulty_distribution", "golden_cases_runnable",
+                  "provenance_complete"
+                ]
+              },
+              "passed": { "type": "boolean" },
+              "detail": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "supersedes": { "type": "string" },
+    "published_by": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/UserId" },
+    "published_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
+    "withdrawn_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false
+}
