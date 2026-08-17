@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>内容管线 · AGMATH</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true">
+    <filter id="ink-rough">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" result="n" />
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2.6" />
+    </filter>
+  </svg>
+
+  <header class="masthead">
+    <a class="brand" href="/">AGMATH<small>WEB-TEST · 流程验证</small></a>
+    <nav>
+      <a href="/">每日练习</a>
+      <a href="/report.html">报告与计划</a>
+      <a href="/teacher.html">教师复核</a>
+      <a href="/content.html" aria-current="page">内容管线</a>
+    </nav>
+  </header>
+
+  <main class="page">
+    <h1 class="page-title">内容管线 · 审稿台</h1>
+    <p class="page-sub">原件入库（OCR）→ KTQ 抽取 → ER 调研 → 教师复核 → 发布不可变章节包。每一道题的每个字段都可追溯到页码片段与抽取依据。</p>
+
+    <!-- 管线章：真实流程顺序 -->
+    <div class="pipeline" id="pipeline" aria-label="内容管线状态">
+      <div class="pipe" data-step="ocr"><div class="dot">OCR</div><span class="label">入库</span></div>
+      <div class="pipe" data-step="ktq"><div class="dot">KTQ</div><span class="label">抽取</span></div>
+      <div class="pipe" data-step="er"><div class="dot">ER</div><span class="label">调研</span></div>
+      <div class="pipe" data-step="review"><div class="dot">复核</div><span class="label">审稿</span></div>
+      <div class="pipe" data-step="publish"><div class="dot">发布</div><span class="label">成卷</span></div>
+    </div>
+
+    <div class="dossier">
+      <!-- 左栏：上传与操作 -->
+      <section>
+        <h2 style="font-family:var(--serif);font-size:1.05rem">01 · 原件入库</h2>
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="选择 PDF 上传">
+          <div>点击或拖入赛题 PDF（≤20MiB，暂取第 1 页）</div>
+          <div class="fname" id="fname"></div>
+          <input type="file" id="fileInput" accept="application/pdf,.pdf" />
+        </div>
+
+        <label for="chapter">章节 ID</label>
+        <input id="chapter" value="chap_triangle" autocomplete="off" />
+
+        <div style="display:flex; gap:.8rem; flex-wrap:wrap; align-items:center">
+          <button class="btn" id="ktqBtn" type="button" disabled>运行 KTQ 抽取</button>
+          <button class="btn ghost" id="erBtn" type="button" disabled>运行 ER 调研</button>
+          <span class="mono" style="font-size:.72rem;color:var(--ink-faint)" id="docInfo"></span>
+        </div>
+
+        <hr class="rule" />
+        <h2 style="font-family:var(--serif);font-size:1.05rem">02 · 审稿与成卷</h2>
+        <div id="reviewBox"></div>
+        <div style="display:flex; gap:.8rem; align-items:center; flex-wrap:wrap">
+          <button class="btn cinnabar" id="pubBtn" type="button" disabled>发布章节包</button>
+          <input id="version" value="0.1.0" style="max-width:140px" autocomplete="off" />
+          <span class="mono" style="font-size:.72rem;color:var(--ink-faint)">语义化版本</span>
+        </div>
+
+        <hr class="rule" />
+        <h2 style="font-family:var(--serif);font-size:1.05rem">03 · 字段血缘追溯</h2>
+        <div style="display:flex; gap:.6rem; align-items:end">
+          <div style="flex:1">
+            <label for="lineageQ">题目 ID</label>
+            <input id="lineageQ" placeholder="Q_TRI_001" autocomplete="off" />
+          </div>
+          <button class="btn ghost" id="lineageBtn" type="button">追溯</button>
+        </div>
+        <div id="lineageBox" style="margin-top:1rem"></div>
+      </section>
+
+      <!-- 右栏：结果流 -->
+      <section class="evidence-flow" id="flow" aria-live="polite">
+        <div class="empty" id="emptyHint">卷宗待启。先上传一份赛题 PDF，审稿台会在这里钉住每一步的产物。</div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const API = "";
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+      (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+
+    const flow = document.getElementById("flow");
+    const steps = new Set();
+    let documentId = null;
+    let staged = [];
+
+    function lightStep(name) {
+      steps.add(name);
+      document.querySelectorAll(".pipe").forEach((el) => {
+        if (steps.has(el.dataset.step)) el.classList.add("done");
+      });
+    }
+    function record(k, vHtml) {
+      const div = document.createElement("div");
+      div.className = "record";
+      div.innerHTML = `<div class="k">${esc(k)}</div><div class="v">${vHtml}</div>`;
+      flow.appendChild(div);
+      return div;
+    }
+    function showError(msg, code) {
+      const div = document.createElement("div");
+      div.className = "error-card";
+      div.style.marginTop = "1rem";
+      div.innerHTML = `<div>${esc(msg)}</div>${code ? `<span class="code">${esc(code)}</span>` : ""}`;
+      flow.appendChild(div);
+    }
+    async function call(path, body, method = "POST") {
+      const res = await fetch(`${API}${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      });
+      const d = await res.json().catch(() => ({}));
+      return { status: res.status, d };
+    }
+    function setBusy(btn, busy, label) {
+      btn.disabled = busy || !btn.dataset.enabled;
+      btn.textContent = busy ? label : btn.dataset.label;
+    }
+
+    // ── 上传 ──────────────────────────────────────────
+    const dropzone = document.getElementById("dropzone");
+    const fileInput = document.getElementById("fileInput");
+    dropzone.onclick = () => fileInput.click();
+    dropzone.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } };
+    ["dragenter", "dragover"].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove("over"); }));
+    dropzone.addEventListener("drop", (e) => { if (e.dataTransfer.files[0]) fileInput.files = e.dataTransfer.files; fileInput.onchange(); });
+
+    fileInput.onchange = async () => {
+      const f = fileInput.files[0];
+      if (!f) return;
+      if (f.size > 20 * 1024 * 1024) { showError("文件超过 20MiB，请压缩后重试。", "size_exceeded"); return; }
+      document.getElementById("fname").textContent = f.name;
+      dropzone.classList.add("disabled");
+      const b64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result).split(",")[1]);
+        r.onerror = rej;
+        r.readAsDataURL(f);
+      });
+      const pending = record("OCR · 入库", `<span class="pending"><span class="spinner"></span> 正在解析文档版面…</span>`);
+      const { status, d } = await call("/api/content/documents/ocr", {
+        kind: "exercise_set",
+        file_base64: b64,
+        filename: f.name,
+        mime_type: f.type || "application/pdf",
+        page_ranges: "1",
+        page_start: 1,
+      });
+      if (status !== 201) { pending.remove(); showError(d.error ?? `入库失败（${status}）`, d.detail ?? ""); dropzone.classList.remove("disabled"); return; }
+      documentId = d.document_id;
+      lightStep("ocr");
+      document.getElementById("docInfo").textContent = `${d.document_id} · ${d.ocr_implementation}`;
+      document.getElementById("ktqBtn").disabled = false;
+      document.getElementById("ktqBtn").dataset.enabled = "1";
+      document.getElementById("ktqBtn").dataset.label = "运行 KTQ 抽取";
+      setBusy(document.getElementById("ktqBtn"), false);
+
+      const qBoxes = (d.fragments ?? []).filter((x) => x.fragment_type === "question_box");
+      const md = (d.pages?.[0]?.markdown ?? "").slice(0, 600);
+      pending.innerHTML = `
+        <div class="k">OCR · 入库</div>
+        <div class="v">
+          <span class="mono">${esc(d.document_id)}</span> · ${esc(d.ocr_implementation)} ·
+          页 ${esc(d.pages?.length ?? 1)} · 片段 ${esc(d.fragments?.length ?? 0)} · 候选题框 <b>${esc(qBoxes.length)}</b>
+          <div class="proof" style="margin-top:.7rem">${esc(md)}</div>
+        </div>`;
+      if (qBoxes.length === 0) showError("未识别到题框片段。可改用直接登记片段（/documents）或调整页面范围。", "no_question_boxes");
+    };
+
+    // ── KTQ / ER ──────────────────────────────────────
+    const ktqBtn = document.getElementById("ktqBtn");
+    ktqBtn.addEventListener("click", async () => {
+      const chapterId = document.getElementById("chapter").value.trim() || "chap_triangle";
+      setBusy(ktqBtn, true, "抽取中…");
+      const { status, d } = await call("/api/content/ktq/run", { document_id: documentId, chapter_id: chapterId });
+      setBusy(ktqBtn, false);
+      if (status !== 200) { showError(d.error ?? `KTQ 失败（${status}）`, d.detail ?? ""); return; }
+      lightStep("ktq");
+      staged = d.staged ?? [];
+      const rows = staged.map((s) => `<tr><td class="mono">${esc(s.question_id)}</td><td class="mono">${esc(s.review_task_id ?? "—")}</td><td>待复核</td></tr>`).join("");
+      record("KTQ · 抽取（fake.ktq 骨架）",
+        `<table class="ledger"><thead><tr><th>题目</th><th>复核任务</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table>` +
+        `<div class="mono" style="font-size:.72rem;color:var(--ink-faint);margin-top:.4rem">agent_run ${esc(d.agent_run_id)} · staging 已冻结</div>`);
+      document.getElementById("erBtn").disabled = false;
+      document.getElementById("erBtn").dataset.enabled = "1";
+      document.getElementById("erBtn").dataset.label = "运行 ER 调研";
+      setBusy(document.getElementById("erBtn"), false);
+      loadReviewBox(chapterId);
+    });
+
+    const erBtn = document.getElementById("erBtn");
+    erBtn.addEventListener("click", async () => {
+      const chapterId = document.getElementById("chapter").value.trim() || "chap_triangle";
+      setBusy(erBtn, true, "调研中…");
+      const { status, d } = await call("/api/content/er/run", { chapter_id: chapterId });
+      setBusy(erBtn, false);
+      if (status !== 200) { showError(d.error ?? `ER 失败（${status}）`, d.detail ?? ""); return; }
+      lightStep("er");
+      record("ER · 调研（fake.er 骨架）",
+        `错因：${(d.error_causes ?? []).map((x) => `<span class="mono">${esc(x)}</span>`).join("、")}<br>` +
+        `规则：${(d.rules ?? []).map((x) => `<span class="mono">${esc(x)}</span>`).join("、")}<br>` +
+        `<span class="mono" style="font-size:.72rem;color:var(--ink-faint)">agent_run ${esc(d.agent_run_id)}</span>`);
+    });
+
+    // ── 复核队列 ──────────────────────────────────────
+    async function loadReviewBox(chapterId) {
+      const box = document.getElementById("reviewBox");
+      const { d } = await call(`/api/review/tasks?queue=content`, undefined, "GET");
+      const tasks = (d.tasks ?? []).filter((t) => t.status === "pending");
+      const count = d.pending_count ?? tasks.length;
+      if (count === 0) {
+        lightStep("review");
+        document.getElementById("pubBtn").disabled = false;
+        document.getElementById("pubBtn").dataset.enabled = "1";
+        document.getElementById("pubBtn").dataset.label = "发布章节包";
+        setBusy(document.getElementById("pubBtn"), false);
+        box.innerHTML = `<div class="notice">复核队列已清空（${esc(d.tasks?.length ?? 0)} 项已裁决）。可以发布。</div>`;
+        return;
+      }
+      box.innerHTML = `<div class="notice">复核队列还有 <b>${esc(count)}</b> 项待裁决——发布门在全部裁决前保持关闭。</div>` +
+        `<table class="ledger" style="margin-top:.8rem"><thead><tr><th>任务</th><th>对象</th><th></th></tr></thead><tbody>` +
+        tasks.map((t) => `<tr><td class="mono">${esc(t.task_id)}</td><td class="mono">${esc(t.target_id)}</td>
+          <td><button class="btn ghost small-btn" data-task="${esc(t.task_id)}" style="margin:0">确认</button></td></tr>`).join("") +
+        `</tbody></table>`;
+      box.querySelectorAll("button[data-task]").forEach((b) => {
+        b.onclick = async () => {
+          b.disabled = true;
+          await call(`/api/review/tasks/${encodeURIComponent(b.dataset.task)}`, { status: "confirmed" }, "PATCH");
+          loadReviewBox(chapterId);
+        };
+      });
+    }
+
+    // ── 发布 ──────────────────────────────────────────
+    document.getElementById("pubBtn").addEventListener("click", async () => {
+      const chapterId = document.getElementById("chapter").value.trim() || "chap_triangle";
+      const version = document.getElementById("version").value.trim();
+      if (!/^\d+\.\d+\.\d+$/.test(version)) { showError("版本号须为语义化版本（如 0.1.0）。", "invalid_version"); return; }
+      const btn = document.getElementById("pubBtn");
+      setBusy(btn, true, "发布中…");
+      const { status, d } = await call("/api/content/publish", { chapter_id: chapterId, version });
+      setBusy(btn, false);
+      if (status !== 201) {
+        showError(d.error === "pending_review_tasks" ? "仍有复核任务未裁决，发布被拦截。" : (d.error ?? `发布失败（${status}）`),
+          d.pending_count !== undefined ? `pending=${d.pending_count}` : (d.validation_report?.checks ?? []).filter((c) => !c.passed).map((c) => c.check).join(","));
+        return;
+      }
+      lightStep("publish");
+      const checks = (d.validation_report?.checks ?? []).map((c) =>
+        `<span class="mark ${c.passed ? "met" : "not_met"}">${c.passed ? "✓" : "✕"}</span> ${esc(c.check)}`).join(" · ");
+      record("发布 · 章节包",
+        `<span class="mono">${esc(d.package_id)}</span> v${esc(d.version)} · ${esc(d.questions?.length ?? 0)} 题<br>` +
+        `<div class="mono" style="font-size:.72rem;color:var(--ink-faint);margin-top:.4rem">manifest ${esc(d.manifest_hash)}</div>` +
+        `<div style="margin-top:.5rem;font-size:.82rem">${checks}</div>`);
+    });
+
+    // ── 血缘追溯 ──────────────────────────────────────
+    document.getElementById("lineageBtn").addEventListener("click", async () => {
+      const qid = document.getElementById("lineageQ").value.trim();
+      if (!qid) return;
+      const box = document.getElementById("lineageBox");
+      box.innerHTML = `<span class="pending"><span class="spinner"></span> 追溯中…</span>`;
+      const { status, d } = await call(`/api/content/questions/${encodeURIComponent(qid)}/lineage`, undefined, "GET");
+      if (status !== 200) { box.innerHTML = `<div class="notice">${esc(d.error ?? "无法追溯")}</div>`; return; }
+      const stem = d.lineage.find((r) => r.field_path === "/stem_markdown");
+      const mt = d.lineage.find((r) => r.field_path === "/measurement_targets");
+      const pub = d.lineage.find((r) => r.field_path === "/published");
+      box.innerHTML = `
+        <div class="lineage-chain">
+          ${stem ? `<span class="hop">片段 ${esc(stem.source_fragment_id)}<br><span class="mono" style="font-size:.68rem;color:var(--ink-faint)">第 ${esc(stem.page_no)} 页</span></span>` : ""}
+          <span class="arrow">→</span>
+          ${mt ? `<span class="hop">字段 /measurement_targets<br><span class="mono" style="font-size:.68rem;color:var(--ink-faint)">${esc(mt.agent_run_id)} · ${esc(mt.model_id)}</span></span>` : ""}
+          <span class="arrow">→</span>
+          ${pub ? `<span class="hop">发布决定<br><span class="mono" style="font-size:.68rem;color:var(--ink-faint)">${esc(pub.reviewer_id)} · ${esc(pub.review_decision)}</span></span>` : ""}
+        </div>
+        <table class="ledger"><thead><tr><th>字段</th><th>来源类型</th><th>Agent Run</th><th>模型/Prompt</th><th>审核</th></tr></thead><tbody>
+        ${d.lineage.map((r) => `<tr class="audit-row"><td class="mono">${esc(r.field_path)}</td><td>${esc(r.provenance_status)} / ${esc(r.derivation_type)}</td>
+          <td class="mono">${esc(r.agent_run_id ?? "—")}</td><td class="mono">${esc(r.model_id ?? "—")} ${esc(r.prompt_version ?? "")}</td>
+          <td class="mono">${esc(r.reviewer_id ?? "—")} ${esc(r.review_decision ?? "")}</td></tr>`).join("")}
+        </tbody></table>`;
+    });
+
+    loadReviewBox("chap_triangle");
+  </script>
+</body>
+</html>

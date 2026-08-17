@@ -1,0 +1,30 @@
+{
+  "schema": "agmath.task-policy-manifest/v1",
+  "tasks": {
+    "teach_grade": {
+      "file": "tasks/teach-grade.md",
+      "prompt_version": "teach-grade@0.4.0",
+      "role": "main"
+    },
+    "teach_summary": {
+      "file": "tasks/teach-summary.md",
+      "prompt_version": "teach-summary@0.4.0",
+      "role": "main"
+    },
+    "ktq_extract": {
+      "file": "tasks/ktq-extract.md",
+      "prompt_version": "ktq-extract@0.4.0",
+      "role": "aux"
+    },
+    "er_research": {
+      "file": "tasks/er-research.md",
+      "prompt_version": "er-research@0.4.0",
+      "role": "aux"
+    },
+    "dream_profile": {
+      "file": "tasks/dream-profile.md",
+      "prompt_version": "dream-profile@0.4.0",
+      "role": "aux"
+    }
+  }
+}

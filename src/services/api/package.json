@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": { "start": "node src/index.ts", "typecheck": "tsc --noEmit" },
   "dependencies": {
-    "@agmath/service-kit": "workspace:*",
     "fastify": "^5.2.0",
     "jose": "^6.0.0",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "undici": "^8.10.0"
   },
   "devDependencies": {
     "@types/pg": "^8.11.10",

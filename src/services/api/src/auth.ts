@@ -11,7 +11,7 @@
  */
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type pg from "pg";
-import { withTenant, newId } from "@agmath/service-kit";
+import { withTenant, newId } from "./lib.ts";
 
 const OIDC_ISSUER = process.env.OIDC_ISSUER ?? "http://localhost:8080/realms/agmath";
 const OIDC_JWKS_URL = process.env.OIDC_JWKS_URL ?? `${OIDC_ISSUER}/protocol/openid-connect/certs`;

@@ -1,17 +1,15 @@
 {
-  "name": "@agmath/service-kit",
+  "name": "@agmath/providers-ocr",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "服务骨架共享件：Fastify 服务器、健康检查、租户事务助手（RLS 激活）",
+  "description": "OCRProvider 实现：PaddleOCR 官方 API（aistudio job 模式，设计 §2.4 packages/providers/ocr）",
   "exports": { ".": "./src/index.ts" },
   "scripts": { "typecheck": "tsc --noEmit" },
   "dependencies": {
-    "fastify": "^5.2.0",
-    "pg": "^8.13.1"
+    "undici": "^8.10.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.11.10",
     "typescript": "^5.6.0"
   }
 }

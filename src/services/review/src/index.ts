@@ -8,7 +8,7 @@
  *   4. 封装修订 SessionLearningRecord（supersedes 旧记录，复用原 TSS），重新进入 Dream 队列
  *   5. 标记 replayed；长期画像仍只经 Dream 路径更新（ADR-004）
  */
-import { startService, createPool, withTenant, newId } from "@agmath/service-kit";
+import { startService, createPool, withTenant, newId } from "./lib.ts";
 import { bktReplay, BKT_PRIOR_V1 } from "@agmath/mastery";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
@@ -185,7 +185,7 @@ startService({
           calibration_status: "prior_only",
           input_event_refs: [newObsId],
           calculation_trace_ref: `replay_${correctionId}`,
-          kernel_version: "fake-bkt@0.1.0",
+          kernel_version: "mastery-bkt@0.1.0",
           created_at: now,
         };
         await c.query(
@@ -194,7 +194,7 @@ startService({
               calibration_status, parameter_set_id, kernel_version, payload)
            values ($1,$2,$3,$4,$5,$6,'prior_only',$7,$8,$9)`,
           [replaySerId, tenantId, oldObs.session_id, oldObs.student_id, oldObs.dimension_id,
-           pBaseline, BKT_PRIOR_V1.id, "fake-bkt@0.1.0", JSON.stringify(serPayload)],
+           pBaseline, BKT_PRIOR_V1.id, "mastery-bkt@0.1.0", JSON.stringify(serPayload)],
         );
 
         // 修订 SLR：重放的 SER + 原 TSS 重新封装，进入 Dream 队列，取代旧记录

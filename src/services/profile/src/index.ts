@@ -1,16 +1,26 @@
 /**
- * profile-service：画像快照查询 + Dream 消费闭环（WP-08 骨架）。
+ * profile-service：画像快照查询 + Dream 消费闭环。
  *
  * POST /dream/run 消费该学生未处理的 SLR：
- *   SLR → ProfileEvidenceBundle → fake Dream PUD（保守：无跨题纵向证据时
- *   p_final = p_bkt_baseline）→ 确定性 Validator（引用/区间/算术/双 Session）
- *   → 通过后物化 StudentSnapshot 并更新 mastery_state。
- * 纪律（ADR-004）：Validator 只校验不修改；本服务是 StudentSnapshot 唯一写入方。
+ *   SLR → ProfileEvidenceBundle → Dream/Profile Update Agent（经 agent-runtime，
+ *   独立 Session，综合双产物与证据账本输出最终 PUD）→ 确定性 Validator
+ *   （引用/区间/算术/双 Session）→ 通过后物化 StudentSnapshot 并更新 mastery_state。
+ *
+ * 纪律（ADR-004）：
+ * - Validator 只校验不修改，失败退回模型重试（不自动程序化更新画像）；
+ * - 模型声明 review_required 的 Decision 送教师复核（student_diagnosis 队列），
+ *   不物化快照、不消费 SLR——窗口保留给复核后重跑（设计 §9.3/§11.3）；
+ * - 本服务是 StudentSnapshot 唯一写入方。
  */
-import { startService, createPool, withTenant, newId } from "@agmath/service-kit";
+import { startService, createPool, withTenant, newId } from "./lib.ts";
+import { createAgentRuntimeClient } from "@agmath/providers-model";
 import { masteryState } from "@agmath/mastery";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
+/** 模型调用统一经 agent-runtime（Pi 宿主）；本服务不直连任何模型供应商 */
+const AGENT_RUNTIME_URL = process.env.AGENT_RUNTIME_URL ?? "http://localhost:3005";
+const REVIEW_URL = process.env.REVIEW_URL ?? "http://localhost:3008";
+const runtime = createAgentRuntimeClient({ baseUrl: AGENT_RUNTIME_URL });
 
 /** 版本化证据码 LR 区间（设计 §9.4，首版 prior_only 专家先验） */
 const EVIDENCE_CODE_LR: Record<string, [number, number]> = {
@@ -71,7 +81,7 @@ function logit(p: number): number {
   return Math.log(c / (1 - c));
 }
 
-/** 确定性 Validator：只校验（引用/区间/算术/双 Session），不得修改 Decision */
+/** 确定性 Validator：只校验（引用/区间/算术/双 Session），不得修改 Decision（设计 §9.4） */
 function validatePud(pud: PudPayload, existingRefs: Set<string>): ValidationCheck[] {
   const refFailures: string[] = [];
   for (const r of [...pud.baseline_report_refs, ...pud.teaching_summary_refs]) {
@@ -218,9 +228,57 @@ startService({
            })],
         );
 
-        // fake Dream：每维度取最新 SER 基准；无跨题纵向证据时保持基准（设计 §9.3：证据不足不调整）
+        // Dream/Profile Update Agent（独立 Session，综合窗口双产物输出最终决策）
         const latestByDim = new Map<string, { p: number; count: number }>();
         for (const r of pending.rows) latestByDim.set(r.dimension_id, { p: r.p_bkt_baseline, count: r.obs_count });
+
+        const dreamRes = await runtime.runTask({
+          taskType: "dream_profile",
+          sessionRef: newId("dream"),
+          tenantId,
+          context: {
+            profileWindow: JSON.stringify({
+              records: pending.rows.map((r) => ({
+                record_id: r.record_id, session_id: r.session_id, ser_id: r.ser_id, tss_id: r.tss_id,
+                dimension_id: r.dimension_id, p_bkt_baseline: r.p_bkt_baseline, obs_count: r.obs_count,
+              })),
+            }),
+            priorSnapshot: priorSnapshotId ? `上一个快照：${priorSnapshotId}` : "（首次画像，无前快照）",
+          },
+        });
+        if (!dreamRes.ok) {
+          return { status: dreamRes.status as 502, body: { error: dreamRes.error, detail: dreamRes.detail } };
+        }
+        const dreamJson = dreamRes.outputJson as {
+          dimension_updates?: {
+            dimension_id?: string; p_baseline?: number; p_final?: number; state_final?: string;
+            evidence_ledger?: unknown[]; alternatives?: string[]; uncertainty?: string;
+          }[];
+          semantic_profile_updates?: unknown[];
+          review_required?: boolean;
+        };
+        const updates = (dreamJson.dimension_updates ?? [])
+          .filter((d) => d.dimension_id && latestByDim.has(d.dimension_id))
+          .map((d) => {
+            const base = latestByDim.get(d.dimension_id!)!;
+            return {
+              dimension_id: d.dimension_id!,
+              p_baseline: Math.abs((d.p_baseline ?? base.p) - base.p) < 0.001 ? base.p : (d.p_baseline ?? base.p),
+              p_final: d.p_final ?? base.p,
+              state_final: d.state_final ?? masteryState(d.p_final ?? base.p, base.count),
+              evidence_ledger: (d.evidence_ledger ?? []) as DimensionUpdate["evidence_ledger"],
+              ...(d.alternatives ? { alternatives: d.alternatives } : {}),
+              uncertainty: (d.uncertainty && ["low", "medium", "high"].includes(d.uncertainty) ? d.uncertainty : "high") as "low" | "medium" | "high",
+            };
+          });
+        // 程序校验（设计 §9.3）：p_baseline 必须与 SER 一致、p_final 在 [0,1]、状态合法
+        const invalid = updates.filter(
+          (d) => !Number.isFinite(d.p_final) || d.p_final < 0 || d.p_final > 1
+            || !["insufficient_evidence", "weak", "learning", "possibly_mastered", "mastered"].includes(d.state_final),
+        );
+        if (invalid.length > 0) {
+          return { status: 422 as const, body: { error: "dream_output_invalid", detail: `dimension_updates 越界: ${invalid.map((d) => d.dimension_id).join(",")}` } };
+        }
 
         const pud: PudPayload = {
           decision_id: decisionId,
@@ -230,20 +288,12 @@ startService({
           supersedes: supersedesDecisionId,
           baseline_report_refs: pending.rows.map((r) => r.ser_id),
           teaching_summary_refs: pending.rows.map((r) => r.tss_id),
-          dimension_updates: [...latestByDim.entries()].map(([dim, v]) => ({
-            dimension_id: dim,
-            p_baseline: v.p,
-            p_final: v.p,
-            state_final: masteryState(v.p, v.count),
-            evidence_ledger: [],
-            alternatives: ["尚无跨题纵向证据，维持程序基准"],
-            uncertainty: "high" as const,
-          })),
-          semantic_profile_updates: [],
-          review_required: false,
-          model_id: "fake.dream",
-          prompt_version: "fake-dream@0.1.0",
-          skill_version: "profile-skill@0.1.0",
+          dimension_updates: updates,
+          semantic_profile_updates: dreamJson.semantic_profile_updates ?? [],
+          review_required: dreamJson.review_required ?? false,
+          model_id: dreamRes.implementation ?? "pi.unknown",
+          prompt_version: dreamRes.promptVersion ?? "unknown",
+          skill_version: "profile-skill@0.3.0",
           created_at: now,
         };
 
@@ -251,6 +301,35 @@ startService({
         for (const r of pending.rows) { existingRefs.add(r.ser_id); existingRefs.add(r.tss_id); }
         const checks = validatePud(pud, existingRefs);
         const passed = checks.every((ck) => ck.passed);
+
+        // 模型声明需要教师复核：不物化快照、不消费 SLR（设计 §9.3：送教师复核）
+        if (pud.review_required) {
+          await c.query(
+            `insert into state_profile_update_decision
+               (decision_id, tenant_id, student_id, evidence_bundle_id, prior_snapshot_id, supersedes,
+                review_required, model_id, prompt_version, skill_version, payload)
+             values ($1,$2,$3,$4,$5,$6,true,$7,$8,$9,$10)`,
+            [decisionId, tenantId, studentId, bundleId, priorSnapshotId, supersedesDecisionId,
+             pud.model_id, pud.prompt_version, pud.skill_version, JSON.stringify(pud)],
+          );
+          await c.query(
+            `insert into state_profile_decision_validation
+               (validation_id, tenant_id, decision_id, result, validator_version, payload)
+             values ($1,$2,$3,'escalated_to_teacher',$4,$5)`,
+            [validationId, tenantId, decisionId, VALIDATOR_VERSION,
+             JSON.stringify({ validation_id: validationId, decision_id: decisionId, result: "escalated_to_teacher", checks, validator_version: VALIDATOR_VERSION, validated_at: now })],
+          );
+          return {
+            status: 202 as const,
+            body: {
+              decision_id: decisionId,
+              review_required: true,
+              escalated: true,
+              detail: "模型声明需教师复核：未物化快照，SLR 保留待复核后重跑",
+            },
+          };
+        }
+
         const result = passed ? "passed" : "returned_to_model";
 
         await c.query(
@@ -273,7 +352,7 @@ startService({
           return { status: 422 as const, body: { error: "validation_failed", validation_id: validationId, checks } };
         }
 
-        // 物化：reducer 原样落库，不重新决策
+        // 物化：reducer 原样落库，不重新决策（ADR-004）
         const dimensions = pud.dimension_updates.map((d) => ({
           dimension_id: d.dimension_id,
           p_profile: d.p_final,
@@ -328,6 +407,25 @@ startService({
           },
         };
       });
+
+      // 复核升级：登记教师复核任务（提交事务之后）
+      if (out.status === 202) {
+        const taskRes = await fetch(`${REVIEW_URL}/review/tasks`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-tenant-id": tenantId },
+          body: JSON.stringify({
+            queue: "student_diagnosis",
+            target_type: "profile_update_decision",
+            target_id: (out.body as { decision_id: string }).decision_id,
+            payload: { reason: "dream_review_required" },
+          }),
+          signal: AbortSignal.timeout(10_000),
+        }).catch(() => null);
+        if (!taskRes?.ok) {
+          return reply.code(502).send({ error: "review_task_registration_failed", decision_id: (out.body as { decision_id: string }).decision_id });
+        }
+        (out.body as { review_task_id?: string }).review_task_id = ((await taskRes.json()) as { task_id: string }).task_id;
+      }
 
       return reply.code(out.status).send(out.body);
     });

@@ -13,10 +13,12 @@ src/packages/contracts/
     profile/     SER、TSS、SLR、PUD、Snapshot …
     review/      TeacherCorrection …
     providers/   ProviderTrace …
-  openapi/       （由 schema 生成的 API 描述，禁止手写）
   src/
-    index.ts     重新导出所有 schema（TS 侧使用）
-    validate.ts  Ajv 校验助手 + 样例契约测试装载
+    index.ts     导出 Provider TS 接口（JSON Schema 仍是唯一契约源）
+    providers/   model/ocr/search/media/explanation/artifact/sandbox/auth 接口
+    errors.ts    Provider 统一错误/结果/trace 语义
+  test/
+    validate_examples.py  样例契约测试（valid 必须过、missing_field 必须拒）
 ```
 
 ## 规则
@@ -26,8 +28,8 @@ src/packages/contracts/
    - `$description` 注明生产者（written-by）与消费者（read-by）；
    - 同目录 `*.examples.json` 含 `valid` / `missing_field` / `invalid_source` 三组样例；
    - 需要跨模块引用时用 `$ref` 指向 `agmath.common/…`，禁止复制字段。
-3. 所有样例与 schema 的校验测试位于 `src/packages/contracts/test/`，`pnpm test` 必须全绿。
-4. 生成物（TS 类型、OpenAPI、客户端）由 `pnpm generate` 从本目录生成，提交生成物需附带生成命令与 schema 哈希；上游 schema 变更必须重新生成。
+3. 所有样例与 schema 的校验测试位于 `src/packages/contracts/test/`，`pnpm contracts:validate` 必须全绿。
+4. OpenAPI / ui-sdk 生成类型（设计 §2.4 `packages/ui-sdk`）在阶段 B 从本目录生成，禁止手写生成物（ADR-003）。
 
 ## 首批冻结清单（实施规划 v1 §11）
 

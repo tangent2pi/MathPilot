@@ -24,7 +24,6 @@ export interface ProviderError {
 /**
  * Provider 调用追踪的 TS 投影；权威定义见
  * schemas/providers/provider-trace.schema.json（字段由 ui-sdk 生成器对齐）。
- * fake 实现也必须填充同构字段（implementation 以 "fake." 前缀标识）。
  */
 export interface ProviderTraceLike {
   readonly traceId: string;
@@ -33,7 +32,7 @@ export interface ProviderTraceLike {
   readonly providerKind:
     | "model" | "ocr" | "search" | "media"
     | "explanation" | "artifact" | "sandbox" | "auth";
-  /** 实际实现标识，如 model.qwen3.8-max-preview / fake.model；回退时必须记录真实实现 */
+  /** 实际实现标识，如 pi.scnet.Qwen3.8-Max；回退时必须记录真实实现 */
   readonly implementation: string;
   readonly operation: string;
   readonly modelId?: string;

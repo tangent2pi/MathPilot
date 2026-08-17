@@ -1,9 +1,9 @@
 /**
- * @agmath/service-kit — 服务骨架共享件。
- * 所有服务的第一个可运行实现就必须带身份、租户、审计与最小权限（实施规划 §9）。
+ * 服务自身引导件（设计 §2.4：模块自包含，不共享私有包；各服务内联自身引导）。
  */
 import Fastify, { type FastifyInstance } from "fastify";
 import pg from "pg";
+import { Agent, fetch as undiciFetch } from "undici";
 
 export interface ServiceOptions {
   name: string;
@@ -12,7 +12,8 @@ export interface ServiceOptions {
 }
 
 export async function startService(opts: ServiceOptions): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true });
+  // bodyLimit 32MiB：文档上传（base64 PDF）经 api→content 传递
+  const app = Fastify({ logger: true, bodyLimit: 32 * 1024 * 1024 });
 
   app.get("/healthz", async () => ({ status: "ok", service: opts.name }));
   app.get("/readyz", async () => ({ status: "ready", service: opts.name }));
@@ -29,7 +30,7 @@ export function createPool(connectionString: string): pg.Pool {
 
 /**
  * 在事务内激活 RLS 租户上下文后执行 fn。
- * 连接必须使用最小权限账号（agmath_app），RLS 才对非 owner 生效。
+ * 连接必须使用最小权限账号（agmath_app），RLS 才对非 owner 生效（设计 §16.1）。
  */
 export async function withTenant<T>(
   pool: pg.Pool,
@@ -53,4 +54,19 @@ export async function withTenant<T>(
 
 export function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+}
+
+/**
+ * 长任务 fetch：undici 默认 headersTimeout=300s 会先于业务超时断开下游长任务
+ * （模型判答/OCR/抽取可达 5–10 分钟）。统一 dispatcher 提高 headers/body 超时，
+ * 并叠加 AbortSignal.timeout 作为业务上限。
+ */
+const longAgent = new Agent({ headersTimeout: 600_000, bodyTimeout: 600_000, connectTimeout: 30_000 });
+
+export function longFetch(url: string | URL, init: RequestInit = {}, timeoutMs = 600_000): Promise<Response> {
+  return undiciFetch(url, {
+    ...init,
+    signal: AbortSignal.timeout(timeoutMs),
+    dispatcher: longAgent,
+  } as Parameters<typeof undiciFetch>[1]);
 }

@@ -16,6 +16,7 @@
       <a href="/">每日练习</a>
       <a href="/report.html" aria-current="page">报告与计划</a>
       <a href="/teacher.html">教师复核</a>
+      <a href="/content.html">内容管线</a>
     </nav>
   </header>
 
@@ -57,21 +58,41 @@
         return;
       }
       const d = await res.json();
-      const cards = (d.dimensions ?? []).map((dim) => `
+      const pct = (p) => `${Math.round((p ?? 0) * 100)}%`;
+      const cards = (d.dimensions ?? []).map((dim) => {
+        const base = dim.p_bkt_baseline ?? dim.p_profile;
+        return `
         <div class="archive-card">
           <div class="dim">${esc(dim.dimension_id)}</div>
           <div class="big-number">${esc(dim.p_profile)}<small> P(画像)</small></div>
           <br><span class="state-tag ${STATES.has(dim.state) ? dim.state : ""}">${esc(ZH[dim.state] ?? dim.state)}</span>
-          <div class="delta-row">
-            <span class="mono" style="color:var(--ink-faint)">程序基准 ${esc(dim.p_bkt_baseline ?? "—")}</span>
-            <span class="mono" style="color:var(--ink-faint)">观测 ${esc(dim.independent_observation_count ?? 0)}</span>
+          <div class="compare" style="margin-top:.9rem">
+            <div class="bar-row">
+              <span class="lbl">程序基准</span>
+              <div class="bar-track"><div class="bar-fill ink" style="width:${esc(pct(base))}"></div></div>
+              <span class="val">${esc(pct(base))}</span>
+            </div>
+            <div class="bar-row">
+              <span class="lbl">最终画像</span>
+              <div class="bar-track"><div class="bar-fill cinnabar" style="width:${esc(pct(dim.p_profile))}"></div></div>
+              <span class="val">${esc(pct(dim.p_profile))}</span>
+            </div>
           </div>
-        </div>`).join("");
+          <div class="delta-row">
+            <span class="mono" style="color:var(--ink-faint)">观测 ${esc(dim.independent_observation_count ?? 0)}</span>
+            <span class="mono" style="color:var(--ink-faint)">置信 ${esc(dim.uncertainty ?? "—")}</span>
+          </div>
+        </div>`;
+      }).join("");
       result.innerHTML = `
         <p class="mono" style="color:var(--ink-faint);font-size:.75rem">
-          snapshot ${esc(d.snapshot_id)} · 来源决策 ${esc(d.source_decision_id)}${d.supersedes ? ` · 取代 ${esc(d.supersedes)}` : ""}
+          snapshot ${esc(d.snapshot_id)}${d.supersedes ? ` · 取代 ${esc(d.supersedes)}` : " · 首版快照"} ·
+          来源决策 ${esc(d.source_decision_id)}
         </p>
-        <div class="archive-grid">${cards}</div>`;
+        <div class="archive-grid">${cards}</div>
+        <p class="mono" style="font-size:.72rem;color:var(--ink-faint);margin-top:1.2rem">
+          ⚠ 程序基准为 prior_only（未校准）科学锚点；最终画像由 Dream 画像模型综合跨题证据给出，二者差异可逐条追溯到证据账本。
+        </p>`;
     }
 
     document.getElementById("q").onsubmit = (e) => { e.preventDefault(); loadSnapshot(); };

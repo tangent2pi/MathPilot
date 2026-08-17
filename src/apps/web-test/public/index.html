@@ -23,6 +23,7 @@
       <a href="/" aria-current="page">每日练习</a>
       <a href="/report.html">报告与计划</a>
       <a href="/teacher.html">教师复核</a>
+      <a href="/content.html">内容管线</a>
     </nav>
   </header>
 
@@ -44,7 +45,7 @@
       <section class="question-card graph-paper" aria-label="题目">
         <div class="corner-seal">试点</div>
         <div class="qid" id="qidLabel">Q_TRI_012 · 诊断模式</div>
-        <h2>在△ABC中，已知 a=2，b=√2，A=30°。求角 B。<br><span style="font-size:.85rem;color:var(--ink-soft)">（提示：注意 SSA 情形的解的个数。）</span></h2>
+        <h2>在△ABC中，已知 a=√3，b=2，A=30°。求角 B。<br><span style="font-size:.85rem;color:var(--ink-soft)">（提示：注意 SSA 情形的解的个数。）</span></h2>
 
         <form id="createForm">
           <label for="student">学生</label>
@@ -60,7 +61,7 @@
 
         <form id="answerForm" hidden>
           <label for="answer">你的解答</label>
-          <textarea id="answer" rows="4">由正弦定理 a/sin A = b/sin B，得 sin B = √2/2，故 B = 45° 或 B = 135°，均满足三角形存在条件。</textarea>
+          <textarea id="answer" rows="4">由正弦定理 a/sin A = b/sin B，得 sin B = b·sin A / a = 2×0.5/√3 = 1/√3 ≈ 0.5774，故 B ≈ 35.3° 或 144.7°，均满足 A+B&lt;180°，两解都成立。</textarea>
           <button class="btn" type="submit">提交答案</button>
         </form>
       </section>
@@ -121,18 +122,51 @@
     document.getElementById("answerForm").onsubmit = async (e) => {
       e.preventDefault();
       stampUpTo("SUBMIT");
-      const res = await fetch(`${API}/api/sessions/${sessionId}/submit`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ answer_text: document.getElementById("answer").value }),
-      });
-      const data = await res.json();
+      const submitBtn = document.querySelector("#answerForm button");
+      submitBtn.disabled = true;
+      const pendingEl = record("判答中 · GRADE",
+        `<span class="pending"><span class="spinner"></span> Teaching Agent 判读中（推理模型，可能需要 30–90 秒）…</span>`);
+
+      let res, data;
+      try {
+        res = await fetch(`${API}/api/sessions/${sessionId}/submit`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ answer_text: document.getElementById("answer").value }),
+        });
+        data = await res.json();
+      } catch {
+        pendingEl.remove();
+        submitBtn.disabled = false;
+        record("判答失败", `<div class="error-card">请求失败：网络错误或服务不可达。请稍后重试。<span class="code">network_error</span></div>`);
+        return;
+      }
+      pendingEl.remove();
+      submitBtn.disabled = false;
+
+      if (!res.ok) {
+        const msgs = {
+          502: "判答模型暂不可用（限流或超时）。系统不会伪造判定——请稍后重新开始本题。",
+          409: "本题会话已关闭，无法重复提交。",
+          404: "会话不存在，请重新开始本题。",
+          422: "提交内容不合法（答案为空、过长或维度非法）。",
+        };
+        record("判答失败", `<div class="error-card">${msgs[res.status] ?? "判答被拒绝。"}<span class="code">${esc(data.error ?? res.status)}${data.detail ? " · " + esc(data.detail) : ""}</span></div>`);
+        return;
+      }
       stampUpTo("QUEUE_DREAM");
 
       const v = data.judgment?.verdict;
       const cls = v === "correct" ? "ok" : v === "partially_correct" ? "partial" : "bad";
       const zh = { correct: "正确", partially_correct: "部分正确", incorrect: "不正确", unresolved: "待复核" }[v] ?? v;
-      record("判定 · ANSWER JUDGMENT", `<span class="verdict ${cls}">${esc(zh)}</span><br><span class="mono">${esc(data.judgment?.decision_summary ?? "")}</span>`);
+      const rubricZh = { met: "已达成", not_met: "未达成", unclear: "待澄清" };
+      const rubric = (data.judgment?.rubric_items ?? []).map((r) =>
+        `<li><span class="mark ${esc(r.status)}">${esc(rubricZh[r.status] ?? r.status)}</span><span>${esc(r.id)}</span></li>`).join("");
+      record("判定 · ANSWER JUDGMENT",
+        `<span class="verdict ${cls}">${esc(zh)}</span>` +
+        (v === "unresolved" ? `<div class="notice" style="margin-top:.5rem">判定不确定，已进入教师复核队列；本题不计入掌握证据。</div>` : "") +
+        `<div class="mono" style="margin-top:.4rem">${esc(data.judgment?.decision_summary ?? "")}</div>` +
+        (rubric ? `<ul class="rubric-list">${rubric}</ul>` : ""));
 
       const ser = data.scientific_evaluation_report;
       record("程序基准 · SCIENTIFIC EVALUATION",

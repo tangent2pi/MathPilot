@@ -7,7 +7,7 @@
  * dev fallback（无 Authorization + AUTH_DEV_FALLBACK=true）保留流程验证直通。
  */
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { startService, createPool } from "@agmath/service-kit";
+import { startService, createPool, longFetch } from "./lib.ts";
 import { authenticate, requireRole, AuthError, type Principal } from "./auth.ts";
 
 const LEARNING_URL = process.env.LEARNING_URL ?? "http://localhost:3002";
@@ -35,8 +35,11 @@ async function principalOf(req: FastifyRequest, reply: FastifyReply): Promise<Pr
   }
 }
 
+/** 转发超时：下流长任务（模型判答/OCR/抽取）可达 7 分钟；默认 undici headersTimeout=300s 会提前断开 */
+const FORWARD_TIMEOUT_MS = 420_000;
+
 async function forward(p: Principal, url: string, init: { method?: string; body?: unknown } = {}): Promise<Response> {
-  return fetch(url, {
+  return longFetch(url, {
     method: init.method ?? "GET",
     headers: {
       "content-type": "application/json",
@@ -44,7 +47,7 @@ async function forward(p: Principal, url: string, init: { method?: string; body?
       "x-user-id": p.userId,
     },
     ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
-  });
+  }, FORWARD_TIMEOUT_MS);
 }
 
 async function relay(reply: FastifyReply, res: Response): Promise<FastifyReply> {
@@ -118,11 +121,11 @@ startService({
       const { id } = req.params as { id: string };
       const body = { ...(req.body as Record<string, unknown>) };
       if (p.via === "oidc") body.assignee_id = p.userId;
-      const res = await fetch(`${REVIEW_URL}/review/tasks/${encodeURIComponent(id)}`, {
+      const res = await longFetch(`${REVIEW_URL}/review/tasks/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json", "x-tenant-id": p.tenantId, "x-user-id": p.userId },
         body: JSON.stringify(body),
-      });
+      }, 60_000);
       return relay(reply, res);
     });
 
@@ -148,6 +151,7 @@ startService({
       };
 
     app.post("/api/content/documents", contentForward("/documents"));
+    app.post("/api/content/documents/ocr", contentForward("/documents/ocr"));
     app.post("/api/content/ktq/run", contentForward("/ktq/run"));
     app.post("/api/content/er/run", contentForward("/er/run"));
     app.post("/api/content/publish", contentForward("/publish"));

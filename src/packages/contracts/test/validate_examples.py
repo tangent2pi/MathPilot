@@ -12,10 +12,12 @@
 import json
 import glob
 import sys
+from pathlib import Path
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
-ROOT = "src/packages/contracts/schemas"
+# 以脚本自身定位 schemas，任意 cwd 可跑；glob 零命中视为失败（防路径漂移假阳性）
+ROOT = str(Path(__file__).resolve().parent.parent / "schemas")
 
 
 def main() -> int:
@@ -59,6 +61,9 @@ def main() -> int:
                 failures.append((f, "missing_field", "expected to FAIL but passed"))
 
     print(f"checked {len(example_files)} example files against {len(schemas)} schemas")
+    if len(example_files) == 0 or len(schemas) == 0:
+        print("FAIL: no schemas/examples found — ROOT path drifted")
+        return 1
     if failures:
         for f, case, msg in failures:
             print(f"  FAIL {f} [{case}]: {msg[:200]}")

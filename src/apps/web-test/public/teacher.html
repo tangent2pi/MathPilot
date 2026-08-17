@@ -16,6 +16,7 @@
       <a href="/">每日练习</a>
       <a href="/report.html">报告与计划</a>
       <a href="/teacher.html" aria-current="page">教师复核</a>
+      <a href="/content.html">内容管线</a>
     </nav>
   </header>
 
@@ -25,7 +26,7 @@
 
     <div class="dossier">
       <section>
-        <h2 style="font-family:var(--serif);font-size:1.1rem">复核队列</h2>
+        <h2 style="font-family:var(--serif);font-size:1.1rem">复核队列 <span id="queueCount" class="mono" style="font-size:.7rem;color:var(--ink-faint)"></span></h2>
         <div id="queue"><div class="empty">队列加载中…</div></div>
       </section>
 
@@ -59,6 +60,9 @@
       const res = await fetch(`${API}/api/review/tasks`);
       const d = await res.json();
       const el = document.getElementById("queue");
+      const count = d.pending_count ?? 0;
+      document.getElementById("queueCount").textContent =
+        count > 0 ? `· ${count} 项待裁决` : "· 全部已裁决";
       if (!d.tasks?.length) {
         el.innerHTML = `<div class="empty">队列暂空。内容管线冻结 KTQ 后、或判答不确定时，任务会出现在这里。</div>`;
         return;

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.agmath.dev/providers/provider-trace/v1",
   "title": "ProviderTrace",
-  "$description": "所有 Provider 调用的统一追踪记录（fake 实现也必须产生同构字段）。written-by: provider-broker 及各 Provider 实现；read-by: 审计、成本核算、评测。对齐实施规划 §4：回退必须显式记录实际实现，禁止静默改变结论来源。",
+  "$description": "所有 Provider 调用的统一追踪记录（任何 Provider 实现都必须产生同构字段）。written-by: agent-runtime（Pi 宿主）及各 Provider 实现；read-by: 审计、成本核算、评测。对齐实施规划 §4：回退必须显式记录实际实现，禁止静默改变结论来源。",
   "type": "object",
   "required": [
     "trace_id", "provider_kind", "implementation", "operation",

@@ -50,12 +50,15 @@ services:
       args: { SERVICE_NAME: learning }
     environment:
       DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
-      BROKER_URL: http://provider-broker:3004
+      AGENT_RUNTIME_URL: http://agent-runtime:3005
+      CONTENT_URL: http://content:3006
       PORT: "3002"
     depends_on:
       db-seed:
         condition: service_completed_successfully
-      provider-broker:
+      agent-runtime:
+        condition: service_started
+      content:
         condition: service_started
     ports:
       - "3002:3002"
@@ -67,26 +70,30 @@ services:
       args: { SERVICE_NAME: profile }
     environment:
       DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
+      AGENT_RUNTIME_URL: http://agent-runtime:3005
       PORT: "3003"
     depends_on:
       db-seed:
         condition: service_completed_successfully
+      agent-runtime:
+        condition: service_started
     ports:
       - "3003:3003"
-
-  provider-broker:
-    build:
-      context: ../..
-      dockerfile: src/services/Dockerfile
-      args: { SERVICE_NAME: provider-broker }
-    ports:
-      - "3004:3004"
 
   agent-runtime:
     build:
       context: ../..
       dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: agent-runtime }
+    environment:
+      # 模型供应商凭据只进入本服务（Pi 宿主）；沙箱/前端不持有（设计 §4.4）
+      MODEL_API_BASE: ${MODEL_API_BASE:-https://api.scnet.cn/api/llm/v1}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      MODEL_ID_MAIN: ${MODEL_ID_MAIN:-Qwen3.8-Max}
+      MODEL_ID_AUX: ${MODEL_ID_AUX:-DeepSeek-V4-Flash-0731}
+      PORT: "3005"
+    ports:
+      - "3005:3005"
 
   content:
     build:
@@ -96,18 +103,19 @@ services:
     environment:
       DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
       REVIEW_URL: http://review:3008
+      AGENT_RUNTIME_URL: http://agent-runtime:3005  # KTQ/ER 抽取经 Pi
+      # OCR 供应商凭据由本服务（宿主侧）持有（providers/ocr 实现）
+      OCR_API_BASE: ${OCR_API_BASE:-https://paddleocr.aistudio-app.com}
+      OCR_API_TOKEN: ${OCR_API_TOKEN:-}
+      OCR_MODEL: ${OCR_MODEL:-PaddleOCR-VL-1.6}
       PORT: "3006"
     depends_on:
       db-seed:
         condition: service_completed_successfully
       review:
         condition: service_started
-
-  artifact:
-    build:
-      context: ../..
-      dockerfile: src/services/Dockerfile
-      args: { SERVICE_NAME: artifact }
+      agent-runtime:
+        condition: service_started
 
   review:
     build:
@@ -119,12 +127,6 @@ services:
     depends_on:
       db-seed:
         condition: service_completed_successfully
-
-  sandbox-runner:
-    build:
-      context: ../..
-      dockerfile: src/services/Dockerfile
-      args: { SERVICE_NAME: sandbox-runner }
 
   web-test:
     build:
@@ -156,8 +158,6 @@ services:
       learning:
         condition: service_started
       profile:
-        condition: service_started
-      provider-broker:
         condition: service_started
       review:
         condition: service_started

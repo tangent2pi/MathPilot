@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": { "start": "node src/index.ts", "typecheck": "tsc --noEmit" },
   "dependencies": {
-    "@agmath/service-kit": "workspace:*",
     "@agmath/mastery": "workspace:*",
+    "@agmath/providers-model": "workspace:*",
+    "fastify": "^5.2.0",
     "pg": "^8.13.1"
   },
   "devDependencies": {
