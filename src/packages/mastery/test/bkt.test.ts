@@ -1,8 +1,8 @@
 /**
- * BKT 内核性质测试（设计 §17.1）。
+ * 掌握内核契约测试（设计 §17.1；架构修订 v4 §3：OATutor 引擎移植 + pyBKT 数学对拍）。
  * 运行：node test/bkt.test.ts
  */
-import { bktUpdate, bktReplay, masteryState, BKT_PRIOR_V1 } from "../src/index.ts";
+import { bktUpdate, bktReplay, masteryState, BKT_PRIOR_V1, type BktModel } from "../src/index.ts";
 
 let failures = 0;
 function check(name: string, actual: unknown, expected: unknown) {
@@ -11,21 +11,28 @@ function check(name: string, actual: unknown, expected: unknown) {
   else console.log(`ok   ${name}`);
 }
 
-// 公式对拍：P(L0)=0.3, G=0.2, S=0.1
-check("success: 0.3*0.9/(0.3*0.9+0.7*0.2)", bktUpdate(0.3, "success"), 0.27 / 0.41);
-check("failure: 0.3*0.1/(0.3*0.1+0.7*0.8)", bktUpdate(0.3, "failure"), 0.03 / 0.59);
+// ── OATutor BKT-brain.js 移植对拍（标准贝叶斯后验，数学与 pyBKT 一致） ──
+// P(L0)=0.3, G=0.2, S=0.1, T=0（BKT_PRIOR_V1）
+const model: BktModel = { probMastery: BKT_PRIOR_V1.probMastery, params: BKT_PRIOR_V1 };
+const afterSuccess = bktUpdate(model, "success");   // 0.3*0.9/(0.3*0.9+0.7*0.2)
+const afterFailure = bktUpdate(model, "failure");   // 0.3*0.1/(0.3*0.1+0.7*0.8)
+check("success 后验 = P(L)(1-S)/[P(L)(1-S)+(1-P(L))G]", afterSuccess, 0.27 / 0.41);
+check("failure 后验 = P(L)S/[P(L)S+(1-P(L))(1-G)]", afterFailure, 0.03 / 0.59);
 
-// 单调性
+// 学习转移由参数集表达：T=0 时无转移；T>0 时按 P(L_next)=P(L|y)+(1-P(L|y))T（设计 §9.2）
+const withTransit = { ...BKT_PRIOR_V1, id: "bkt_test_t", probTransit: 0.2 };
+const afterTransit = bktUpdate({ probMastery: afterSuccess, params: withTransit }, "success");
+check("T=0.2 转移后 = 后验 + (1-后验)*0.2", afterTransit, afterSuccess + (1 - afterSuccess) * 0.2);
+
+// 重放与序列性质
 const up = bktReplay(["success"]);
 const down = bktReplay(["failure"]);
-check("success 提升基准", up > BKT_PRIOR_V1.pL0 ? 1 : 0, 1);
-check("failure 降低基准", down < BKT_PRIOR_V1.pL0 ? 1 : 0, 1);
-
-// 全对序列应收敛到高值但仍 < 1
+check("success 提升基准", up > BKT_PRIOR_V1.probMastery ? 1 : 0, 1);
+check("failure 降低基准", down < BKT_PRIOR_V1.probMastery ? 1 : 0, 1);
 const p5 = bktReplay(["success", "success", "success", "success", "success"]);
 check("5 连对后 0.9<p<1", p5 > 0.9 && p5 < 1 ? 1 : 0, 1);
 
-// 状态门槛（设计 §9.5）
+// 状态门槛（设计 §9.5；MASTERY_THRESHOLD=0.95 为 OATutor 项目约定）
 check("证据不足", masteryState(0.99, 1) === "insufficient_evidence" ? 1 : 0, 1);
 check("薄弱", masteryState(0.39, 3) === "weak" ? 1 : 0, 1);
 check("学习中", masteryState(0.5, 3) === "learning" ? 1 : 0, 1);
@@ -34,4 +41,4 @@ check("已掌握需迁移证据", masteryState(0.96, 3) === "possibly_mastered" 
 check("已掌握+迁移", masteryState(0.96, 3, true) === "mastered" ? 1 : 0, 1);
 
 if (failures > 0) process.exit(1);
-console.log("BKT TESTS PASS");
+console.log("BKT TESTS PASS (OATutor 移植对拍 + 状态门槛)");
