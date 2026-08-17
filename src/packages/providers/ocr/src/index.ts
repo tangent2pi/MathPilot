@@ -7,7 +7,8 @@
  *
  * 凭据由调用方（content 服务）从环境注入，本包不持有密钥。
  */
-import { Agent, fetch as undiciFetch } from "undici";
+// 注意：使用全局 fetch（Node 内置）而非 undici 包——undici@8.x 的 multipart
+// 编码与 aistudio API 不兼容（返回 500）；本包各请求超时均 <300s，无需自定义 dispatcher。
 
 export interface OcrClientConfig {
   readonly baseUrl: string;
@@ -34,14 +35,11 @@ export type OcrResult =
   | { readonly ok: true; readonly pages: OcrPageOut[] }
   | { readonly ok: false; readonly kind: "retryable" | "fatal" | "timeout"; readonly code: string; readonly message: string };
 
-const longAgent = new Agent({ headersTimeout: 600_000, bodyTimeout: 600_000, connectTimeout: 30_000 });
-
 function fetchLong(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-  return undiciFetch(url, {
+  return fetch(url, {
     ...init,
     signal: AbortSignal.timeout(timeoutMs),
-    dispatcher: longAgent,
-  } as Parameters<typeof undiciFetch>[1]);
+  });
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -85,12 +83,17 @@ export function createAistudioOcrClient(cfg: OcrClientConfig): {
       try {
         const form = new FormData();
         form.set("model", cfg.model);
-        form.set("optionalPayload", "{}");
+        // aistudio API 要求真实 optionalPayload（与队友 TEACHER 管线一致）
+        form.set("optionalPayload", JSON.stringify({
+          useDocOrientationClassify: false,
+          useDocUnwarping: false,
+          useChartRecognition: false,
+        }));
         if (pageRanges) form.set("pageRanges", pageRanges);
-        form.set("file", new Blob([bytes]), filename);
+        form.set("file", new Blob([bytes], { type: "application/pdf" }), filename);
         const res = await fetchLong(jobsUrl, {
           method: "POST",
-          headers: { authorization: `Bearer ${cfg.apiToken}` },
+          headers: { authorization: `bearer ${cfg.apiToken}` },
           body: form,
         }, 120_000);
         if (res.status === 429 || res.status >= 500) {
