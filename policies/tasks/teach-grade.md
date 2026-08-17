@@ -1,3 +1,8 @@
+---
+name: teach_grade
+description: 判答：按评分点判定学生单题作答，输出结构化 AnswerJudgment
+---
+
 # 任务：Teaching Agent · 判答
 
 ## 角色

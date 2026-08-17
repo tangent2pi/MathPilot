@@ -1,3 +1,8 @@
+---
+name: er_research
+description: 错因调研：基于冻结题目清单归纳错因 E 与诊断规则 R
+---
+
 # 任务：ER Research Agent · 错因调研
 
 ## 角色

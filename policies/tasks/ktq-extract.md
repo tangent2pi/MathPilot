@@ -1,3 +1,8 @@
+---
+name: ktq_extract
+description: 内容抽取：从讲义题块片段抽取 K/T/Q 与测量目标
+---
+
 # 任务：KTQ Extraction Agent · 内容抽取
 
 ## 角色

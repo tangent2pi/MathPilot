@@ -1,12 +1,11 @@
 /**
- * @agmath/providers-model — ModelProvider 的宿主侧实现（设计 §2.4 packages/providers/model）。
+ * @agmath/providers-model — ModelProvider 的宿主侧客户端（设计 §2.4 packages/providers/model，
+ * 架构修订 v4 §2）。
  *
  * 领域服务不直连任何模型供应商（ADR-001、设计 §4.2）：模型调用统一经
- * agent-runtime（Pi Agent Harness 宿主）。本客户端封装 agent-runtime 的
- * "一任务一 Session"协议（create → prompt → delete）：每个任务都是独立
- * Pi Agent Session，模型历史不跨任务共享（设计 §4.1 角色隔离）。
- * 任务提示（AGENTS.md 编译、Skills 注入）在 agent-runtime 侧完成——Pi 本体
- * 只通过 SDK 的扩展机制（Provider/Agent 配置）使用，不修改其源码。
+ * agent-runtime（Pi Agent Harness 宿主）。宿主内部：pi-ai 原生 Provider 注册、
+ * pi-agent-core Agent 原生运行时、AGMATH 运行时插件（会话/工作区/respond）——
+ * 领域服务只有一次 runTask 调用（POST /runtime/tasks），不接触会话句柄。
  *
  * 具体模型 ID 是 agent-runtime 的配置实例，不得出现在领域类型名中（设计 §1.2.2）。
  */
@@ -30,7 +29,7 @@ export interface TaskRunOptions {
   /** 领域侧稳定引用（session_id / agent_run_id），用于审计关联 */
   readonly sessionRef: string;
   readonly context: Record<string, unknown>;
-  /** 租户隔离：agent-runtime 会话绑定该租户，后续调用必须匹配（设计 §15.2） */
+  /** 租户隔离：宿主会话绑定该租户，跨租户一律 403（设计 §15.2） */
   readonly tenantId?: string;
   readonly promptText?: string;
 }
@@ -63,12 +62,13 @@ export function createAgentRuntimeClient(cfg: AgentRuntimeClientConfig): {
   const timeoutMs = cfg.timeoutMs ?? 600_000;
   const base = cfg.baseUrl.replace(/\/$/, "");
 
+  /** 单次任务运行（会话生命周期在宿主内，领域服务不持有句柄） */
   async function runTask(opts: TaskRunOptions): Promise<TaskResult> {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (opts.tenantId) headers["x-tenant-id"] = opts.tenantId;
     try {
-      const createRes = await fetchLong(
-        `${base}/runtime/sessions`,
+      const res = await fetchLong(
+        `${base}/runtime/tasks`,
         {
           method: "POST",
           headers,
@@ -76,55 +76,31 @@ export function createAgentRuntimeClient(cfg: AgentRuntimeClientConfig): {
             task_type: opts.taskType,
             session_ref: opts.sessionRef,
             context: opts.context,
+            ...(opts.promptText !== undefined ? { prompt_text: opts.promptText } : {}),
           }),
-        },
-        30_000,
-      );
-      const created = (await createRes.json()) as { session_id?: string; error?: string; detail?: string };
-      if (!createRes.ok || !created.session_id) {
-        return {
-          ok: false,
-          status: createRes.status,
-          error: created.error ?? "agent_session_create_failed",
-          ...(created.detail !== undefined ? { detail: created.detail } : {}),
-        };
-      }
-
-      const promptRes = await fetchLong(
-        `${base}/runtime/sessions/${encodeURIComponent(created.session_id)}/prompt`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ text: opts.promptText ?? "请按任务提示执行并输出最终结构化结果。" }),
         },
         timeoutMs,
       );
-      const prompted = (await promptRes.json()) as {
+      const d = (await res.json()) as {
         ok?: boolean;
         value?: { outputText?: string; outputJson?: unknown };
         trace?: { implementation?: string; promptVersion?: string };
         error?: { code?: string; message?: string };
       };
-      // 模型历史不跨任务共享：无论成败都销毁 Session；销毁失败不阻塞结果
-      await fetchLong(`${base}/runtime/sessions/${encodeURIComponent(created.session_id)}`, {
-        method: "DELETE",
-        headers,
-      }, 10_000).catch(() => undefined);
-
-      if (!promptRes.ok || !prompted.ok) {
+      if (!res.ok || !d.ok) {
         return {
           ok: false,
-          status: promptRes.status,
-          error: prompted.error?.code ?? "agent_prompt_failed",
-          ...(prompted.error?.message !== undefined ? { detail: prompted.error.message } : {}),
+          status: res.status,
+          error: d.error?.code ?? "task_run_failed",
+          ...(d.error?.message !== undefined ? { detail: d.error.message } : {}),
         };
       }
       return {
         ok: true,
-        ...(prompted.value?.outputJson !== undefined ? { outputJson: prompted.value.outputJson } : {}),
-        ...(prompted.value?.outputText !== undefined ? { outputText: prompted.value.outputText } : {}),
-        ...(prompted.trace?.implementation ? { implementation: prompted.trace.implementation } : {}),
-        ...(prompted.trace?.promptVersion ? { promptVersion: prompted.trace.promptVersion } : {}),
+        ...(d.value?.outputJson !== undefined ? { outputJson: d.value.outputJson } : {}),
+        ...(d.value?.outputText !== undefined ? { outputText: d.value.outputText } : {}),
+        ...(d.trace?.implementation ? { implementation: d.trace.implementation } : {}),
+        ...(d.trace?.promptVersion ? { promptVersion: d.trace.promptVersion } : {}),
       };
     } catch {
       return { ok: false, status: 502, error: "agent_runtime_unreachable" };

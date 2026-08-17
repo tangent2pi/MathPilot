@@ -1,3 +1,8 @@
+---
+name: dream_profile
+description: 长期画像更新：综合程序评价与教学总结双产物输出最终 ProfileUpdateDecision
+---
+
 # 任务：Dream / Profile Update Agent · 长期画像更新
 
 ## 角色

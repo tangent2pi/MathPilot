@@ -1,3 +1,8 @@
+---
+name: teach_summary
+description: 教学总结：对本次作答输出 ≤120 字简要过程观察
+---
+
 # 任务：Teaching Agent · 教学总结
 
 ## 角色
