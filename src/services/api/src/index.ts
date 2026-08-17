@@ -88,6 +88,14 @@ startService({
       return relay(reply, await forward(p, `${LEARNING_URL}/sessions/${encodeURIComponent(id)}/submit`, { method: "POST", body: req.body }));
     });
 
+    // 错因追问作答（§8.3 消歧追问；学生只能操作自己的会话）
+    app.post("/api/sessions/:id/probe", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      const { id } = req.params as { id: string };
+      return relay(reply, await forward(p, `${LEARNING_URL}/sessions/${encodeURIComponent(id)}/probe`, { method: "POST", body: req.body }));
+    });
+
     // ── 画像 ────────────────────────────────────────────
     app.get("/api/snapshots/:studentId", async (req, reply) => {
       const p = await principalOf(req, reply);

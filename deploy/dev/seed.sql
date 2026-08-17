@@ -48,20 +48,21 @@ on conflict (rule_id) do nothing;
 insert into content_question(question_id, tenant_id, chapter_id, question_version, stem_format, tags, measurement_dims, published, payload) values
   ('Q_TRI_012', 'tnt_dev00001', 'chap_tri_pilot', 1, 'open_solution',
    array['K_SINE_RULE','K_SSA','K_TRIANGLE_EXISTENCE'], array['K_SSA','K_SINE_RULE','K_TRIANGLE_EXISTENCE'], true,
-   '{"question_id":"Q_TRI_012","tenant_id":"tnt_dev00001","chapter_id":"chap_tri_pilot","question_version":1,' ||
+   ('{"question_id":"Q_TRI_012","tenant_id":"tnt_dev00001","chapter_id":"chap_tri_pilot","question_version":1,' ||
    '"stem_markdown":"在△ABC中，已知 a=√3，b=2，A=30°。求角 B（注意讨论解的个数）。","stem_format":"open_solution",' ||
    '"answer":{"summary":"sinB = b·sinA/a = 1/√3，B ≈ 35.3° 或 144.7°，两解均满足 A+B<180°"},' ||
    '"rubric":{"items":[{"id":"setup_sine_rule","description":"正确列出正弦定理并解出 sin B"},{"id":"ssa_branch_check","description":"检验 SSA 补角分支（两解讨论）并确认均满足三角形存在条件"}]},' ||
    '"tags":["K_SINE_RULE","K_SSA","K_TRIANGLE_EXISTENCE"],' ||
-   '"measurement_targets":[{"dim":"K_SSA","role":"primary","evidence_rule":"rubric.ssa_branch_check"},{"dim":"K_SINE_RULE","role":"secondary","evidence_rule":"rubric.setup_sine_rule"},{"dim":"K_TRIANGLE_EXISTENCE","role":"prerequisite","evidence_rule":"probe.existence_check"}]}'),
+   '"measurement_targets":[{"dim":"K_SSA","role":"primary","evidence_rule":"rubric.ssa_branch_check"},{"dim":"K_SINE_RULE","role":"secondary","evidence_rule":"rubric.setup_sine_rule"},{"dim":"K_TRIANGLE_EXISTENCE","role":"prerequisite","evidence_rule":"probe.existence_check"}]}')::jsonb),
+
   ('Q_TRI_020', 'tnt_dev00001', 'chap_tri_pilot', 1, 'open_solution',
    array['K_SINE_RULE','K_SSA','K_TRIANGLE_EXISTENCE'], array['K_SSA','K_SINE_RULE','K_TRIANGLE_EXISTENCE'], true,
-   '{"question_id":"Q_TRI_020","tenant_id":"tnt_dev00001","chapter_id":"chap_tri_pilot","question_version":1,' ||
+   ('{"question_id":"Q_TRI_020","tenant_id":"tnt_dev00001","chapter_id":"chap_tri_pilot","question_version":1,' ||
    '"stem_markdown":"在△ABC中，已知 a=2，b=2√2，A=30°。求角 B（注意讨论解的个数）。","stem_format":"open_solution",' ||
    '"answer":{"summary":"sinB = b·sinA/a = √2/2，B = 45° 或 135°，两解均满足 A+B<180°"},' ||
    '"rubric":{"items":[{"id":"setup_sine_rule","description":"正确列出正弦定理并解出 sin B"},{"id":"ssa_branch_check","description":"检验 SSA 补角分支（两解讨论）并确认均满足三角形存在条件"}]},' ||
    '"tags":["K_SINE_RULE","K_SSA","K_TRIANGLE_EXISTENCE"],' ||
-   '"measurement_targets":[{"dim":"K_SSA","role":"primary","evidence_rule":"rubric.ssa_branch_check"},{"dim":"K_SINE_RULE","role":"secondary","evidence_rule":"rubric.setup_sine_rule"},{"dim":"K_TRIANGLE_EXISTENCE","role":"prerequisite","evidence_rule":"probe.existence_check"}]}')
+   '"measurement_targets":[{"dim":"K_SSA","role":"primary","evidence_rule":"rubric.ssa_branch_check"},{"dim":"K_SINE_RULE","role":"secondary","evidence_rule":"rubric.setup_sine_rule"},{"dim":"K_TRIANGLE_EXISTENCE","role":"prerequisite","evidence_rule":"probe.existence_check"}]}')::jsonb)
 on conflict (question_id) do nothing;
 
 insert into content_measurement_target(tenant_id, question_id, dim, role, evidence_rule) values
@@ -89,11 +90,11 @@ insert into content_chapter_package
 values
   ('pkg_tri_pilot_001', 'tnt_dev00001', '0.1.0', 'sha256:pilot-chapter-package-v0.1.0',
    'usr_teacher01', now(),
-   '{"package_id":"pkg_tri_pilot_001","tenant_id":"tnt_dev00001","version":"0.1.0",' ||
+   ('{"package_id":"pkg_tri_pilot_001","tenant_id":"tnt_dev00001","version":"0.1.0",' ||
    '"contents":{"knowledge_components":["K_SINE_RULE","K_SSA","K_TRIANGLE_EXISTENCE"],' ||
    '"question_types":["T_SSA_SOLVE"],"error_causes":["E_SSA_MISSING_OBTUSE"],' ||
    '"questions":["Q_TRI_012","Q_TRI_020"],"diagnosis_rules":["R_SSA_BRANCH_CHECK"]},' ||
-   '"published_by":"usr_teacher01","note":"dev 试点已发布包"}}')
+   '"published_by":"usr_teacher01","note":"dev 试点已发布包"}')::jsonb)
 on conflict (package_id) do nothing;
 
 commit;

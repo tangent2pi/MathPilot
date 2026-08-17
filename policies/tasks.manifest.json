@@ -25,6 +25,11 @@
       "file": "tasks/dream-profile.md",
       "prompt_version": "dream-profile@0.4.0",
       "role": "aux"
+    },
+    "diagnose": {
+      "file": "tasks/diagnose.md",
+      "prompt_version": "diagnose@0.4.0",
+      "role": "main"
     }
   }
 }

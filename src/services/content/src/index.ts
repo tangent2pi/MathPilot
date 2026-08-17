@@ -622,6 +622,38 @@ startService({
       return row.payload;
     });
 
+    /**
+     * 诊断上下文（§8.3：候选只能来自题目关联 E-ID 与诊断规则）：
+     * 已发布题目 + 租户级错因库/诊断规则只读投影，供 DIAGNOSE 归因使用。
+     */
+    app.get("/questions/:id/diagnosis-context", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { id } = req.params as { id: string };
+      const out = await withTenant(pool, tenantId, async (c) => {
+        const q = await c.query(
+          "select payload from content_question where question_id = $1 and published",
+          [id],
+        );
+        if (q.rows.length === 0) return { status: 404 as const };
+        const [ecs, rules] = await Promise.all([
+          c.query("select dimension_id, payload from content_error_cause order by dimension_id"),
+          c.query("select rule_id, payload from content_diagnosis_rule order by rule_id"),
+        ]);
+        return {
+          status: 200 as const,
+          body: {
+            question_id: id,
+            question: q.rows[0].payload,
+            error_causes: ecs.rows.map((r) => r.payload),
+            diagnosis_rules: rules.rows.map((r) => r.payload),
+          },
+        };
+      });
+      if (out.status === 404) return reply.code(404).send({ error: "question not found or not published" });
+      return out.body;
+    });
+
     /** 验收：任一正式字段可追溯到片段/页码、Agent Run、模型、Prompt、审核决定（设计 §7.3） */
     app.get("/questions/:id/lineage", async (req, reply) => {
       const tenantId = tenantOf(req);

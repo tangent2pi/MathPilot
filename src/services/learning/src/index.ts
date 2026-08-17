@@ -1,16 +1,17 @@
 /**
- * learning-service：QuestionSession 创建/查询 + 教学闭环。
+ * learning-service：QuestionSession 创建/查询 + 教学闭环（含错因归因与追问）。
+ *
+ * 状态机（设计 §4.5 骨架版）：
+ *   submit（首次作答）→ SUBMIT → GRADE
+ *     ├─ correct / unresolved → CLOSE 全链（观测 + SER + TSS + SLR + QUEUE_DREAM）
+ *     └─ partially_correct / incorrect → DIAGNOSE（错因归因 §8.3）
+ *         → PROBE_AWAIT ↔ probe（追问作答，≤3 轮）→ 闭合/待观察 → CLOSE 全链
  *
  * 判答（GRADE）为模型主判（设计 §12.1）：经 agent-runtime（Pi 宿主）创建
- * Teaching Agent Session，依据题目/评分点/学生作答输出结构化 AnswerJudgment；
- * 学生作答按不可信数据处理（注入指令不升级为命令，设计 §16.3）。
- * 模型不可用时显式 502——绝不伪造判定。
+ * Teaching Agent Session；学生作答按不可信数据处理（§16.3）。
+ * 模型不可用/无输出时显式 502——绝不伪造判定。
  *
- * 题目只读已发布章节包（设计 §7.2）：题目未发布/不可达时显式失败，无内置兜底题。
- *
- * POST /sessions/:id/submit 单事务推进：
- *   SUBMIT → GRADE → SCIENTIFIC_EVALUATE（保守 BKT，prior_only）
- *   → TEACHING_SESSION_SUMMARY → CLOSE → SLR 封装 → QUEUE_DREAM
+ * 题目只读已发布章节包（§7.2）：未发布/不可达显式失败，无内置兜底题。
  * 纪律（ADR-004）：本服务不写 StudentSnapshot；长期画像只由 Dream 路径更新。
  */
 import { startService, createPool, withTenant, newId } from "./lib.ts";
@@ -23,6 +24,8 @@ const AGENT_RUNTIME_URL = process.env.AGENT_RUNTIME_URL ?? "http://localhost:300
 const CONTENT_URL = process.env.CONTENT_URL ?? "http://localhost:3006";
 const runtime = createAgentRuntimeClient({ baseUrl: AGENT_RUNTIME_URL });
 
+const MAX_PROBE_ROUNDS = 3;
+
 interface CreateSessionBody {
   student_id: string;
   question_id: string;
@@ -34,6 +37,10 @@ interface CreateSessionBody {
 interface SubmitBody {
   answer_text: string;
   dimension_id?: string;
+}
+
+interface ProbeBody {
+  answer_text: string;
 }
 
 function tenantOf(req: { headers: Record<string, unknown> }): string | null {
@@ -53,10 +60,7 @@ interface QuestionSpec {
   rubric: { id: string; description: string }[];
 }
 
-/**
- * 题目规格只来自已发布章节包（设计 §7.2）：content 返回未发布/不存在 → 404；
- * content 不可达 → 502。不做任何内置兜底。
- */
+/** 题目规格只来自已发布章节包（设计 §7.2）：未发布 → 404，不可达 → 502。无内置兜底。 */
 async function getQuestionSpec(questionId: string, tenantId: string): Promise<
   { ok: true; spec: QuestionSpec } | { ok: false; status: number; error: string; detail?: string }
 > {
@@ -69,9 +73,7 @@ async function getQuestionSpec(questionId: string, tenantId: string): Promise<
   } catch {
     return { ok: false, status: 502, error: "content_unavailable", detail: "题目服务不可达" };
   }
-  if (res.status === 404) {
-    return { ok: false, status: 404, error: "question_not_found_or_unpublished" };
-  }
+  if (res.status === 404) return { ok: false, status: 404, error: "question_not_found_or_unpublished" };
   if (!res.ok) return { ok: false, status: 502, error: "content_unavailable", detail: `http_${res.status}` };
   const q = (await res.json()) as { stem_markdown?: string; rubric?: { items?: { id: string; description: string }[] } };
   if (!q.stem_markdown || !q.rubric?.items?.length) {
@@ -80,40 +82,58 @@ async function getQuestionSpec(questionId: string, tenantId: string): Promise<
   return { ok: true, spec: { stem: q.stem_markdown, rubric: q.rubric.items.map((i) => ({ id: i.id, description: i.description })) } };
 }
 
-interface GradeOutcome {
+/** 诊断上下文（§8.3：候选只能来自题目关联 E-ID 与诊断规则） */
+interface DiagnosisContext {
+  error_causes: { dimension_id?: string; name?: string; description?: string }[];
+  diagnosis_rules: { rule_id?: string; trigger?: string; candidate_error_causes?: string[]; probe?: string }[];
+}
+
+async function getDiagnosisContext(questionId: string, tenantId: string): Promise<
+  { ok: true; ctx: DiagnosisContext } | { ok: false; status: number; error: string; detail?: string }
+> {
+  let res: Response;
+  try {
+    res = await fetch(`${CONTENT_URL}/questions/${encodeURIComponent(questionId)}/diagnosis-context`, {
+      headers: { "x-tenant-id": tenantId },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    return { ok: false, status: 502, error: "content_unavailable", detail: "诊断上下文不可达" };
+  }
+  if (!res.ok) return { ok: false, status: 502, error: "content_unavailable", detail: `http_${res.status}` };
+  const d = (await res.json()) as DiagnosisContext;
+  return { ok: true, ctx: d };
+}
+
+type Grade = {
   verdict: "correct" | "partially_correct" | "incorrect" | "unresolved";
   rubricItems: { id: string; status: string }[];
   decisionSummary: string;
   uncertainty: "low" | "medium" | "high";
   modelImpl: string;
   promptVersion: string;
-  tssDraft: string;
-  tssModelImpl: string;
-  tssPromptVersion: string;
-}
+};
 
-type GradingResult =
-  | { ok: true; grade: GradeOutcome }
-  | { ok: false; status: number; error: string; detail?: string };
+type GradingResult = { ok: true; grade: Grade } | { ok: false; status: number; error: string; detail?: string };
 
-/** 判答 + 教学总结两个独立任务 Session（设计 §4.1 角色隔离：不共享模型历史） */
+/** 单次判答任务 Session（模型主判，设计 §12.1） */
 async function runGrading(
   questionId: string,
   tenantId: string,
   answerText: string,
+  extra: { title?: string; rubric?: string } = {},
 ): Promise<GradingResult> {
   const specRes = await getQuestionSpec(questionId, tenantId);
   if (!specRes.ok) return specRes;
   const { stem, rubric } = specRes.spec;
-  const rubricText = rubric.map((r) => `- ${r.id}：${r.description}`).join("\n");
+  const rubricText = extra.rubric ?? rubric.map((r) => `- ${r.id}：${r.description}`).join("\n");
   const sessionRef = newId("s");
 
-  // 判答 Session
   const gradeRes = await runtime.runTask({
     taskType: "teach_grade",
     sessionRef,
     tenantId,
-    context: { question: stem, rubric: rubricText, userData: answerText },
+    context: { question: extra.title ? `${extra.title}\n\n${stem}` : stem, rubric: rubricText, userData: answerText },
   });
   if (!gradeRes.ok) return gradeRes;
   const j = gradeRes.outputJson as {
@@ -125,32 +145,281 @@ async function runGrading(
   const rubricItems = (j.rubric_items ?? [])
     .filter((r): r is { id: string; status: string } => typeof r.id === "string" && typeof r.status === "string" && RUBRIC_STATUS.has(r.status));
 
-  // 教学总结 Session（独立 Session，不共享判答历史——设计 §4.1 角色隔离）
-  const tssRes = await runtime.runTask({
-    taskType: "teach_summary",
-    sessionRef,
-    tenantId,
-    context: {
-      question: stem,
-      userData: `判定：${j.verdict}\n理由：${j.decision_summary ?? ""}\n评分点：${rubricItems.map((r) => `${r.id}=${r.status}`).join("，")}`,
-    },
-  });
-  if (!tssRes.ok) return tssRes;
-
   return {
     ok: true,
     grade: {
-      verdict: j.verdict as GradeOutcome["verdict"],
+      verdict: j.verdict as Grade["verdict"],
       rubricItems,
       decisionSummary: (j.decision_summary ?? "").slice(0, 500),
-      uncertainty: (j.uncertainty && ["low", "medium", "high"].includes(j.uncertainty) ? j.uncertainty : "medium") as GradeOutcome["uncertainty"],
+      uncertainty: (j.uncertainty && ["low", "medium", "high"].includes(j.uncertainty) ? j.uncertainty : "medium") as Grade["uncertainty"],
       modelImpl: gradeRes.implementation ?? "pi.unknown",
       promptVersion: gradeRes.promptVersion ?? "unknown",
-      tssDraft: (tssRes.outputText ?? "").trim().slice(0, 1000),
-      tssModelImpl: tssRes.implementation ?? "pi.unknown",
-      tssPromptVersion: tssRes.promptVersion ?? "unknown",
     },
   };
+}
+
+/** 错因归因任务（设计 §8.3）：输出候选错因 + 消歧追问 */
+interface DiagnoseOutcome {
+  candidate_error_causes: { error_cause_id: string; confidence: number; evidence: string }[];
+  probe: { question: string; judge_rubric: string } | null;
+  resolved: boolean;
+  rationale: string;
+}
+
+async function runDiagnose(
+  questionId: string,
+  tenantId: string,
+  verdict: string,
+  answerText: string,
+): Promise<{ ok: true; outcome: DiagnoseOutcome } | { ok: false; status: number; error: string; detail?: string }> {
+  const specRes = await getQuestionSpec(questionId, tenantId);
+  if (!specRes.ok) return specRes;
+  const ctxRes = await getDiagnosisContext(questionId, tenantId);
+  if (!ctxRes.ok) return ctxRes;
+
+  const context = {
+    question: specRes.spec.stem,
+    verdict,
+    diagnosisContext: JSON.stringify({
+      error_causes: ctxRes.ctx.error_causes.map((e) => ({ id: e.dimension_id, name: e.name, description: e.description })),
+      diagnosis_rules: ctxRes.ctx.diagnosis_rules.map((r) => ({
+        rule_id: r.rule_id, trigger: r.trigger, candidate_error_causes: r.candidate_error_causes, probe: r.probe,
+      })),
+    }),
+    userData: answerText,
+  };
+  const res = await runtime.runTask({ taskType: "diagnose", sessionRef: newId("d"), tenantId, context });
+  if (!res.ok) return res;
+  const j = res.outputJson as {
+    candidate_error_causes?: { error_cause_id?: string; confidence?: number; evidence?: string }[];
+    probe?: { question?: string; judge_rubric?: string } | null;
+    resolved?: boolean;
+    rationale?: string;
+  } | undefined;
+  const candidates = (j?.candidate_error_causes ?? [])
+    .filter((c): c is { error_cause_id: string; confidence: number; evidence: string } =>
+      typeof c.error_cause_id === "string" && c.error_cause_id.length > 0)
+    .slice(0, 3)
+    .map((c) => ({
+      error_cause_id: c.error_cause_id,
+      confidence: Number.isFinite(c.confidence) ? Math.min(Math.max(c.confidence!, 0), 1) : 0.5,
+      evidence: c.evidence ?? "",
+    }));
+  return {
+    ok: true,
+    outcome: {
+      candidate_error_causes: candidates,
+      probe: j?.probe?.question ? { question: j.probe.question, judge_rubric: j.probe.judge_rubric ?? "依据数学事实判定探针回答正误" } : null,
+      resolved: j?.resolved ?? candidates.length === 0,
+      rationale: (j?.rationale ?? "").slice(0, 200),
+    },
+  };
+}
+
+/** 关闭全链：观测（主答+探针，按 evidence_rule 进 BKT）→ SER → TSS → SLR → CLOSE → QUEUE_DREAM。
+ *  双产物纪律（§11.2）：TSS 生成失败则显式 502，不关闭、不产生缺失双产物的 SLR。 */
+async function closeChain(
+  tenantId: string,
+  sessionId: string,
+): Promise<{ status: number; body: unknown }> {
+  const now = new Date().toISOString();
+
+  // 会话与全部作答事实（事务外读，权威判定在下方 for update）
+  const sres = await withTenant(pool, tenantId, async (c) => {
+    const r = await c.query("select * from runtime_question_session where session_id = $1 for update", [sessionId]);
+    return r.rows[0];
+  });
+  if (!sres) return { status: 404, body: { error: "session not found" } };
+  if (sres.state === "CLOSED") return { status: 409, body: { error: "session already closed" } };
+  const dimensionId = (sres.payload?.dimension_id as string | undefined) ?? "K_SSA";
+
+  const facts = await withTenant(pool, tenantId, async (c) => {
+    const attempts = await c.query(
+      `select a.payload, v.verdict, v.payload->>'decision_summary' as summary
+         from runtime_attempt a
+         join runtime_answer_verdict v on v.attempt_id = a.attempt_id
+        where a.session_id = $1 order by a.created_at`,
+      [sessionId],
+    );
+    const claim = await c.query(
+      "select claim_id, status, payload from runtime_diagnostic_claim where session_id = $1 order by created_at desc limit 1",
+      [sessionId],
+    );
+    return { attempts: attempts.rows, claim: claim.rows[0] };
+  });
+
+  const hist = facts.attempts.map((a) => {
+    const kind = (a.payload?.kind ?? "answer") as "answer" | "probe";
+    return {
+      verdict: a.verdict as string,
+      kind,
+      evidence_rule: kind === "probe" ? "probe.judge" : "teaching_agent.grade",
+      decision_summary: a.summary ?? "",
+    };
+  });
+
+  // 教学总结（独立 Session，基于最终证据；失败显式 502，双产物不得残缺）
+  const summaryCtx = hist.map((h, i) => `作答${i + 1}（${h.kind}）：判定=${h.verdict}，${h.decision_summary}`).join("\n");
+  const tssRes = await runtime.runTask({
+    taskType: "teach_summary",
+    sessionRef: newId("t"),
+    tenantId,
+    context: { question: `共 ${hist.length} 次作答（含探针），BKT 基准见下方`, userData: summaryCtx },
+  });
+  if (!tssRes.ok) {
+    return { status: 502, body: { error: "summary_failed", detail: tssRes.detail ?? tssRes.error, session_state: "OPEN" } };
+  }
+
+  const claimId = facts.claim?.claim_id ?? null;
+  const claimStatus = (facts.claim?.status as string | undefined) ?? null;
+
+  const out = await withTenant(pool, tenantId, async (c) => {
+    const s = await c.query("select * from runtime_question_session where session_id = $1 for update", [sessionId]);
+    const session = s.rows[0];
+    if (!session) return { status: 404 as const, body: { error: "session not found" } };
+    if (session.state === "CLOSED") return { status: 409 as const, body: { error: "session already closed" } };
+
+    const independent = session.mode === "diagnostic";
+
+    // 观测：主答 + 探针（成功/失败进 BKT；unresolved 不进）
+    const observationIds: string[] = [];
+    for (const h of hist) {
+      if (h.verdict === "unresolved") continue;
+      const observationId = newId("obs");
+      observationIds.push(observationId);
+      const observationPayload = {
+        observation_id: observationId,
+        tenant_id: tenantId,
+        student_id: session.student_id,
+        dimension_id: dimensionId,
+        question_id: session.question_id,
+        session_id: sessionId,
+        outcome: h.verdict === "correct" ? "success" : "failure",
+        independent,
+        evidence_rule: h.evidence_rule,
+        hint_level: 0,
+        evidence_refs: [],
+        model_version: "pi.scnet",
+        rule_version: h.evidence_rule,
+        supersedes: null,
+        created_at: now,
+      };
+      await c.query(
+        `insert into runtime_state_observation
+           (observation_id, tenant_id, student_id, dimension_id, question_id, session_id,
+            judgment_id, outcome, independent, evidence_rule, hint_level, payload)
+         values ($1,$2,$3,$4,$5,$6,null,$7,$8,$9,0,$10)`,
+        [observationId, tenantId, session.student_id, dimensionId, session.question_id, sessionId,
+         observationPayload.outcome, independent, h.evidence_rule, JSON.stringify(observationPayload)],
+      );
+    }
+
+    // 保守 BKT：重放该学生该维度全部有效独立观测（被 supersede 的旧观测经指针排除）
+    const histRows = await c.query(
+      `select o.outcome from runtime_state_observation o
+        where o.student_id = $1 and o.dimension_id = $2 and o.independent
+          and o.outcome in ('success','failure')
+          and not exists (
+            select 1 from runtime_state_observation o2 where o2.supersedes = o.observation_id
+          )
+        order by o.created_at`,
+      [session.student_id, dimensionId],
+    );
+    const pBaseline = Math.round(bktReplay(histRows.rows.map((r) => r.outcome as "success" | "failure")) * 1000) / 1000;
+
+    const reportId = newId("ser");
+    const serPayload = {
+      report_id: reportId,
+      session_id: sessionId,
+      student_id: session.student_id,
+      dimension_id: dimensionId,
+      p_bkt_baseline: pBaseline,
+      independent_observation_count: histRows.rows.length,
+      parameter_set_id: BKT_PRIOR_V1.id,
+      calibration_status: "prior_only",
+      input_event_refs: observationIds,
+      calculation_trace_ref: `calc_${sessionId}`,
+      kernel_version: "mastery-bkt@0.1.0",
+      created_at: now,
+    };
+    await c.query(
+      `insert into state_scientific_evaluation_report
+         (report_id, tenant_id, session_id, student_id, dimension_id, p_bkt_baseline,
+          calibration_status, parameter_set_id, kernel_version, payload)
+       values ($1,$2,$3,$4,$5,$6,'prior_only',$7,$8,$9)`,
+      [reportId, tenantId, sessionId, session.student_id, dimensionId, pBaseline,
+       BKT_PRIOR_V1.id, "mastery-bkt@0.1.0", JSON.stringify(serPayload)],
+    );
+
+    const summaryId = newId("tss");
+    const tssText = (tssRes.outputText ?? "").trim().slice(0, 1000);
+    const tssPayload = {
+      summary_id: summaryId,
+      session_id: sessionId,
+      scientific_evaluation_ref: reportId,
+      summary: `${tssText}（BKT 基准 ${pBaseline}，prior_only）`,
+      method_observations: [],
+      misconception_candidates: claimId && claimStatus ? [{ claim_id: claimId, status: claimStatus }] : [],
+      hint_dependency: "low",
+      unresolved: claimStatus === "unresolved" ? [{ claim_id: claimId }] : [],
+      evidence_refs: [],
+      model_id: tssRes.implementation ?? "pi.unknown",
+      prompt_version: tssRes.promptVersion ?? "unknown",
+      created_at: now,
+    };
+    await c.query(
+      `insert into runtime_teaching_session_summary
+         (summary_id, tenant_id, session_id, ser_id, model_id, prompt_version, payload)
+       values ($1,$2,$3,$4,$5,$6,$7)`,
+      [summaryId, tenantId, sessionId, reportId, tssPayload.model_id, tssPayload.prompt_version, JSON.stringify(tssPayload)],
+    );
+
+    const recordId = newId("slr");
+    await c.query(
+      `insert into runtime_session_learning_record
+         (record_id, tenant_id, session_id, student_id, ser_id, tss_id,
+          integrity_passed, dream_queued_at, payload)
+       values ($1,$2,$3,$4,$5,$6,true,now(),$7)`,
+      [recordId, tenantId, sessionId, session.student_id, reportId, summaryId,
+       JSON.stringify({
+         record_id: recordId,
+         session_id: sessionId,
+         student_id: session.student_id,
+         scientific_evaluation_report_id: reportId,
+         teaching_session_summary_id: summaryId,
+         integrity_check: { session_id_match: true, cross_refs_present: true, provenance_complete: true, passed: true },
+         dream_queued_at: now,
+         created_at: now,
+       })],
+    );
+
+    const states = ["SUBMIT", "GRADE", "SCIENTIFIC_EVALUATE", "TEACHING_SESSION_SUMMARY", "CLOSE", "QUEUE_DREAM"];
+    await c.query(
+      `update runtime_question_session
+          set state = 'CLOSED', closed_at = now(),
+              state_history = state_history || (
+                select jsonb_agg(jsonb_build_object('state', s, 'entered_at', $2::timestamptz, 'actor', 'orchestrator'))
+                from unnest($3::text[]) as s
+              ),
+              payload = payload || jsonb_build_object('state', 'CLOSED', 'closed_at', $2::timestamptz)
+        where session_id = $1`,
+      [sessionId, now, states],
+    );
+
+    return {
+      status: 200 as const,
+      body: {
+        session_id: sessionId,
+        observation_ids: observationIds,
+        scientific_evaluation_report: serPayload,
+        teaching_session_summary: tssPayload,
+        session_learning_record_id: recordId,
+        dream_queued: true,
+      },
+    };
+  });
+
+  return out.status === 200 ? { status: 200, body: out.body } : { status: out.status, body: out.body };
 }
 
 startService({
@@ -198,7 +467,6 @@ startService({
       if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
       const { id } = req.params as { id: string };
       const row = await withTenant(pool, tenantId, async (c) => {
-        // 状态与历史以列为准（payload 在生命周期中可能滞后）
         const r = await c.query(
           `select payload || jsonb_build_object('state', state, 'state_history', state_history,
                   'hint_level', hint_level, 'probe_rounds', probe_rounds) as payload
@@ -211,6 +479,7 @@ startService({
       return row.payload;
     });
 
+    /** 首次作答：GRADE → correct/unresolved 直接关闭；partial/incorrect → DIAGNOSE + 追问 */
     app.post("/sessions/:id/submit", async (req, reply) => {
       const tenantId = tenantOf(req);
       if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
@@ -228,207 +497,295 @@ startService({
       }
       const now = new Date().toISOString();
 
-      // 预检（只读）：不存在/已关闭时不消耗模型调用；权威判定仍在下方事务的 for update
       const pre = await withTenant(pool, tenantId, async (c) => {
-        const r = await c.query("select state, question_id from runtime_question_session where session_id = $1", [id]);
+        const r = await c.query(
+          "select state, question_id from runtime_question_session where session_id = $1",
+          [id],
+        );
         return r.rows[0];
       });
       if (!pre) return reply.code(404).send({ error: "session not found" });
-      if (pre.state === "CLOSED") return reply.code(409).send({ error: "session already closed" });
+      if (pre.state !== "CREATE") return reply.code(409).send({ error: `submit only allowed from CREATE, current ${pre.state}` });
 
       const graded = await runGrading(pre.question_id, tenantId, body.answer_text);
       if (!graded.ok) return reply.code(graded.status).send({ error: graded.error, detail: graded.detail });
       const grade = graded.grade;
 
-      const outcome: "success" | "failure" | "unresolved" =
-        grade.verdict === "correct" ? "success" : grade.verdict === "unresolved" ? "unresolved" : "failure";
-      const judgmentId = newId("jud");
+      // 部分正确/错误 → 先做错因归因（模型调用失败则整体 502，会话保持 CREATE 可重试）
+      let diag: Awaited<ReturnType<typeof runDiagnose>> | null = null;
+      if (grade.verdict === "partially_correct" || grade.verdict === "incorrect") {
+        diag = await runDiagnose(pre.question_id, tenantId, grade.verdict, body.answer_text);
+        if (!diag.ok) return reply.code(diag.status).send({ error: diag.error, detail: diag.detail });
+      }
+
+      // 事实层：作答 + 判定（不可变，先落库）
       const attemptId = newId("att");
-      const observationId = newId("obs");
-      const reportId = newId("ser");
-      const summaryId = newId("tss");
-      const recordId = newId("slr");
-
-      const result = await withTenant(pool, tenantId, async (c) => {
-        const sres = await c.query(
-          "select * from runtime_question_session where session_id = $1 for update",
-          [id],
-        );
-        const session = sres.rows[0];
-        if (!session) return { status: 404 as const };
-        if (session.state === "CLOSED") return { status: 409 as const, error: "session already closed" };
-
-        const independent: boolean = session.mode === "diagnostic";
-
+      const judgmentId = newId("jud");
+      await withTenant(pool, tenantId, async (c) => {
+        const s = await c.query("select * from runtime_question_session where session_id = $1 for update", [id]);
+        const session = s.rows[0];
+        if (!session || session.state !== "CREATE") throw new Error("session state changed");
         await c.query(
           `insert into runtime_attempt (attempt_id, tenant_id, session_id, student_id, payload)
            values ($1,$2,$3,$4,$5)`,
           [attemptId, tenantId, id, session.student_id,
-           JSON.stringify({ answer_text: body.answer_text, submitted_at: now })],
+           JSON.stringify({ answer_text: body.answer_text, kind: "answer", submitted_at: now })],
         );
-
-        const judgmentPayload = {
-          judgment_id: judgmentId,
-          session_id: id,
-          attempt_id: attemptId,
-          verdict: grade.verdict,
-          rubric_items: grade.rubricItems.map((r) => ({
-            id: r.id, status: r.status, evidence_refs: [`answer://${id}/${attemptId}`],
-          })),
-          decision_summary: grade.decisionSummary,
-          uncertainty: grade.uncertainty,
-          injection_flags: [],
-          model_id: grade.modelImpl,
-          prompt_version: grade.promptVersion,
-          created_at: now,
-        };
         await c.query(
           `insert into runtime_answer_verdict
              (judgment_id, tenant_id, session_id, attempt_id, verdict, uncertainty, model_id, prompt_version, payload)
            values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [judgmentId, tenantId, id, attemptId, grade.verdict, grade.uncertainty,
-           grade.modelImpl, grade.promptVersion, JSON.stringify(judgmentPayload)],
-        );
-
-        const observationPayload = {
-          observation_id: observationId,
-          tenant_id: tenantId,
-          student_id: session.student_id,
-          dimension_id: dimensionId,
-          question_id: session.question_id,
-          session_id: id,
-          judgment_id: judgmentId,
-          outcome,
-          independent,
-          evidence_rule: "teaching_agent.grade",
-          hint_level: 0,
-          evidence_refs: [`answer://${id}/${attemptId}`],
-          model_version: grade.modelImpl,
-          rule_version: grade.promptVersion,
-          supersedes: null,
-          created_at: now,
-        };
-        await c.query(
-          `insert into runtime_state_observation
-             (observation_id, tenant_id, student_id, dimension_id, question_id, session_id,
-              judgment_id, outcome, independent, evidence_rule, hint_level, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11)`,
-          [observationId, tenantId, session.student_id, dimensionId, session.question_id,
-           id, judgmentId, outcome, independent, observationPayload.evidence_rule, JSON.stringify(observationPayload)],
-        );
-
-        // 保守 BKT：重放该学生该维度全部有效独立观测（被 supersede 的旧观测经指针排除）
-        const hist = await c.query(
-          `select o.outcome from runtime_state_observation o
-            where o.student_id = $1 and o.dimension_id = $2 and o.independent
-              and o.outcome in ('success','failure')
-              and not exists (
-                select 1 from runtime_state_observation o2 where o2.supersedes = o.observation_id
-              )
-            order by o.created_at`,
-          [session.student_id, dimensionId],
-        );
-        const pBaseline = Math.round(
-          bktReplay(hist.rows.map((r) => r.outcome as "success" | "failure")) * 1000,
-        ) / 1000;
-
-        const serPayload = {
-          report_id: reportId,
-          session_id: id,
-          student_id: session.student_id,
-          dimension_id: dimensionId,
-          p_bkt_baseline: pBaseline,
-          independent_observation_count: hist.rows.length,
-          parameter_set_id: BKT_PRIOR_V1.id,
-          calibration_status: "prior_only",
-          input_event_refs: [observationId],
-          calculation_trace_ref: `calc_${id}`,
-          kernel_version: "mastery-bkt@0.1.0",
-          created_at: now,
-        };
-        await c.query(
-          `insert into state_scientific_evaluation_report
-             (report_id, tenant_id, session_id, student_id, dimension_id, p_bkt_baseline,
-              calibration_status, parameter_set_id, kernel_version, payload)
-           values ($1,$2,$3,$4,$5,$6,'prior_only',$7,$8,$9)`,
-          [reportId, tenantId, id, session.student_id, dimensionId, pBaseline,
-           BKT_PRIOR_V1.id, "mastery-bkt@0.1.0", JSON.stringify(serPayload)],
-        );
-
-        const tssPayload = {
-          summary_id: summaryId,
-          session_id: id,
-          scientific_evaluation_ref: reportId,
-          summary: `${grade.tssDraft}（BKT 基准 ${pBaseline}，prior_only）`,
-          method_observations: [],
-          misconception_candidates: [],
-          hint_dependency: "low",
-          unresolved: [],
-          evidence_refs: [`answer://${id}/${attemptId}`],
-          model_id: grade.tssModelImpl,
-          prompt_version: grade.tssPromptVersion,
-          created_at: now,
-        };
-        await c.query(
-          `insert into runtime_teaching_session_summary
-             (summary_id, tenant_id, session_id, ser_id, model_id, prompt_version, payload)
-           values ($1,$2,$3,$4,$5,$6,$7)`,
-          [summaryId, tenantId, id, reportId, grade.tssModelImpl, grade.tssPromptVersion, JSON.stringify(tssPayload)],
-        );
-
-        await c.query(
-          `insert into runtime_session_learning_record
-             (record_id, tenant_id, session_id, student_id, ser_id, tss_id,
-              integrity_passed, dream_queued_at, payload)
-           values ($1,$2,$3,$4,$5,$6,true,now(),$7)`,
-          [recordId, tenantId, id, session.student_id, reportId, summaryId,
+           grade.modelImpl, grade.promptVersion,
            JSON.stringify({
-             record_id: recordId,
-             session_id: id,
-             student_id: session.student_id,
-             scientific_evaluation_report_id: reportId,
-             teaching_session_summary_id: summaryId,
-             integrity_check: {
-               session_id_match: true,
-               cross_refs_present: true,
-               provenance_complete: true,
-               passed: true,
-             },
-             dream_queued_at: now,
-             created_at: now,
+             judgment_id: judgmentId, session_id: id, attempt_id: attemptId,
+             verdict: grade.verdict,
+             rubric_items: grade.rubricItems.map((r) => ({ id: r.id, status: r.status, evidence_refs: [`answer://${id}/${attemptId}`] })),
+             decision_summary: grade.decisionSummary,
+             uncertainty: grade.uncertainty,
+             injection_flags: [],
+             model_id: grade.modelImpl, prompt_version: grade.promptVersion, created_at: now,
            })],
         );
-
-        const states = ["SUBMIT", "GRADE", "SCIENTIFIC_EVALUATE", "TEACHING_SESSION_SUMMARY", "CLOSE", "QUEUE_DREAM"];
         await c.query(
           `update runtime_question_session
-              set state = 'CLOSED', closed_at = now(),
-                  state_history = state_history || (
-                    select jsonb_agg(jsonb_build_object('state', s, 'entered_at', $2::timestamptz, 'actor', 'orchestrator'))
-                    from unnest($3::text[]) as s
-                  ),
-                  payload = payload || jsonb_build_object('state', 'CLOSED', 'closed_at', $2::timestamptz)
+              set state = 'GRADE', probe_rounds = 0,
+                  payload = payload || jsonb_build_object('dimension_id', $2),
+                  state_history = state_history ||
+                    jsonb_build_array(jsonb_build_object('state','SUBMIT','entered_at',$3::timestamptz,'actor','orchestrator'),
+                                      jsonb_build_object('state','GRADE','entered_at',$3::timestamptz,'actor','orchestrator'))
             where session_id = $1`,
-          [id, now, states],
+          [id, dimensionId, now],
         );
-
-        return {
-          status: 200 as const,
-          body: {
-            session_id: id,
-            judgment: judgmentPayload,
-            observation_id: observationId,
-            scientific_evaluation_report: serPayload,
-            teaching_session_summary: tssPayload,
-            session_learning_record_id: recordId,
-            dream_queued: true,
-          },
-        };
       });
 
-      if (result.status === 404) return reply.code(404).send({ error: "session not found" });
-      if (result.status === 409) return reply.code(409).send({ error: result.error });
-      return reply.send(result.body);
+      const judgmentPayload = {
+        judgment_id: judgmentId, session_id: id, attempt_id: attemptId,
+        verdict: grade.verdict,
+        rubric_items: grade.rubricItems.map((r) => ({ id: r.id, status: r.status, evidence_refs: [`answer://${id}/${attemptId}`] })),
+        decision_summary: grade.decisionSummary,
+        uncertainty: grade.uncertainty,
+        injection_flags: [],
+        model_id: grade.modelImpl, prompt_version: grade.promptVersion, created_at: now,
+      };
+
+      // 正确/待核 → 直接关闭；部分正确/错误 → 错因归因（diag 已在上方预跑）
+      if (grade.verdict === "correct" || grade.verdict === "unresolved") {
+        const closed = await closeChain(tenantId, id);
+        if (closed.status !== 200) return reply.code(closed.status).send(closed.body);
+        return reply.send({
+          session_id: id,
+          judgment: judgmentPayload,
+          ...(closed.body as Record<string, unknown>),
+        });
+      }
+      // 到达此处必为部分正确/错误路径（diag 已赋值；防御性断言，逻辑不可达）
+      if (!diag) return reply.code(500).send({ error: "internal", detail: "diagnose missing on diagnose path" });
+
+      const claimId = newId("clm");
+      const claimPayload = {
+        claim_id: claimId,
+        session_id: id,
+        status: "open",
+        candidates: diag.outcome.candidate_error_causes,
+        probe: diag.outcome.probe,
+        resolved: diag.outcome.resolved,
+        rationale: diag.outcome.rationale,
+        probe_history: [],
+        created_at: now,
+      };
+      await withTenant(pool, tenantId, async (c) => {
+        await c.query(
+          `insert into runtime_diagnostic_claim (claim_id, tenant_id, session_id, status, payload)
+           values ($1,$2,$3,'open',$4)`,
+          [claimId, tenantId, id, JSON.stringify(claimPayload)],
+        );
+        await c.query(
+          `update runtime_question_session
+              set state = 'DIAGNOSE', probe_rounds = 1,
+                  state_history = state_history ||
+                    jsonb_build_array(jsonb_build_object('state','DIAGNOSE','entered_at',$2::timestamptz,'actor','orchestrator'))
+            where session_id = $1`,
+          [id, now],
+        );
+      });
+
+      if (diag.outcome.resolved || !diag.outcome.probe) {
+        // 已可下结论或无追问建议 → 关闭（claim 终态 resolved）
+        await withTenant(pool, tenantId, async (c) => {
+          await c.query("update runtime_diagnostic_claim set status = 'resolved' where claim_id = $1", [claimId]);
+        });
+        const closed = await closeChain(tenantId, id);
+        if (closed.status !== 200) return reply.code(closed.status).send(closed.body);
+        return reply.send({ session_id: id, judgment: judgmentPayload, ...(closed.body as Record<string, unknown>) });
+      }
+
+      return reply.send({
+        session_id: id,
+        judgment: judgmentPayload,
+        claim: { claim_id: claimId, candidates: diag.outcome.candidate_error_causes, rationale: diag.outcome.rationale },
+        probe: diag.outcome.probe,
+        state: "PROBE_AWAIT",
+        probe_rounds: 1,
+        max_probe_rounds: MAX_PROBE_ROUNDS,
+      });
+    });
+
+    /** 追问作答：判答探针 → 证据入 claim → 闭合或下一轮（≤3）→ 关闭 */
+    app.post("/sessions/:id/probe", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { id } = req.params as { id: string };
+      const body = req.body as ProbeBody;
+      if (typeof body.answer_text !== "string" || body.answer_text.length === 0) {
+        return reply.code(422).send({ error: "answer_text required" });
+      }
+      if (body.answer_text.length > MAX_ANSWER_CHARS) {
+        return reply.code(422).send({ error: `answer_text exceeds ${MAX_ANSWER_CHARS} chars` });
+      }
+      const now = new Date().toISOString();
+
+      const pre = await withTenant(pool, tenantId, async (c) => {
+        const r = await c.query(
+          `select q.question_id, q.state, q.probe_rounds, q.student_id,
+                  (select jsonb_build_object('claim_id', claim_id, 'status', status, 'payload', payload)
+                     from runtime_diagnostic_claim
+                    where session_id = q.session_id order by created_at desc limit 1) as claim
+             from runtime_question_session q where q.session_id = $1`,
+          [id],
+        );
+        return r.rows[0];
+      });
+      if (!pre) return reply.code(404).send({ error: "session not found" });
+      if (pre.state !== "DIAGNOSE" && pre.state !== "PROBE_AWAIT") {
+        return reply.code(409).send({ error: `probe only allowed from DIAGNOSE/PROBE_AWAIT, current ${pre.state}` });
+      }
+      const claim = pre.claim as { claim_id?: string; payload?: { probe?: { question: string; judge_rubric: string }; candidates?: unknown[] } };
+      const probeQ = claim?.payload?.probe;
+      if (!claim?.claim_id || !probeQ?.question) {
+        return reply.code(409).send({ error: "no pending probe on claim" });
+      }
+      if (pre.probe_rounds >= MAX_PROBE_ROUNDS) {
+        return reply.code(409).send({ error: `probe rounds exhausted (${MAX_PROBE_ROUNDS})` });
+      }
+
+      // 探针判答（模型主判；探针问题为本题上下文，学生回答为不可信数据）
+      const graded = await runGrading(pre.question_id, tenantId, body.answer_text, {
+        title: `（追问 ${pre.probe_rounds}/${MAX_PROBE_ROUNDS}）${probeQ.question}`,
+        rubric: `- probe.judge：${probeQ.judge_rubric}`,
+      });
+      if (!graded.ok) return reply.code(graded.status).send({ error: graded.error, detail: graded.detail });
+      const probeOk = graded.grade.verdict === "correct";
+      const nextRound = pre.probe_rounds + 1;
+
+      // 事实层：探针作答 + 判定
+      const attemptId = newId("att");
+      const judgmentId = newId("jud");
+      await withTenant(pool, tenantId, async (c) => {
+        await c.query(
+          `insert into runtime_attempt (attempt_id, tenant_id, session_id, student_id, payload)
+           values ($1,$2,$3,$4,$5)`,
+          [attemptId, tenantId, id, pre.student_id,
+           JSON.stringify({ answer_text: body.answer_text, kind: "probe", round: pre.probe_rounds, probe_question: probeQ.question, submitted_at: now })],
+        );
+        await c.query(
+          `insert into runtime_answer_verdict
+             (judgment_id, tenant_id, session_id, attempt_id, verdict, uncertainty, model_id, prompt_version, payload)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [judgmentId, tenantId, id, attemptId, graded.grade.verdict, graded.grade.uncertainty,
+           graded.grade.modelImpl, graded.grade.promptVersion,
+           JSON.stringify({
+             judgment_id: judgmentId, session_id: id, attempt_id: attemptId,
+             verdict: graded.grade.verdict,
+             rubric_items: graded.grade.rubricItems.map((r) => ({ id: r.id, status: r.status, evidence_refs: [`probe://${id}/${attemptId}`] })),
+             decision_summary: graded.grade.decisionSummary,
+             uncertainty: graded.grade.uncertainty,
+             injection_flags: [], kind: "probe",
+             model_id: graded.grade.modelImpl, prompt_version: graded.grade.promptVersion, created_at: now,
+           })],
+        );
+      });
+
+      // 证据入 claim：支持/反对当前候选
+      const resolvedErrorCause = claim.payload?.candidates?.[0] && probeOk
+        ? (claim.payload.candidates[0] as { error_cause_id?: string }).error_cause_id ?? null
+        : null;
+      const claimStatus = probeOk ? "resolved" : nextRound >= MAX_PROBE_ROUNDS ? "unresolved" : "open";
+      await withTenant(pool, tenantId, async (c) => {
+        const cur = await c.query(
+          "select payload from runtime_diagnostic_claim where claim_id = $1",
+          [claim.claim_id],
+        );
+        const p = cur.rows[0]?.payload ?? {};
+        const history = [...(p.probe_history ?? []), {
+          round: pre.probe_rounds,
+          probe_question: probeQ.question,
+          answer: body.answer_text,
+          verdict: graded.grade.verdict,
+          probe_ok: probeOk,
+        }];
+        await c.query(
+          `update runtime_diagnostic_claim
+              set status = $2, payload = payload || jsonb_build_object('probe_history', $3::jsonb,
+                    'probe_ok', $4, 'resolved_error_cause', $5)
+            where claim_id = $1`,
+          [claim.claim_id, claimStatus, JSON.stringify(history), probeOk, resolvedErrorCause],
+        );
+        await c.query(
+          `update runtime_question_session
+              set state = $2, probe_rounds = $3,
+                  state_history = state_history ||
+                    jsonb_build_array(jsonb_build_object('state',$4,'entered_at',$5::timestamptz,'actor','orchestrator'))
+            where session_id = $1`,
+          [id, probeOk || claimStatus === "unresolved" ? "DIAGNOSE" : "PROBE_AWAIT",
+           nextRound, probeOk || claimStatus === "unresolved" ? "DIAGNOSE" : "PROBE_AWAIT", now],
+        );
+      });
+
+      // 闭合或轮次耗尽 → 关闭全链
+      if (probeOk || claimStatus === "unresolved") {
+        const closed = await closeChain(tenantId, id);
+        if (closed.status !== 200) return reply.code(closed.status).send(closed.body);
+        return reply.send({
+          session_id: id,
+          probe: { round: pre.probe_rounds, verdict: graded.grade.verdict },
+          claim: { claim_id: claim.claim_id, status: claimStatus, resolved_error_cause: resolvedErrorCause },
+          ...(closed.body as Record<string, unknown>),
+        });
+      }
+
+      // 下一轮追问：复用规则库 probe 或由模型再生成（首版：模型再诊断一次）
+      const diag = await runDiagnose(pre.question_id, tenantId, graded.grade.verdict, body.answer_text);
+      if (!diag.ok) return reply.code(diag.status).send({ error: diag.error, detail: diag.detail });
+      if (!diag.outcome.probe || diag.outcome.resolved) {
+        const closed = await closeChain(tenantId, id);
+        if (closed.status !== 200) return reply.code(closed.status).send(closed.body);
+        return reply.send({
+          session_id: id,
+          probe: { round: pre.probe_rounds, verdict: graded.grade.verdict },
+          claim: { claim_id: claim.claim_id, status: "resolved" },
+          ...(closed.body as Record<string, unknown>),
+        });
+      }
+      await withTenant(pool, tenantId, async (c) => {
+        await c.query(
+          `update runtime_diagnostic_claim
+              set payload = payload || jsonb_build_object('probe', $2::jsonb)
+            where claim_id = $1`,
+          [claim.claim_id, JSON.stringify(diag.outcome.probe)],
+        );
+        await c.query(
+          `update runtime_question_session set state = 'PROBE_AWAIT' where session_id = $1`,
+          [id],
+        );
+      });
+      return reply.send({
+        session_id: id,
+        probe: diag.outcome.probe,
+        probe_rounds: nextRound,
+        max_probe_rounds: MAX_PROBE_ROUNDS,
+        state: "PROBE_AWAIT",
+      });
     });
   },
 });

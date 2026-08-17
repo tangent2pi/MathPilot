@@ -19,7 +19,8 @@ export type TaskType =
   | "teach_summary"    // Teaching Agent：教学总结（双产物之一）
   | "ktq_extract"      // KTQ Extraction Agent：内容抽取
   | "er_research"      // ER Research Agent：错因/规则调研
-  | "dream_profile";   // Dream/Profile Update Agent：长期画像最终更新
+  | "dream_profile"     // Dream/Profile Update Agent：长期画像最终更新
+  | "diagnose";        // Teaching Agent：错因归因（DIAGNOSE，§8.3）
 
 export interface TaskContext {
   question?: string;
@@ -29,6 +30,7 @@ export interface TaskContext {
   frozenProjection?: string;
   profileWindow?: string;
   priorSnapshot?: string;
+  diagnosisContext?: string;
   schemaNote?: string;
 }
 
