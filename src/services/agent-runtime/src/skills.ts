@@ -21,7 +21,8 @@ export type TaskType =
   | "er_research"      // ER Research Agent：错因/规则调研
   | "dream_profile"     // Dream/Profile Update Agent：长期画像最终更新
   | "diagnose"         // Teaching Agent：错因归因（DIAGNOSE，§8.3）
-  | "session_decision"; // Teaching Agent：会话结束目标判定（§10.1）
+  | "session_decision"  // Teaching Agent：会话结束目标判定（§10.1）
+  | "plan";             // 学习计划转写（§10.3）
 
 export interface TaskContext {
   question?: string;

@@ -15,6 +15,7 @@
 import { startService, createPool, withTenant, newId } from "./lib.ts";
 import { createAgentRuntimeClient } from "@agmath/providers-model";
 import { masteryState } from "@agmath/mastery";
+import { planFromProfile } from "./planner.ts";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
 /** 模型调用统一经 agent-runtime（Pi 宿主）；本服务不直连任何模型供应商 */
@@ -226,6 +227,115 @@ startService({
         };
       });
       return out;
+    });
+
+    /**
+     * 学习计划生成（§10.3 / §7.3：画像子集，独立于 Dream）。
+     * 确定性排布（planner.ts）+ plan skill 转写解释；LLM 不增删任务。
+     */
+    app.post("/students/:studentId/plans", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { studentId } = req.params as { studentId: string };
+      const { horizon_weeks: horizonWeeks = 4 } = req.body as { horizon_weeks?: number };
+      if (!Number.isInteger(horizonWeeks) || horizonWeeks < 1 || horizonWeeks > 4) {
+        return reply.code(422).send({ error: "horizon_weeks must be 1-4" });
+      }
+
+      const facts = await withTenant(pool, tenantId, async (c) => {
+        const [profile, mastery, snapshot] = await Promise.all([
+          c.query("select payload from state_student_profile where student_id = $1", [studentId]),
+          c.query(
+            "select dimension_id, p_profile, state from state_mastery_state where student_id = $1",
+            [studentId],
+          ),
+          c.query(
+            "select payload from state_student_snapshot where student_id = $1 order by published_at desc limit 1",
+            [studentId],
+          ),
+        ]);
+        return { profile: profile.rows[0]?.payload ?? null, mastery: mastery.rows, snapshot: snapshot.rows[0]?.payload ?? null };
+      });
+      if (!facts.profile) {
+        return reply.code(422).send({ error: "profile_required", hint: "请先完成最小画像注册" });
+      }
+
+      const masteryView: Record<string, { state?: string; next_review_due_days?: number | null }> = {};
+      for (const m of facts.mastery) masteryView[m.dimension_id] = { state: m.state };
+      for (const dim of facts.snapshot?.dimensions ?? []) {
+        masteryView[dim.dimension_id] = { state: dim.state };
+      }
+
+      const tasks = planFromProfile({
+        horizon_weeks: horizonWeeks,
+        weekly_hours: facts.profile.weekly_hours,
+        target_score: facts.profile.target_score,
+        current_score: facts.profile.current_score,
+        self_weak: facts.profile.self_weak ?? [],
+        mastery: masteryView,
+      });
+
+      // plan skill 转写（失败不阻塞计划生成：确定性任务已排，解释留空并标注）
+      const planRes = await runtime.runTask({
+        taskType: "plan",
+        sessionRef: newId("pln"),
+        tenantId,
+        context: {
+          studentProfile: JSON.stringify({
+            grade: facts.profile.grade,
+            target_score: facts.profile.target_score,
+            current_score: facts.profile.current_score,
+            weekly_hours: facts.profile.weekly_hours,
+            self_weak: facts.profile.self_weak,
+          }),
+          planDraft: JSON.stringify(tasks.map((t, i) => ({ task_index: i, ...t }))),
+        },
+      });
+      let explanation = "";
+      let taskExplanations: Record<string, string> = {};
+      if (planRes.ok) {
+        const j = planRes.outputJson as { explanation?: string; task_explanations?: { task_index?: number; why?: string }[] } | undefined;
+        explanation = j?.explanation ?? "";
+        for (const e of j?.task_explanations ?? []) {
+          if (e.task_index !== undefined) taskExplanations[String(e.task_index)] = e.why ?? "";
+        }
+      }
+      const explained = tasks.map((t, i) => ({ ...t, ...(taskExplanations[String(i)] ? { why: taskExplanations[String(i)] } : {}) }));
+
+      const planId = newId("pln");
+      const payload = {
+        plan_id: planId,
+        student_id: studentId,
+        tenant_id: tenantId,
+        horizon_weeks: horizonWeeks,
+        explanation,
+        tasks: explained,
+        plan_skipped: !planRes.ok ? planRes.error : undefined,
+        created_at: new Date().toISOString(),
+      };
+      await withTenant(pool, tenantId, async (c) => {
+        await c.query(
+          `insert into state_learning_plan (plan_id, tenant_id, student_id, horizon_weeks, payload)
+           values ($1,$2,$3,$4,$5)`,
+          [planId, tenantId, studentId, horizonWeeks, JSON.stringify(payload)],
+        );
+      });
+      return reply.send(payload);
+    });
+
+    app.get("/students/:studentId/plans", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { studentId } = req.params as { studentId: string };
+      const row = await withTenant(pool, tenantId, async (c) => {
+        const r = await c.query(
+          "select payload from state_learning_plan where student_id = $1 order by created_at desc limit 1",
+          [studentId],
+        );
+        return r.rows[0];
+      });
+      if (!row) return reply.code(404).send({ error: "no plan", hint: "请先生成学习计划" });
+      return row.payload;
     });
 
     app.get("/snapshots/:studentId", async (req, reply) => {

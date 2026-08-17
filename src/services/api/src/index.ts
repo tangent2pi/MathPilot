@@ -133,6 +133,20 @@ startService({
       if (p.via === "oidc" && !p.roles.includes("teacher")) studentId = p.userId;
       return relay(reply, await forward(p, `${PROFILE_URL}/students/${encodeURIComponent(studentId)}/profile`));
     });
+    app.post("/api/students/:studentId/plans", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      let { studentId } = req.params as { studentId: string };
+      if (p.via === "oidc" && !p.roles.includes("teacher")) studentId = p.userId;
+      return relay(reply, await forward(p, `${PROFILE_URL}/students/${encodeURIComponent(studentId)}/plans`, { method: "POST", body: req.body }));
+    });
+    app.get("/api/students/:studentId/plans", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      let { studentId } = req.params as { studentId: string };
+      if (p.via === "oidc" && !p.roles.includes("teacher")) studentId = p.userId;
+      return relay(reply, await forward(p, `${PROFILE_URL}/students/${encodeURIComponent(studentId)}/plans`));
+    });
     app.get("/api/students/:studentId/projection", async (req, reply) => {
       const p = await principalOf(req, reply);
       if (!p) return;

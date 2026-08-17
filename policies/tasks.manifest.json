@@ -35,6 +35,11 @@
       "file": "tasks/session-decision.md",
       "prompt_version": "session-decision@0.4.0",
       "role": "main"
+    },
+    "plan": {
+      "file": "tasks/plan.md",
+      "prompt_version": "plan@0.4.0",
+      "role": "aux"
     }
   }
 }

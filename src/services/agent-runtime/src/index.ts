@@ -29,7 +29,7 @@ const models = createModels();
 models.setProvider(buildScnetProvider(providerConfig));
 
 const VALID_TASK_TYPES = new Set<TaskType>([
-  "teach_grade", "teach_summary", "ktq_extract", "er_research", "dream_profile", "diagnose", "session_decision",
+  "teach_grade", "teach_summary", "ktq_extract", "er_research", "dream_profile", "diagnose", "session_decision", "plan",
 ]);
 
 function tenantOf(req: { headers: Record<string, unknown> }): string | null {
