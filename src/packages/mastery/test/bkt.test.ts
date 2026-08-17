@@ -20,10 +20,11 @@ check("success 后验 = P(L)(1-S)/[P(L)(1-S)+(1-P(L))G]", afterSuccess, 0.27 / 0
 check("failure 后验 = P(L)S/[P(L)S+(1-P(L))(1-G)]", afterFailure, 0.03 / 0.59);
 
 // 学习转移由参数集表达：T=0 时无转移；T>0 时按 P(L_next)=P(L|y)+(1-P(L|y))T（设计 §9.2）。
-// 以 success 后验(0.658537)为先验再 success：新后验=0.896679，再加 T=0.2 转移。
+// 以 success 后验为先验再 success：先算新后验，再加 T=0.2 转移。
 const withTransit = { ...BKT_PRIOR_V1, id: "bkt_test_t", probTransit: 0.2 };
 const afterTransit = bktUpdate({ probMastery: afterSuccess, params: withTransit }, "success");
-check("T=0.2 转移后 = 新后验 + (1-新后验)*0.2", afterTransit, 0.896679 + (1 - 0.896679) * 0.2);
+const newPosterior = (afterSuccess * 0.9) / (afterSuccess * 0.9 + (1 - afterSuccess) * 0.2);
+check("T=0.2 转移后 = 新后验 + (1-新后验)*0.2", afterTransit, newPosterior + (1 - newPosterior) * 0.2);
 
 // 重放与序列性质
 const up = bktReplay(["success"]);
