@@ -16,6 +16,7 @@ import { startService, createPool, withTenant, newId } from "./lib.ts";
 import { createAgentRuntimeClient } from "@agmath/providers-model";
 import { masteryState } from "@agmath/mastery";
 import { planFromProfile } from "./planner.ts";
+import { rosterGetMastery, rosterUpdate } from "./bkt-sidecar.ts";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
 /** 模型调用统一经 agent-runtime（Pi 宿主）；本服务不直连任何模型供应商 */
@@ -387,7 +388,8 @@ startService({
       const validationId = newId("pvr");
       const snapshotId = newId("snap");
 
-      const out = await withTenant(pool, tenantId, async (c) => {
+      // ── 阶段 1（短事务，只读）：窗口 SLR + 先验 + 会话证据摘要 ──
+      const read = await withTenant(pool, tenantId, async (c) => {
         const pending = await c.query(
           `select r.record_id, r.session_id, r.ser_id, r.tss_id,
                   s.payload->>'dimension_id' as dimension_id,
@@ -399,8 +401,7 @@ startService({
             order by r.created_at`,
           [studentId],
         );
-        if (pending.rows.length === 0) return { status: 200 as const, body: { status: "no_pending_records" } };
-
+        if (pending.rows.length === 0) return { empty: true as const };
         const prior = await c.query(
           "select snapshot_id from state_student_snapshot where student_id = $1 order by published_at desc limit 1",
           [studentId],
@@ -412,83 +413,137 @@ startService({
           [studentId],
         );
         const supersedesDecisionId: string | null = priorDecision.rows[0]?.decision_id ?? null;
+        // 窗口观测（供侧车 Roster 推送与证据索引）
+        const obs = await c.query(
+          `select observation_id, student_id, dimension_id, outcome
+             from runtime_state_observation
+            where student_id = $1 and session_id = any($2) and outcome in ('success','failure')`,
+          [studentId, pending.rows.map((r) => r.session_id)],
+        );
+        // 证据索引（§11.3 Dream Context Compiler：按需回看的会话级索引）
+        const sessions = await c.query(
+          `select q.session_id,
+                  (select jsonb_agg(jsonb_build_object('verdict', v.verdict, 'kind', v.payload->>'kind'))
+                     from runtime_answer_verdict v where v.session_id = q.session_id) as verdicts,
+                  (select payload from runtime_diagnostic_claim dc
+                    where dc.session_id = q.session_id order by dc.created_at desc limit 1) as claim
+             from runtime_question_session q where q.session_id = any($1)`,
+          [pending.rows.map((r) => r.session_id)],
+        );
+        return {
+          empty: false as const,
+          pending: pending.rows,
+          priorSnapshotId,
+          supersedesDecisionId,
+          observations: obs.rows,
+          sessions: sessions.rows,
+        };
+      });
+      if (read.empty) return reply.send({ status: "no_pending_records" });
 
+      // ── 阶段 2（事务外）：侧车 Roster 程序基准 + Dream 画像大模型 ──
+      // 程序基准（架构修订 v4 §3：pyBKT Roster 成品；失败显式 502，不静默回退）
+      const rosterBase = new Map<string, number>();
+      for (const o of read.observations) {
+        const up = await rosterUpdate(o.student_id, o.dimension_id, o.outcome, o.observation_id);
+        if (!up.ok) {
+          return reply.code(502).send({ error: "roster_update_failed", detail: `${up.error}: ${up.detail ?? ""}` });
+        }
+      }
+      const latestByDim = new Map<string, { p: number; count: number }>();
+      for (const r of read.pending) {
+        if (!rosterBase.has(r.dimension_id)) {
+          const g = await rosterGetMastery(studentId, r.dimension_id);
+          if (!g.ok) {
+            return reply.code(502).send({ error: "roster_get_failed", detail: `${g.error}: ${g.detail ?? ""}` });
+          }
+          rosterBase.set(r.dimension_id, g.value.p_mastery ?? r.p_bkt_baseline);
+        }
+        latestByDim.set(r.dimension_id, { p: rosterBase.get(r.dimension_id)!, count: r.obs_count });
+      }
+
+      const dreamRes = await runtime.runTask({
+        taskType: "dream_profile",
+        sessionRef: newId("dream"),
+        tenantId,
+        context: {
+          profileWindow: JSON.stringify({
+            records: read.pending.map((r) => ({
+              record_id: r.record_id, session_id: r.session_id, ser_id: r.ser_id, tss_id: r.tss_id,
+              dimension_id: r.dimension_id, p_bkt_baseline: rosterBase.get(r.dimension_id) ?? r.p_bkt_baseline,
+              obs_count: r.obs_count,
+            })),
+          }),
+          priorSnapshot: read.priorSnapshotId ? `上一个快照：${read.priorSnapshotId}` : "（首次画像，无前快照）",
+          schemaNote: "p_baseline 为 pyBKT Roster 程序基准（与 SER 一致时使用 SER 值）",
+        },
+      });
+      if (!dreamRes.ok) {
+        return reply.code(dreamRes.status ?? 502).send({ error: dreamRes.error, detail: dreamRes.detail });
+      }
+      const dreamJson = dreamRes.outputJson as {
+        dimension_updates?: {
+          dimension_id?: string; p_baseline?: number; p_final?: number; state_final?: string;
+          evidence_ledger?: unknown[]; alternatives?: string[]; uncertainty?: string;
+        }[];
+        semantic_profile_updates?: unknown[];
+        review_required?: boolean;
+      };
+      const updates = (dreamJson.dimension_updates ?? [])
+        .filter((d) => d.dimension_id && latestByDim.has(d.dimension_id))
+        .map((d) => {
+          const base = latestByDim.get(d.dimension_id!)!;
+          return {
+            dimension_id: d.dimension_id!,
+            p_baseline: Math.abs((d.p_baseline ?? base.p) - base.p) < 0.001 ? base.p : (d.p_baseline ?? base.p),
+            p_final: d.p_final ?? base.p,
+            state_final: d.state_final ?? masteryState(d.p_final ?? base.p, base.count),
+            evidence_ledger: (d.evidence_ledger ?? []) as DimensionUpdate["evidence_ledger"],
+            ...(d.alternatives ? { alternatives: d.alternatives } : {}),
+            uncertainty: (d.uncertainty && ["low", "medium", "high"].includes(d.uncertainty) ? d.uncertainty : "high") as "low" | "medium" | "high",
+          };
+        });
+      // 程序校验（设计 §9.3）：p_final 在 [0,1]、状态合法
+      const invalid = updates.filter(
+        (d) => !Number.isFinite(d.p_final) || d.p_final < 0 || d.p_final > 1
+          || !["insufficient_evidence", "weak", "learning", "possibly_mastered", "mastered"].includes(d.state_final),
+      );
+      if (invalid.length > 0) {
+        return reply.code(422).send({ error: "dream_output_invalid", detail: `dimension_updates 越界: ${invalid.map((d) => d.dimension_id).join(",")}` });
+      }
+
+      // ── 阶段 3（写事务）：Bundle + PUD + Validation + 物化 + 消费 ──
+      const evidenceIndex = read.sessions.map((s) => ({
+        session_id: s.session_id,
+        verdicts: s.verdicts ?? [],
+        claim: s.claim ? { status: s.claim.status, candidates: s.claim.candidates, probe_history: s.claim.probe_history } : null,
+      }));
+      const out = await withTenant(pool, tenantId, async (c) => {
         await c.query(
           `insert into state_profile_evidence_bundle (bundle_id, tenant_id, student_id, prior_snapshot_id, trigger, payload)
            values ($1,$2,$3,$4,'teacher_request',$5)`,
-          [bundleId, tenantId, studentId, priorSnapshotId,
+          [bundleId, tenantId, studentId, read.priorSnapshotId,
            JSON.stringify({
              bundle_id: bundleId,
              student_id: studentId,
              window: { from: now, to: now, trigger: "teacher_request" },
-             prior_snapshot_id: priorSnapshotId,
-             records: pending.rows.map((r) => ({ record_id: r.record_id, session_id: r.session_id, ser_id: r.ser_id, tss_id: r.tss_id })),
-             evidence_index: [],
+             prior_snapshot_id: read.priorSnapshotId,
+             records: read.pending.map((r) => ({ record_id: r.record_id, session_id: r.session_id, ser_id: r.ser_id, tss_id: r.tss_id })),
+             evidence_index: evidenceIndex,
+             roster_baselines: Object.fromEntries(rosterBase),
              permission_scope: { tenant_id: tenantId, redactions: [] },
              created_at: now,
            })],
         );
 
-        // Dream/Profile Update Agent（独立 Session，综合窗口双产物输出最终决策）
-        const latestByDim = new Map<string, { p: number; count: number }>();
-        for (const r of pending.rows) latestByDim.set(r.dimension_id, { p: r.p_bkt_baseline, count: r.obs_count });
-
-        const dreamRes = await runtime.runTask({
-          taskType: "dream_profile",
-          sessionRef: newId("dream"),
-          tenantId,
-          context: {
-            profileWindow: JSON.stringify({
-              records: pending.rows.map((r) => ({
-                record_id: r.record_id, session_id: r.session_id, ser_id: r.ser_id, tss_id: r.tss_id,
-                dimension_id: r.dimension_id, p_bkt_baseline: r.p_bkt_baseline, obs_count: r.obs_count,
-              })),
-            }),
-            priorSnapshot: priorSnapshotId ? `上一个快照：${priorSnapshotId}` : "（首次画像，无前快照）",
-          },
-        });
-        if (!dreamRes.ok) {
-          return { status: dreamRes.status as 502, body: { error: dreamRes.error, detail: dreamRes.detail } };
-        }
-        const dreamJson = dreamRes.outputJson as {
-          dimension_updates?: {
-            dimension_id?: string; p_baseline?: number; p_final?: number; state_final?: string;
-            evidence_ledger?: unknown[]; alternatives?: string[]; uncertainty?: string;
-          }[];
-          semantic_profile_updates?: unknown[];
-          review_required?: boolean;
-        };
-        const updates = (dreamJson.dimension_updates ?? [])
-          .filter((d) => d.dimension_id && latestByDim.has(d.dimension_id))
-          .map((d) => {
-            const base = latestByDim.get(d.dimension_id!)!;
-            return {
-              dimension_id: d.dimension_id!,
-              p_baseline: Math.abs((d.p_baseline ?? base.p) - base.p) < 0.001 ? base.p : (d.p_baseline ?? base.p),
-              p_final: d.p_final ?? base.p,
-              state_final: d.state_final ?? masteryState(d.p_final ?? base.p, base.count),
-              evidence_ledger: (d.evidence_ledger ?? []) as DimensionUpdate["evidence_ledger"],
-              ...(d.alternatives ? { alternatives: d.alternatives } : {}),
-              uncertainty: (d.uncertainty && ["low", "medium", "high"].includes(d.uncertainty) ? d.uncertainty : "high") as "low" | "medium" | "high",
-            };
-          });
-        // 程序校验（设计 §9.3）：p_baseline 必须与 SER 一致、p_final 在 [0,1]、状态合法
-        const invalid = updates.filter(
-          (d) => !Number.isFinite(d.p_final) || d.p_final < 0 || d.p_final > 1
-            || !["insufficient_evidence", "weak", "learning", "possibly_mastered", "mastered"].includes(d.state_final),
-        );
-        if (invalid.length > 0) {
-          return { status: 422 as const, body: { error: "dream_output_invalid", detail: `dimension_updates 越界: ${invalid.map((d) => d.dimension_id).join(",")}` } };
-        }
-
         const pud: PudPayload = {
           decision_id: decisionId,
           student_id: studentId,
           evidence_bundle_id: bundleId,
-          prior_snapshot_id: priorSnapshotId,
-          supersedes: supersedesDecisionId,
-          baseline_report_refs: pending.rows.map((r) => r.ser_id),
-          teaching_summary_refs: pending.rows.map((r) => r.tss_id),
+          prior_snapshot_id: read.priorSnapshotId,
+          supersedes: read.supersedesDecisionId,
+          baseline_report_refs: read.pending.map((r) => r.ser_id),
+          teaching_summary_refs: read.pending.map((r) => r.tss_id),
           dimension_updates: updates,
           semantic_profile_updates: dreamJson.semantic_profile_updates ?? [],
           review_required: dreamJson.review_required ?? false,
@@ -499,7 +554,7 @@ startService({
         };
 
         const existingRefs = new Set<string>();
-        for (const r of pending.rows) { existingRefs.add(r.ser_id); existingRefs.add(r.tss_id); }
+        for (const r of read.pending) { existingRefs.add(r.ser_id); existingRefs.add(r.tss_id); }
         const checks = validatePud(pud, existingRefs);
         const passed = checks.every((ck) => ck.passed);
 
@@ -510,7 +565,7 @@ startService({
                (decision_id, tenant_id, student_id, evidence_bundle_id, prior_snapshot_id, supersedes,
                 review_required, model_id, prompt_version, skill_version, payload)
              values ($1,$2,$3,$4,$5,$6,true,$7,$8,$9,$10)`,
-            [decisionId, tenantId, studentId, bundleId, priorSnapshotId, supersedesDecisionId,
+            [decisionId, tenantId, studentId, bundleId, read.priorSnapshotId, read.supersedesDecisionId,
              pud.model_id, pud.prompt_version, pud.skill_version, JSON.stringify(pud)],
           );
           await c.query(
@@ -538,7 +593,7 @@ startService({
              (decision_id, tenant_id, student_id, evidence_bundle_id, prior_snapshot_id, supersedes,
               review_required, model_id, prompt_version, skill_version, payload)
            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-          [decisionId, tenantId, studentId, bundleId, priorSnapshotId, supersedesDecisionId,
+          [decisionId, tenantId, studentId, bundleId, read.priorSnapshotId, read.supersedesDecisionId,
            pud.review_required, pud.model_id, pud.prompt_version, pud.skill_version, JSON.stringify(pud)],
         );
         await c.query(
@@ -566,7 +621,7 @@ startService({
           snapshot_id: snapshotId,
           student_id: studentId,
           source_decision_id: decisionId,
-          supersedes: priorSnapshotId,
+          supersedes: read.priorSnapshotId,
           dimensions,
           misconceptions: [],
           semantic_profile: {},
@@ -577,7 +632,7 @@ startService({
           `insert into state_student_snapshot
              (snapshot_id, tenant_id, student_id, source_decision_id, supersedes, profile_lag, payload)
            values ($1,$2,$3,$4,$5,false,$6)`,
-          [snapshotId, tenantId, studentId, decisionId, priorSnapshotId, JSON.stringify(snapshotPayload)],
+          [snapshotId, tenantId, studentId, decisionId, read.priorSnapshotId, JSON.stringify(snapshotPayload)],
         );
         for (const d of dimensions) {
           await c.query(
@@ -592,18 +647,18 @@ startService({
         // 只消费本次实际处理的记录：TOCTOU 窗口内新入队或 integrity 失败的 SLR 绝不能被静默标记
         await c.query(
           "update runtime_session_learning_record set dream_consumed_at = now() where record_id = any($1::text[])",
-          [pending.rows.map((r) => r.record_id)],
+          [read.pending.map((r) => r.record_id)],
         );
 
         return {
           status: 200 as const,
           body: {
             decision_id: decisionId,
-            supersedes_decision: supersedesDecisionId,
+            supersedes_decision: read.supersedesDecisionId,
             validation: { result, checks },
             snapshot_id: snapshotId,
-            supersedes_snapshot: priorSnapshotId,
-            consumed_records: pending.rows.length,
+            supersedes_snapshot: read.priorSnapshotId,
+            consumed_records: read.pending.length,
             dimensions,
           },
         };
