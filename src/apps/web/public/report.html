@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>报告与计划 · AGMATH</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/app.css" />
+  <style>
+    .report { max-width: 900px; margin: 0 auto; padding: 2.2rem 1.6rem 4rem; }
+    .report h1 { font-family: var(--serif); font-size: 1.6rem; margin: 0 0 .3rem; }
+    .report .sub { color: var(--ink-soft); font-size: .92rem; margin: 0 0 2rem; }
+    section { margin-bottom: 2.4rem; }
+    section h2 { font-family: var(--serif); font-size: 1.1rem; border-bottom: 1px solid var(--ink); padding-bottom: .4rem; }
+    .dims { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
+    .dim-card { border: 1px solid var(--hairline); padding: 1rem 1.2rem; background: var(--paper); }
+    .dim-card .dim { font-family: var(--mono); font-size: .72rem; color: var(--ink-faint); }
+    .dim-card .row { display: flex; align-items: baseline; gap: .8rem; margin-top: .4rem; flex-wrap: wrap; }
+    .state-tag { font-family: var(--serif); font-size: .85rem; border: 1px solid var(--ink-soft); padding: .05rem .5rem; border-radius: 2px; }
+    .state-tag.weak { border-color: var(--cinnabar); color: var(--cinnabar); }
+    .state-tag.learning { border-color: var(--amber); color: var(--amber); }
+    .state-tag.possibly_mastered { border-color: var(--pine); color: var(--pine); }
+    .state-tag.mastered { background: var(--pine); color: var(--paper); border-color: var(--pine); }
+    .plan-task { border-left: 2px solid var(--cinnabar); padding: .4rem 0 .4rem .9rem; margin: .5rem 0; font-size: .9rem; }
+    .plan-task .wk { font-family: var(--mono); font-size: .68rem; color: var(--ink-faint); }
+    .plan-task .crit { color: var(--ink-soft); font-size: .8rem; }
+    .empty { border: 1px dashed var(--hairline); padding: 1.2rem; color: var(--ink-faint); text-align: center; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="/"><span class="mark">◆</span>AGMATH<small>数学诊断卷宗</small></a>
+    <nav>
+      <a href="/">每日练习</a>
+      <a href="/report.html" aria-current="page">报告与计划</a>
+      <a href="/teacher.html">教师复核</a>
+      <a href="/solve.html">单题诊断</a>
+    </nav>
+  </header>
+
+  <main class="report">
+    <h1>报告与计划</h1>
+    <p class="sub">报告是画像的只读投影：五档状态、证据展开与薄弱排序；计划由确定性约束排布，独立于 Dream 生成。</p>
+
+    <section>
+      <h2>掌握状态</h2>
+      <div id="dims"><div class="empty">加载中…</div></div>
+      <p class="mono" id="snapshotMeta" style="font-size:.68rem;color:var(--ink-faint);margin-top:.6rem"></p>
+    </section>
+
+    <section>
+      <h2>学习计划 <button class="btn ghost" id="genPlan" type="button" style="margin-left:.8rem;font-size:.75rem;padding:.2rem .8rem">生成 1-4 周计划</button></h2>
+      <div id="plan"><div class="empty">尚未生成计划。完成画像与几道题后生成。</div></div>
+    </section>
+  </main>
+
+  <script>
+    const API = "";
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+      (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    const ZH = { insufficient_evidence: "证据不足", weak: "薄弱", learning: "学习中", possibly_mastered: "可能掌握", mastered: "已掌握" };
+    const KIND_ZH = { knowledge_review: "知识补讲", practice_easy: "低一档练习", practice_normal: "原难度练习", transfer: "迁移题", delayed_review: "延迟复测" };
+
+    async function loadDims() {
+      const res = await fetch(`${API}/api/students/usr_student01/projection`);
+      if (!res.ok) {
+        document.getElementById("dims").innerHTML = `<div class="empty">尚无画像快照。完成几道题并整理（Dream）后查看。</div>`;
+        return;
+      }
+      const d = await res.json();
+      const snapshot = d.snapshot;
+      if (!snapshot) {
+        document.getElementById("dims").innerHTML =
+          `<div class="empty">还没有画像快照（profile_lag）。到<a href="/solve.html">单题诊断</a>完成几道题后查看。</div>`;
+        return;
+      }
+      document.getElementById("snapshotMeta").textContent =
+        `snapshot ${snapshot.snapshot_id}${snapshot.supersedes ? ` · 取代 ${snapshot.supersedes}` : " · 首版"} · 来源决策 ${snapshot.source_decision_id}`;
+      document.getElementById("dims").innerHTML = (snapshot.dimensions ?? []).map((dim) => `
+        <div class="dim-card">
+          <div class="dim">${esc(dim.dimension_id)}</div>
+          <div class="row">
+            <span class="state-tag ${esc(dim.state)}">${esc(ZH[dim.state] ?? dim.state)}</span>
+            <span class="big-number" style="font-size:1.5rem">${esc(dim.p_profile)}<small>P(画像)</small></span>
+            <span class="mono" style="font-size:.68rem">基准 ${esc(dim.p_bkt_baseline)} · 观测 ${esc(dim.independent_observation_count)} · ${esc(dim.uncertainty)}</span>
+          </div>
+        </div>`).join("") || `<div class="empty">快照无维度数据。</div>`;
+    }
+
+    async function loadPlan() {
+      const res = await fetch(`${API}/api/students/usr_student01/plans`).catch(() => null);
+      if (!res || res.status === 404) {
+        document.getElementById("plan").innerHTML =
+          `<div class="empty">尚未生成计划。完成画像与几道题后，点"生成 1-4 周计划"。</div>`;
+        return;
+      }
+      const p = await res.json();
+      document.getElementById("plan").innerHTML =
+        (p.explanation ? `<p style="font-family:var(--serif);font-size:.95rem;line-height:1.9">${esc(p.explanation)}</p>` : "") +
+        (p.tasks ?? []).map((t) => `
+          <div class="plan-task">
+            <span class="wk">WEEK ${t.week} · ${esc(KIND_ZH[t.kind] ?? t.kind)}</span>
+            <div>${esc((t.dimension_ids ?? []).join("、"))}</div>
+            <div class="crit">达成判据：${esc(t.criterion)} · 复测条件：${esc(t.review_condition)}</div>
+            ${t.why ? `<div class="crit" style="color:var(--cinnabar)">为什么：${esc(t.why)}</div>` : ""}
+          </div>`).join("") || `<div class="empty">计划为空（请先完成画像与测评）。</div>`;
+    }
+
+    document.getElementById("genPlan").onclick = async () => {
+      const btn = document.getElementById("genPlan");
+      btn.disabled = true; btn.textContent = "生成中…";
+      const res = await fetch(`${API}/api/students/usr_student01/plans`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ horizon_weeks: 4 }),
+      });
+      const d = await res.json();
+      btn.disabled = false; btn.textContent = "重新生成";
+      if (!res.ok) {
+        document.getElementById("plan").innerHTML = `<div class="empty">生成失败：${esc(d.error ?? res.status)}</div>`;
+        return;
+      }
+      await loadPlan();
+    };
+
+    loadDims();
+    loadPlan();
+  </script>
+</body>
+</html>

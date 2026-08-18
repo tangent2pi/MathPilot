@@ -137,6 +137,15 @@ services:
     ports:
       - "3000:80"
 
+  web:
+    build:
+      context: ../..
+      dockerfile: src/apps/web/Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
   api:
     build:
       context: ../..

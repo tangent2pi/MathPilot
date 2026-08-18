@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>教师复核 · AGMATH</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/app.css" />
+  <style>
+    .t { max-width: 900px; margin: 0 auto; padding: 2.2rem 1.6rem 4rem; }
+    .t h1 { font-family: var(--serif); font-size: 1.6rem; margin: 0 0 .3rem; }
+    .t .sub { color: var(--ink-soft); font-size: .92rem; margin: 0 0 2rem; }
+    section { margin-bottom: 2.4rem; }
+    section h2 { font-family: var(--serif); font-size: 1.1rem; border-bottom: 1px solid var(--ink); padding-bottom: .4rem; }
+    table.ledger { width: 100%; border-collapse: collapse; font-size: .85rem; margin-top: 1rem; }
+    table.ledger th, table.ledger td { border-bottom: 1px solid var(--hairline); padding: .5rem .6rem; text-align: left; }
+    table.ledger th { font-family: var(--mono); font-size: .7rem; color: var(--ink-faint); letter-spacing: .1em; }
+    .field { margin-bottom: .9rem; }
+    .field label { display: block; font-size: .85rem; margin-bottom: .3rem; color: var(--ink-soft); }
+    .field input, .field select, .field textarea {
+      width: 100%; border: 1px solid var(--ink-soft); background: var(--paper);
+      padding: .5rem .7rem; font: inherit; font-size: .92rem;
+    }
+  </style>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="/"><span class="mark">◆</span>AGMATH<small>数学诊断卷宗</small></a>
+    <nav>
+      <a href="/">每日练习</a>
+      <a href="/report.html">报告与计划</a>
+      <a href="/teacher.html" aria-current="page">教师复核</a>
+      <a href="/solve.html">单题诊断</a>
+    </nav>
+  </header>
+
+  <main class="t">
+    <h1>复核与纠正</h1>
+    <p class="sub">改判不覆盖旧结论：系统保留原观测，以新观测取代它，并从最近快照向后重放。</p>
+
+    <section>
+      <h2>复核队列 <span id="queueCount" class="mono" style="font-size:.7rem;color:var(--ink-faint)"></span></h2>
+      <div id="queue"><div class="empty">队列加载中…</div></div>
+    </section>
+
+    <section>
+      <h2>改判一条观测</h2>
+      <form id="corr">
+        <div class="field"><label for="target">观测 ID（obs_…）</label>
+          <input id="target" placeholder="obs_xxxxxxxxxxxx" required /></div>
+        <div class="field"><label for="outcome">改判为</label>
+          <select id="outcome">
+            <option value="success">success（应判对）</option>
+            <option value="failure">failure（应判错）</option>
+            <option value="unresolved">unresolved（证据不足）</option>
+          </select></div>
+        <div class="field"><label for="reason">改判理由（必填，进入审计）</label>
+          <textarea id="reason" rows="3" required placeholder="例如：学生第二次作答实际已检验补角，原判读草稿不完整。"></textarea></div>
+        <button class="btn cinnabar" type="submit">提交改判并重放</button>
+      </form>
+      <div id="corrOut" style="margin-top:1.2rem"></div>
+    </section>
+  </main>
+
+  <script>
+    const API = "";
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+      (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+
+    async function loadQueue() {
+      const res = await fetch(`${API}/api/review/tasks`);
+      const d = await res.json();
+      const el = document.getElementById("queue");
+      document.getElementById("queueCount").textContent =
+        (d.pending_count ?? 0) > 0 ? `· ${d.pending_count} 项待裁决` : "· 全部已裁决";
+      if (!d.tasks?.length) {
+        el.innerHTML = `<div class="empty">队列暂空。内容管线冻结 KTQ 后、或判答不确定时，任务会出现在这里。</div>`;
+        return;
+      }
+      el.innerHTML = `<table class="ledger"><thead><tr><th>任务</th><th>队列</th><th>对象</th><th>状态</th><th></th></tr></thead>
+        <tbody>${d.tasks.map((t) => `<tr>
+          <td class="mono">${esc(t.task_id)}</td><td>${esc(t.queue)}</td>
+          <td class="mono">${esc(t.target_id)}</td><td>${esc(t.status)}</td>
+          <td>${t.status === "pending"
+            ? `<button class="btn ghost" style="margin:0;padding:.15rem .7rem;font-size:.75rem" data-task="${esc(t.task_id)}">确认</button>`
+            : ""}</td>
+        </tr>`).join("")}</tbody></table>`;
+      el.querySelectorAll("button[data-task]").forEach((b) => {
+        b.onclick = async () => {
+          b.disabled = true;
+          await fetch(`${API}/api/review/tasks/${encodeURIComponent(b.dataset.task)}`, {
+            method: "PATCH", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ status: "confirmed", assignee_id: "usr_teacher01" }),
+          });
+          loadQueue();
+        };
+      });
+    }
+
+    document.getElementById("corr").onsubmit = async (e) => {
+      e.preventDefault();
+      const out = document.getElementById("corrOut");
+      const res = await fetch(`${API}/api/review/corrections`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          target_id: document.getElementById("target").value.trim(),
+          replacement_outcome: document.getElementById("outcome").value,
+          reason: document.getElementById("reason").value,
+          reviewer_id: "usr_teacher01",
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) { out.innerHTML = `<div class="notice">改判被拒绝：${esc(d.error ?? res.status)}</div>`; return; }
+      out.innerHTML = `
+        <div class="evidence">
+          <div class="ev-head"><span class="ev-k">纠正事件</span><span class="ev-id mono">${esc(d.correction_id)}</span></div>
+          <p class="verdict-note">取代观测 <span class="mono">${esc(d.superseded_observation)}</span> → <span class="mono">${esc(d.replacement_observation)}</span></p>
+          <p class="verdict-note">重放基准 <span class="big-number" style="font-size:1.4rem">${esc(d.replay_report?.p_bkt_baseline)}</span>
+            <span class="prior-flag">prior_only</span></p>
+          <p class="verdict-note">修订记录 <span class="mono">${esc(d.revision_record?.slr_id ?? "—")}</span> 已重新入 Dream 队列</p>
+          <p class="verdict-note" style="font-size:.8rem">${esc(d.note ?? "")}</p>
+        </div>`;
+    };
+
+    loadQueue();
+  </script>
+</body>
+</html>
