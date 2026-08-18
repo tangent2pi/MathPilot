@@ -209,7 +209,7 @@ startService({
       if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
       const { studentId } = req.params as { studentId: string };
       const out = await withTenant(pool, tenantId, async (c) => {
-        const [profile, snapshot, mastery] = await Promise.all([
+        const [profile, snapshot, mastery, retention, misconceptions] = await Promise.all([
           c.query("select payload from state_student_profile where student_id = $1", [studentId]),
           c.query(
             "select payload from state_student_snapshot where student_id = $1 order by published_at desc limit 1",
@@ -219,11 +219,21 @@ startService({
             "select dimension_id, p_profile, state, updated_at from state_mastery_state where student_id = $1",
             [studentId],
           ),
+          c.query(
+            "select dimension_id, i90_posterior, next_review_due, stable from state_retention_state where student_id = $1",
+            [studentId],
+          ),
+          c.query(
+            "select error_cause_id, state, evidence_refs, updated_at from state_misconception_state where student_id = $1 order by updated_at desc",
+            [studentId],
+          ),
         ]);
         return {
           profile: profile.rows[0]?.payload ?? null,
           snapshot: snapshot.rows[0]?.payload ?? null,
           mastery: mastery.rows,
+          retention: retention.rows,
+          misconceptions: misconceptions.rows,
           profile_lag: snapshot.rows.length === 0,
         };
       });

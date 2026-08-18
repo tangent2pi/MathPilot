@@ -51,6 +51,11 @@
     </section>
 
     <section>
+      <h2>复测与错因</h2>
+      <div id="rx"><div class="empty">暂无数据</div></div>
+    </section>
+
+    <section>
       <h2>学习计划 <button class="btn ghost" id="genPlan" type="button" style="margin-left:.8rem;font-size:.75rem;padding:.2rem .8rem">生成 1-4 周计划</button></h2>
       <div id="plan"><div class="empty">尚未生成计划。完成画像与几道题后生成。</div></div>
     </section>
@@ -78,6 +83,23 @@
       }
       document.getElementById("snapshotMeta").textContent =
         `snapshot ${snapshot.snapshot_id}${snapshot.supersedes ? ` · 取代 ${snapshot.supersedes}` : " · 首版"} · 来源决策 ${snapshot.source_decision_id}`;
+      // 复测与错因（保持率/错因状态投影）
+      const rxEl = document.getElementById("rx");
+      const rxRows = [
+        ...(d.retention ?? []).map((r) => ({
+          key: r.dimension_id, kind: "复测",
+          text: r.stable ? `下次复测 ≈ ${esc(r.next_review_due ?? "—")} 天` : "复测估计不稳定（独立延迟复测不足，不伪造日期）",
+        })),
+        ...(d.misconceptions ?? []).map((m) => ({
+          key: m.error_cause_id, kind: "错因",
+          text: `${esc(m.state)} · ${(m.evidence_refs ?? []).length} 条证据`,
+        })),
+      ];
+      rxEl.innerHTML = rxRows.length
+        ? rxRows.map((r) => `<div class="dim-card"><div class="dim">${esc(r.key)} · ${esc(r.kind)}</div>
+            <div class="row"><span style="font-size:.88rem">${r.text}</span></div></div>`).join("")
+        : `<div class="empty">暂无复测与错因数据（完成测评后由系统沉淀）。</div>`;
+
       document.getElementById("dims").innerHTML = (snapshot.dimensions ?? []).map((dim) => `
         <div class="dim-card">
           <div class="dim">${esc(dim.dimension_id)}</div>
