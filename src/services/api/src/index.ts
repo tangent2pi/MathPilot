@@ -109,6 +109,14 @@ startService({
       return relay(reply, await forward(p, `${LEARNING_URL}/assessment-runs/${encodeURIComponent(id)}/decide`, { method: "POST", body: req.body }));
     });
 
+    // 卡片交互事件（§5.4；学生只能操作自己的会话）
+    app.post("/api/sessions/:id/card-event", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      const { id } = req.params as { id: string };
+      return relay(reply, await forward(p, `${LEARNING_URL}/sessions/${encodeURIComponent(id)}/card-event`, { method: "POST", body: req.body }));
+    });
+
     // 错因追问作答（§8.3 消歧追问；学生只能操作自己的会话）
     app.post("/api/sessions/:id/probe", async (req, reply) => {
       const p = await principalOf(req, reply);

@@ -135,23 +135,34 @@
         `<p class="teaching-summary">双产物已封装并入队。长期画像只在 Dream 整理后更新——到<a href="/report.html">报告与计划</a>查看。</p>`);
       advance("QUEUE_DREAM");
     }
-    async function renderProbe(probe, round, max) {
+    // 卡片事件（§5.4：submitted/skipped/bypassed_free_text 统一交互协议）
+    async function cardEvent(cardId, responseType, payload = {}) {
+      try {
+        await fetch(`${API}/api/sessions/${sessionId}/card-event`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ card_id: cardId, response_type: responseType, payload }),
+        });
+      } catch { /* 事件丢失不阻塞主流程（审计事件尽力而为） */ }
+    }
+
+    async function renderProbe(probe, card, round, max) {
       probeRound = round;
-      document.getElementById("probeSlot").innerHTML = evidenceHtml(`错因追问 · PROBE ${round}/${max}`, "",
+      const cardId = card?.card_id ?? "";
+      document.getElementById("probeSlot").innerHTML = evidenceHtml(`错因追问 · PROBE ${round}/${max}`, card?.artifact_id ? `artifact://…/${esc(card.artifact_id)}` : "",
         `<div class="probe-card">
-          <div class="p-head"><span class="p-k">消歧追问（可跳过或直接回复）</span><span class="p-skip" id="probeSkip">跳过，不作答</span></div>
-          <p class="teaching-summary">${esc(probe.question)}</p>
+          <div class="p-head"><span class="p-k">消歧追问卡（可跳过或直接回复）</span><span class="p-skip" id="probeSkip">跳过，不作答</span></div>
+          <p class="teaching-summary">${esc(probe?.question ?? card?.prompt ?? "")}</p>
           <textarea id="probeAnswer" rows="2" style="width:100%;border:1px solid var(--hairline);font:inherit;padding:.6rem" placeholder="回答这个追问…"></textarea>
-          <div class="probe-options"><button class="btn" id="probeSubmit" type="button">提交追问作答</button></div>
+          <div class="probe-options">
+            <button class="btn" id="probeSubmit" type="button">提交答案</button>
+            <button class="btn ghost" id="probeFreeText" type="button">不作答，直接回复</button>
+          </div>
         </div>`);
       document.getElementById("probeSlot").scrollIntoView({ behavior: "smooth", block: "center" });
-      document.getElementById("probeSubmit").onclick = async () => {
-        const answer = document.getElementById("probeAnswer").value.trim();
-        if (!answer) return;
-        document.getElementById("probeSubmit").disabled = true;
+
+      const sendProbe = async (answer) => {
         const res = await fetch(`${API}/api/sessions/${sessionId}/probe`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
+          method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ answer_text: answer }),
         });
         const d = await res.json();
@@ -165,10 +176,24 @@
           advance("DIAGNOSE");
           renderClosed(d);
         } else if (d.probe) {
-          renderProbe(d.probe, d.probe_rounds, d.max_probe_rounds);
+          renderProbe(d.probe, d.card, d.probe_rounds, d.max_probe_rounds);
         }
       };
+
+      document.getElementById("probeSubmit").onclick = async () => {
+        const answer = document.getElementById("probeAnswer").value.trim();
+        if (!answer) return;
+        document.getElementById("probeSubmit").disabled = true;
+        if (cardId) await cardEvent(cardId, "submitted", { answer });
+        await sendProbe(answer);
+      };
+      document.getElementById("probeFreeText").onclick = async () => {
+        const answer = document.getElementById("probeAnswer").value.trim();
+        if (cardId) await cardEvent(cardId, "bypassed_free_text", { answer });
+        await sendProbe(answer || "（直接回复，未作答卡片）");
+      };
       document.getElementById("probeSkip").onclick = () => {
+        if (cardId) cardEvent(cardId, "skipped");
         document.getElementById("probeSlot").innerHTML = evidenceHtml("错因追问 · 跳过", "",
           `<p class="verdict-note">已跳过追问——只记录事件，不产生失败观测（设计 §1.1-10）。本题证据已封装。</p>`);
         advance("DIAGNOSE");
@@ -234,11 +259,11 @@
         return;
       }
       renderVerdict(data.judgment);
-      // 追问路径：partial/incorrect → PROBE_AWAIT；正确/待核 → 直接关闭
+      // 追问路径：partial/incorrect → PROBE_AWAIT（教学卡片协议渲染）；正确/待核 → 直接关闭
       if (data.probe && data.state === "PROBE_AWAIT") {
         document.getElementById("answer").hidden = true;
         advance("DIAGNOSE");
-        renderProbe(data.probe, data.probe_rounds, data.max_probe_rounds);
+        renderProbe(data.probe, data.card, data.probe_rounds, data.max_probe_rounds);
       } else {
         renderClosed(data);
       }

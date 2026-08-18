@@ -160,6 +160,50 @@ async function runGrading(
   };
 }
 
+/**
+ * 教学卡片协议（设计 §5.4/§7.5：question-card 通用原语）。
+ * 卡片只承载交互意图（提交/跳过/直接回复），不自行判答；跳过/直接回复不产生失败观测。
+ */
+interface QuestionCard {
+  schema: "agmath.question-card/v1";
+  artifact_id: string;
+  card_id: string;
+  type: "single_choice" | "multiple_choice" | "fill_blank" | "true_false";
+  prompt: string;
+  blanks?: { name: string; expected_format?: "number" | "expression" | "text" }[];
+  response_policy: { required: false; allow_skip: true; allow_free_text_without_answer: true };
+  evidence_policy: "teaching_only" | "eligible_if_independent";
+  source_refs: string[];
+}
+
+function buildProbeCard(sessionId: string, artifactId: string, probe: { question: string }): QuestionCard {
+  return {
+    schema: "agmath.question-card/v1",
+    artifact_id: artifactId,
+    card_id: `card_${artifactId.replace(/^art_/, "").slice(0, 8)}`,
+    type: "fill_blank",
+    prompt: probe.question,
+    blanks: [{ name: "answer", expected_format: "text" }],
+    response_policy: { required: false, allow_skip: true, allow_free_text_without_answer: true },
+    evidence_policy: "teaching_only",
+    source_refs: [`chat://${sessionId}/probe`],
+  };
+}
+
+async function registerProbeCard(
+  c: { query: (q: string, v?: unknown[]) => Promise<unknown> },
+  tenantId: string,
+  sessionId: string,
+  studentId: string,
+  card: QuestionCard,
+): Promise<void> {
+  await c.query(
+    `insert into runtime_learning_artifact (artifact_id, tenant_id, session_id, kind, renderer, artifact_uri)
+     values ($1,$2,$3,'question_card','native_card',$4)`,
+    [card.artifact_id, tenantId, sessionId, `artifact://${sessionId}/${card.artifact_id}`],
+  );
+}
+
 /** 错因归因任务（设计 §8.3）：输出候选错因 + 消歧追问 */
 interface DiagnoseOutcome {
   candidate_error_causes: { error_cause_id: string; confidence: number; evidence: string }[];
@@ -761,18 +805,23 @@ startService({
       if (!diag) return reply.code(500).send({ error: "internal", detail: "diagnose missing on diagnose path" });
 
       const claimId = newId("clm");
+      const card = diag.outcome.probe
+        ? buildProbeCard(id, newId("art"), diag.outcome.probe)
+        : null;
       const claimPayload = {
         claim_id: claimId,
         session_id: id,
         status: "open",
         candidates: diag.outcome.candidate_error_causes,
         probe: diag.outcome.probe,
+        card: card ? { artifact_id: card.artifact_id, card_id: card.card_id } : null,
         resolved: diag.outcome.resolved,
         rationale: diag.outcome.rationale,
         probe_history: [],
         created_at: now,
       };
       await withTenant(pool, tenantId, async (c) => {
+        if (card) await registerProbeCard(c, tenantId, id, "usr_student01", card);
         await c.query(
           `insert into runtime_diagnostic_claim (claim_id, tenant_id, session_id, status, payload)
            values ($1,$2,$3,'open',$4)`,
@@ -803,10 +852,54 @@ startService({
         judgment: judgmentPayload,
         claim: { claim_id: claimId, candidates: diag.outcome.candidate_error_causes, rationale: diag.outcome.rationale },
         probe: diag.outcome.probe,
+        card,
         state: "PROBE_AWAIT",
         probe_rounds: 1,
         max_probe_rounds: MAX_PROBE_ROUNDS,
       });
+    });
+
+    /**
+     * 卡片交互事件（设计 §5.4：submitted/skipped/bypassed_free_text）。
+     * 跳过/直接回复只记录事件，不产生失败观测（§1.1-10）；作答内容走 /probe 判答。
+     */
+    app.post("/sessions/:id/card-event", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { id } = req.params as { id: string };
+      const body = req.body as { card_id?: string; response_type?: string; payload?: Record<string, unknown> };
+      if (!body.card_id || !["submitted", "skipped", "bypassed_free_text"].includes(body.response_type ?? "")) {
+        return reply.code(422).send({ error: "card_id and response_type (submitted|skipped|bypassed_free_text) required" });
+      }
+      const out = await withTenant(pool, tenantId, async (c) => {
+        const s = await c.query("select * from runtime_question_session where session_id = $1", [id]);
+        const session = s.rows[0];
+        if (!session) return { status: 404 as const };
+        if (session.state !== "DIAGNOSE" && session.state !== "PROBE_AWAIT") {
+          return { status: 409 as const, body: { error: `card-event only in DIAGNOSE/PROBE_AWAIT, current ${session.state}` } };
+        }
+        // 卡片归属校验：claim 中登记的 card_id 必须匹配
+        const claim = await c.query(
+          "select payload from runtime_diagnostic_claim where session_id = $1 order by created_at desc limit 1",
+          [id],
+        );
+        const registered = (claim.rows[0]?.payload?.card ?? null) as { artifact_id?: string; card_id?: string } | null;
+        if (!registered || registered.card_id !== body.card_id) {
+          return { status: 422 as const, body: { error: "card_id not registered for this session" } };
+        }
+        const responseId = newId("rsp");
+        await c.query(
+          `insert into runtime_artifact_interaction
+             (response_id, tenant_id, session_id, artifact_id, card_id, student_id, response_type, payload)
+           values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [responseId, tenantId, id, registered.artifact_id, body.card_id, session.student_id,
+           body.response_type, JSON.stringify(body.payload ?? {})],
+        );
+        return { status: 201 as const, body: { response_id: responseId, response_type: body.response_type } };
+      });
+      if (out.status === 404) return reply.code(404).send({ error: "session not found" });
+      if (out.status === 409 || out.status === 422) return reply.code(out.status).send(out.body);
+      return reply.code(201).send(out.body);
     });
 
     /** 追问作答：判答探针 → 证据入 claim → 闭合或下一轮（≤3）→ 关闭 */
@@ -945,12 +1038,15 @@ startService({
           ...(closed.body as Record<string, unknown>),
         });
       }
+      const nextCard = buildProbeCard(id, newId("art"), diag.outcome.probe);
       await withTenant(pool, tenantId, async (c) => {
+        await registerProbeCard(c, tenantId, id, pre.student_id, nextCard);
         await c.query(
           `update runtime_diagnostic_claim
-              set payload = payload || jsonb_build_object('probe', $2::jsonb)
+              set payload = payload || jsonb_build_object('probe', $2::jsonb, 'card', $3::jsonb)
             where claim_id = $1`,
-          [claim.claim_id, JSON.stringify(diag.outcome.probe)],
+          [claim.claim_id, JSON.stringify(diag.outcome.probe),
+           JSON.stringify({ artifact_id: nextCard.artifact_id, card_id: nextCard.card_id })],
         );
         await c.query(
           `update runtime_question_session set state = 'PROBE_AWAIT' where session_id = $1`,
@@ -960,6 +1056,7 @@ startService({
       return reply.send({
         session_id: id,
         probe: diag.outcome.probe,
+        card: nextCard,
         probe_rounds: nextRound,
         max_probe_rounds: MAX_PROBE_ROUNDS,
         state: "PROBE_AWAIT",
