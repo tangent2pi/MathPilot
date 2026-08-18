@@ -568,24 +568,26 @@ startService({
 
     // ── 自适应测评（§10 / §7.4 测评统一：聊天式测评 = AssessmentRun） ──
 
-    /** 创建测评轮（AssessmentRun）：初始目标 coverage；后续目标由会话结束判定更新 */
+    /** 创建测评轮（AssessmentRun）：初始目标 coverage（可显式指定 review/training）；后续目标由会话结束判定更新 */
     app.post("/assessment-runs", async (req, reply) => {
       const tenantId = tenantOf(req);
       if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
-      const { student_id: studentId } = req.body as { student_id: string };
+      const { student_id: studentId, goal: goalIn } = req.body as { student_id: string; goal?: string };
       if (!studentId) return reply.code(422).send({ error: "student_id required" });
+      const goal = goalIn && ["coverage", "disambiguation", "prerequisite", "review", "training", "transfer"].includes(goalIn)
+        ? (goalIn as SelectionGoal) : "coverage";
       const runId = newId("run");
       const now = new Date().toISOString();
       await withTenant(pool, tenantId, async (c) => {
         await c.query(
           `insert into runtime_assessment_run (run_id, tenant_id, student_id, goal, budget, status, payload)
-           values ($1,$2,$3,'coverage',$4,'active',$5)`,
-          [runId, tenantId, studentId,
+           values ($1,$2,$3,$4,$5,'active',$6)`,
+          [runId, tenantId, studentId, goal,
            JSON.stringify({ max_questions: 10, max_minutes: 30 }),
-           JSON.stringify({ run_id: runId, student_id: studentId, goal: "coverage", seen: [], sessions: [], created_at: now })],
+           JSON.stringify({ run_id: runId, student_id: studentId, goal, seen: [], sessions: [], created_at: now })],
         );
       });
-      return reply.code(201).send({ run_id: runId, goal: "coverage", status: "active" });
+      return reply.code(201).send({ run_id: runId, goal, status: "active" });
     });
 
     /** 下一题（阶段 B：传统程序硬过滤+评分；题目候选来自已发布章节包） */

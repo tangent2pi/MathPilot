@@ -49,13 +49,13 @@
     </div>
 
     <div class="entries">
-      <a class="entry" href="/solve.html">
+      <a class="entry" href="#" id="entryDaily">
         <div class="no">01</div><h2>每日练习</h2>
         <p>按计划与薄弱项自适应选题，聊天式一题一诊断。</p>
       </a>
-      <a class="entry" href="/solve.html?mode=review">
+      <a class="entry" href="#" id="entryReview">
         <div class="no">02</div><h2>错题重刷</h2>
-        <p>按复测到期程度排序，验证保持率与提取能力。</p>
+        <p>复测目标驱动的自适应测评，验证保持率与提取能力。</p>
       </a>
       <a class="entry" href="/solve.html">
         <div class="no">03</div><h2>问问 AI</h2>
@@ -74,6 +74,30 @@
       (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
     const card = document.getElementById("profileCard");
     const status = document.getElementById("profileStatus");
+
+    // 自适应测评：创建测评轮 → 下一题 → 进入单题页（run 参数驱动闭环）
+    async function startRun(goal) {
+      const res = await fetch(`${API}/api/assessment-runs`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ student_id: "usr_student01", goal }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        alert(`无法创建测评：${d.error ?? res.status}`);
+        return;
+      }
+      const next = await fetch(`${API}/api/assessment-runs/${d.run_id}/next`, {
+        method: "POST", headers: { "content-type": "application/json" },
+      });
+      const n = await next.json();
+      if (!next.ok || !n.question_id) {
+        alert(`暂无合适题目：${n.detail ?? n.error ?? next.status}`);
+        return;
+      }
+      location.href = `/solve.html?run=${d.run_id}&q=${encodeURIComponent(n.question_id)}`;
+    }
+    document.getElementById("entryDaily").onclick = (e) => { e.preventDefault(); startRun("coverage"); };
+    document.getElementById("entryReview").onclick = (e) => { e.preventDefault(); startRun("review"); };
 
     (async () => {
       const res = await fetch(`${API}/api/students/usr_student01/profile`).catch(() => null);

@@ -93,6 +93,9 @@
     let sessionId = null;
     let flowState = 0;
     let probeRound = 0;
+    const params = new URLSearchParams(location.search);
+    const runId = params.get("run");
+    const runQuestion = params.get("q");
 
     function stamp(state) {
       const el = document.querySelector(`.seal[data-state="${state}"]`);
@@ -134,6 +137,43 @@
       document.getElementById("queueSlot").innerHTML = evidenceHtml("画像队列", d.session_learning_record_id ?? "",
         `<p class="teaching-summary">双产物已封装并入队。长期画像只在 Dream 整理后更新——到<a href="/report.html">报告与计划</a>查看。</p>`);
       advance("QUEUE_DREAM");
+      if (runId) runDecide();
+    }
+
+    // 自适应测评闭环（§10/§7.4）：会话结束 → 教学主模型判定下一目标 → 下一题或结束
+    async function runDecide() {
+      const btn = document.getElementById("actDone");
+      btn.disabled = true;
+      const res = await fetch(`${API}/api/assessment-runs/${runId}/decide`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        document.getElementById("queueSlot").innerHTML +=
+          `<div class="error-card" style="margin-top:.6rem">目标判定失败：${esc(d.error ?? res.status)}（下一题需重试）</div>`;
+        btn.disabled = false;
+        return;
+      }
+      if (d.stop) {
+        document.getElementById("queueSlot").innerHTML = evidenceHtml("测评完成", "",
+          `<p class="teaching-summary">本轮测评目标达成（${esc(d.goal)}：${esc(d.reason ?? "")}）。到<a href="/report.html">报告与计划</a>查看画像更新。</p>`);
+        btn.textContent = "查看报告";
+        btn.onclick = () => { location.href = "/report.html"; };
+        return;
+      }
+      const next = await fetch(`${API}/api/assessment-runs/${runId}/next`, {
+        method: "POST", headers: { "content-type": "application/json" },
+      });
+      const n = await next.json();
+      if (!next.ok || !n.question_id) {
+        document.getElementById("queueSlot").innerHTML +=
+          `<div class="error-card" style="margin-top:.6rem">下一题失败：${esc(n.detail ?? n.error ?? next.status)}</div>`;
+        btn.disabled = false;
+        return;
+      }
+      btn.textContent = "下一题";
+      btn.onclick = () => { location.href = `/solve.html?run=${runId}&q=${encodeURIComponent(n.question_id)}`; };
     }
     // 卡片事件（§5.4：submitted/skipped/bypassed_free_text 统一交互协议）
     async function cardEvent(cardId, responseType, payload = {}) {
@@ -220,10 +260,10 @@
     const startBtn = document.createElement("button");
     startBtn.className = "btn cinnabar"; startBtn.textContent = "开始本题"; startBtn.id = "startBtn";
     document.getElementById("startNote").appendChild(startBtn);
-    startBtn.onclick = async () => {
+    async function openSession(questionId) {
       const res = await fetch(`${API}/api/sessions`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ student_id: "usr_student01", question_id: "Q_TRI_012",
+        body: JSON.stringify({ student_id: "usr_student01", question_id: questionId,
           chapter_package_version: "0.1.0", mode: "diagnostic", draft_enabled: false }),
       });
       const data = await res.json();
@@ -238,7 +278,14 @@
       document.getElementById("qid").textContent = data.question_id;
       document.getElementById("pkgVer").textContent = data.chapter_package_version;
       stamp("CREATE"); flowState = 1;
-    };
+    }
+    startBtn.onclick = () => openSession("Q_TRI_012");
+
+    // run 模式：自适应测评进入的题目（每日练习/错题重刷）
+    if (runId && runQuestion) {
+      document.getElementById("startNote").textContent = `测评轮 ${runId} · 第 ${runQuestion} 题`;
+      openSession(runQuestion);
+    }
 
     document.getElementById("submitBtn").onclick = async () => {
       const answer = document.getElementById("answerText").value.trim();
