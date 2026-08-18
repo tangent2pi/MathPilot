@@ -54,6 +54,29 @@ async function relay(reply: FastifyReply, res: Response): Promise<FastifyReply> 
   return reply.code(res.status).send(await res.json());
 }
 
+/** 学生只能操作本人会话（D.5：OIDC 路径强制归属校验；教师可代查） */
+async function assertSessionOwner(
+  p: Principal,
+  reply: FastifyReply,
+  learningUrl: string,
+  sessionId: string,
+): Promise<boolean> {
+  if (p.via !== "oidc" || p.roles.includes("teacher")) return true;
+  const res = await longFetch(`${learningUrl}/sessions/${encodeURIComponent(sessionId)}`, {
+    headers: { "x-tenant-id": p.tenantId },
+  }, 30_000).catch(() => null);
+  if (!res || !res.ok) {
+    reply.code(404).send({ error: "session not found" });
+    return false;
+  }
+  const d = (await res.json()) as { student_id?: string };
+  if (d.student_id !== p.userId) {
+    reply.code(403).send({ error: "not your session" });
+    return false;
+  }
+  return true;
+}
+
 startService({
   name: "api",
   port: Number(process.env.PORT ?? 3001),
@@ -85,6 +108,7 @@ startService({
       const p = await principalOf(req, reply);
       if (!p) return;
       const { id } = req.params as { id: string };
+      if (!(await assertSessionOwner(p, reply, LEARNING_URL, id))) return;
       return relay(reply, await forward(p, `${LEARNING_URL}/sessions/${encodeURIComponent(id)}/submit`, { method: "POST", body: req.body }));
     });
 
@@ -109,11 +133,21 @@ startService({
       return relay(reply, await forward(p, `${LEARNING_URL}/assessment-runs/${encodeURIComponent(id)}/decide`, { method: "POST", body: req.body }));
     });
 
+    // 跳过探针即闭合（§1.1-10；学生只能操作自己的会话）
+    app.post("/api/sessions/:id/probe-skip", async (req, reply) => {
+      const p = await principalOf(req, reply);
+      if (!p) return;
+      const { id } = req.params as { id: string };
+      if (!(await assertSessionOwner(p, reply, LEARNING_URL, id))) return;
+      return relay(reply, await forward(p, `${LEARNING_URL}/sessions/${encodeURIComponent(id)}/probe-skip`, { method: "POST" }));
+    });
+
     // 卡片交互事件（§5.4；学生只能操作自己的会话）
     app.post("/api/sessions/:id/card-event", async (req, reply) => {
       const p = await principalOf(req, reply);
       if (!p) return;
       const { id } = req.params as { id: string };
+      if (!(await assertSessionOwner(p, reply, LEARNING_URL, id))) return;
       return relay(reply, await forward(p, `${LEARNING_URL}/sessions/${encodeURIComponent(id)}/card-event`, { method: "POST", body: req.body }));
     });
 
@@ -122,6 +156,7 @@ startService({
       const p = await principalOf(req, reply);
       if (!p) return;
       const { id } = req.params as { id: string };
+      if (!(await assertSessionOwner(p, reply, LEARNING_URL, id))) return;
       return relay(reply, await forward(p, `${LEARNING_URL}/sessions/${encodeURIComponent(id)}/probe`, { method: "POST", body: req.body }));
     });
 

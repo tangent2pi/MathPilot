@@ -416,8 +416,13 @@ startService({
         // 窗口观测（供侧车 Roster 推送与证据索引）
         const obs = await c.query(
           `select observation_id, student_id, dimension_id, outcome
-             from runtime_state_observation
-            where student_id = $1 and session_id = any($2) and outcome in ('success','failure')`,
+             from runtime_state_observation o
+            where o.student_id = $1 and o.session_id = any($2)
+              and o.outcome in ('success','failure')
+              and o.independent
+              and not exists (
+                select 1 from runtime_state_observation o2 where o2.supersedes = o.observation_id
+              )`,
           [studentId, pending.rows.map((r) => r.session_id)],
         );
         // 证据索引（§11.3 Dream Context Compiler：按需回看的会话级索引）

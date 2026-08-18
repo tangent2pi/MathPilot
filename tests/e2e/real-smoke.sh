@@ -122,7 +122,7 @@ d=json.load(sys.stdin)
 mt=[r for r in d["lineage"] if r["field_path"]=="/measurement_targets"]
 assert mt and mt[0]["agent_run_id"].startswith("run_ktq_"), mt
 assert "scnet" in (mt[0]["model_id"] or ""), mt[0]["model_id"]
-assert mt[0]["prompt_version"]=="ktq-extract@0.3.0", mt[0]["prompt_version"]
+assert mt[0]["prompt_version"]=="ktq-extract@0.4.0", mt[0]["prompt_version"]
 print("OK  lineage", d["question_id"], "->", mt[0]["agent_run_id"], mt[0]["model_id"], mt[0]["prompt_version"])
 '
 

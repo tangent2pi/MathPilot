@@ -60,6 +60,7 @@ const RUBRIC_STATUS = new Set(["met", "not_met", "unclear"]);
 interface QuestionSpec {
   stem: string;
   rubric: { id: string; description: string }[];
+  measurement_targets: { dim: string; role: "primary" | "secondary" | "prerequisite" }[];
 }
 
 /** 题目规格只来自已发布章节包（设计 §7.2）：未发布 → 404，不可达 → 502。无内置兜底。 */
@@ -77,11 +78,25 @@ async function getQuestionSpec(questionId: string, tenantId: string): Promise<
   }
   if (res.status === 404) return { ok: false, status: 404, error: "question_not_found_or_unpublished" };
   if (!res.ok) return { ok: false, status: 502, error: "content_unavailable", detail: `http_${res.status}` };
-  const q = (await res.json()) as { stem_markdown?: string; rubric?: { items?: { id: string; description: string }[] } };
+  const q = (await res.json()) as {
+    stem_markdown?: string;
+    rubric?: { items?: { id: string; description: string }[] };
+    measurement_targets?: { dim: string; role: string }[];
+  };
   if (!q.stem_markdown || !q.rubric?.items?.length) {
     return { ok: false, status: 422, error: "question_incomplete", detail: "缺题干或评分点" };
   }
-  return { ok: true, spec: { stem: q.stem_markdown, rubric: q.rubric.items.map((i) => ({ id: i.id, description: i.description })) } };
+  return {
+    ok: true,
+    spec: {
+      stem: q.stem_markdown,
+      rubric: q.rubric.items.map((i) => ({ id: i.id, description: i.description })),
+      measurement_targets: (q.measurement_targets ?? [])
+        .filter((m): m is { dim: string; role: "primary" | "secondary" | "prerequisite" } =>
+          typeof m.dim === "string" && ["primary", "secondary", "prerequisite"].includes(m.role ?? ""))
+        .map((m) => ({ dim: m.dim, role: m.role })),
+    },
+  };
 }
 
 /** 诊断上下文（§8.3：候选只能来自题目关联 E-ID 与诊断规则） */
@@ -116,7 +131,9 @@ type Grade = {
   promptVersion: string;
 };
 
-type GradingResult = { ok: true; grade: Grade } | { ok: false; status: number; error: string; detail?: string };
+type GradingResult =
+  | { ok: true; grade: Grade; spec: QuestionSpec }
+  | { ok: false; status: number; error: string; detail?: string };
 
 /** 单次判答任务 Session（模型主判，设计 §12.1） */
 async function runGrading(
@@ -157,6 +174,7 @@ async function runGrading(
       modelImpl: gradeRes.implementation ?? "pi.unknown",
       promptVersion: gradeRes.promptVersion ?? "unknown",
     },
+    spec: specRes.spec,
   };
 }
 
@@ -318,6 +336,7 @@ async function closeChain(
 
   const claimId = facts.claim?.claim_id ?? null;
   const claimStatus = (facts.claim?.status as string | undefined) ?? null;
+  const claimPayload = facts.claim?.payload as { candidates?: { error_cause_id?: string }[] } | null;
 
   const out = await withTenant(pool, tenantId, async (c) => {
     const s = await c.query("select * from runtime_question_session where session_id = $1 for update", [sessionId]);
@@ -357,6 +376,28 @@ async function closeChain(
          values ($1,$2,$3,$4,$5,$6,null,$7,$8,$9,0,$10)`,
         [observationId, tenantId, session.student_id, dimensionId, session.question_id, sessionId,
          observationPayload.outcome, independent, h.evidence_rule, JSON.stringify(observationPayload)],
+      );
+    }
+
+    // 保持率初值（§9.6）：均匀 I90 先验 + 证据不足（复测估计不稳定，不伪造日期）
+    const retentionPrior = JSON.stringify(
+      Object.fromEntries([0.5, 1, 2, 4, 8, 16, 32, 64].map((d) => [String(d), 1 / 8])),
+    );
+    await c.query(
+      `insert into state_retention_state (tenant_id, student_id, dimension_id, i90_posterior, next_review_due, stable, updated_at)
+       values ($1,$2,$3,$4::jsonb,null,false,now())
+       on conflict (student_id, dimension_id)
+       do update set i90_posterior = excluded.i90_posterior, stable = false, updated_at = now()`,
+      [tenantId, session.student_id, dimensionId, retentionPrior],
+    );
+    // 错因疑似状态（§9.7 / §7.2 单会话层只标 suspected，画像级判定归 Dream）
+    const topCandidate = claimPayload?.candidates?.[0]?.error_cause_id;
+    if (topCandidate) {
+      await c.query(
+        `insert into state_misconception_state (tenant_id, student_id, error_cause_id, state, evidence_refs, updated_at)
+         values ($1,$2,$3,'suspected',$4::jsonb,now())
+         on conflict (student_id, error_cause_id) do nothing`,
+        [tenantId, session.student_id, topCandidate, JSON.stringify([`claim://${claimId ?? ""}`])],
       );
     }
 
@@ -727,11 +768,37 @@ startService({
         return r.rows[0];
       });
       if (!pre) return reply.code(404).send({ error: "session not found" });
-      if (pre.state !== "CREATE") return reply.code(409).send({ error: `submit only allowed from CREATE, current ${pre.state}` });
+      // 恢复路径（D.1）：closeChain 中途失败后 session 停在 GRADE/DIAGNOSE，事实已落库——
+      // 重试 submit 时直接续跑 closeChain，不重复判答（幂等恢复）
+      const resume = pre.state === "GRADE" || pre.state === "DIAGNOSE";
+      if (pre.state !== "CREATE" && !resume) {
+        return reply.code(409).send({ error: `submit only allowed from CREATE (or resume from GRADE/DIAGNOSE), current ${pre.state}` });
+      }
+
+      if (resume) {
+        // 恢复：已有事实（attempt/verdict/claim），只续跑关闭全链
+        const existing = await withTenant(pool, tenantId, async (c) => {
+          const r = await c.query(
+            `select v.payload from runtime_answer_verdict v
+               join runtime_attempt a on a.attempt_id = v.attempt_id
+              where a.session_id = $1 order by a.created_at limit 1`,
+            [id],
+          );
+          return r.rows[0]?.payload ?? null;
+        });
+        if (!existing) return reply.code(409).send({ error: "resume requires existing verdict facts" });
+        const closed = await closeChain(tenantId, id);
+        if (closed.status !== 200) return reply.code(closed.status).send(closed.body);
+        return reply.send({ session_id: id, resumed: true, judgment: existing, ...(closed.body as Record<string, unknown>) });
+      }
 
       const graded = await runGrading(pre.question_id, tenantId, body.answer_text);
       if (!graded.ok) return reply.code(graded.status).send({ error: graded.error, detail: graded.detail });
       const grade = graded.grade;
+
+      // 维度归因（§2.3）：未显式指定时取 measurement_targets 的 primary 维度
+      const primaryDim = graded.spec.measurement_targets.find((m) => m.role === "primary")?.dim;
+      const effectiveDim = body.dimension_id ?? primaryDim ?? "K_SSA";
 
       // 部分正确/错误 → 先做错因归因（模型调用失败则整体 502，会话保持 CREATE 可重试）
       let diag: Awaited<ReturnType<typeof runDiagnose>> | null = null;
@@ -777,7 +844,7 @@ startService({
                     jsonb_build_array(jsonb_build_object('state','SUBMIT','entered_at',$3::timestamptz,'actor','orchestrator'),
                                       jsonb_build_object('state','GRADE','entered_at',$3::timestamptz,'actor','orchestrator'))
             where session_id = $1`,
-          [id, dimensionId, now],
+          [id, effectiveDim, now],
         );
       });
 
@@ -902,6 +969,41 @@ startService({
       return reply.code(201).send(out.body);
     });
 
+    /** 跳过探针（D.2/设计 §1.1-10）：只记录 skipped 事件，不产生失败观测；正常闭合产出双产物 */
+    app.post("/sessions/:id/probe-skip", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { id } = req.params as { id: string };
+      const pre = await withTenant(pool, tenantId, async (c) => {
+        const r = await c.query("select state from runtime_question_session where session_id = $1", [id]);
+        return r.rows[0];
+      });
+      if (!pre) return reply.code(404).send({ error: "session not found" });
+      if (pre.state !== "DIAGNOSE" && pre.state !== "PROBE_AWAIT") {
+        return reply.code(409).send({ error: `probe-skip only in DIAGNOSE/PROBE_AWAIT, current ${pre.state}` });
+      }
+      // 卡片事件（若已登记）
+      await withTenant(pool, tenantId, async (c) => {
+        const claim = await c.query(
+          "select payload from runtime_diagnostic_claim where session_id = $1 order by created_at desc limit 1",
+          [id],
+        );
+        const card = claim.rows[0]?.payload?.card as { artifact_id?: string; card_id?: string } | null;
+        if (card?.card_id) {
+          await c.query(
+            `insert into runtime_artifact_interaction
+               (response_id, tenant_id, session_id, artifact_id, card_id, student_id, response_type, payload)
+             select $1,$2,session_id,$3,$4,student_id,'skipped','{}' from runtime_question_session where session_id = $5`,
+            [newId("rsp"), tenantId, card.artifact_id, card.card_id, id],
+          );
+        }
+        await c.query("update runtime_diagnostic_claim set status = 'skipped' where claim_id = $1", [claim.rows[0]?.claim_id ?? ""]);
+      });
+      const closed = await closeChain(tenantId, id);
+      if (closed.status !== 200) return reply.code(closed.status).send(closed.body);
+      return reply.send({ session_id: id, skipped: true, ...(closed.body as Record<string, unknown>) });
+    });
+
     /** 追问作答：判答探针 → 证据入 claim → 闭合或下一轮（≤3）→ 关闭 */
     app.post("/sessions/:id/probe", async (req, reply) => {
       const tenantId = tenantOf(req);
@@ -936,7 +1038,7 @@ startService({
       if (!claim?.claim_id || !probeQ?.question) {
         return reply.code(409).send({ error: "no pending probe on claim" });
       }
-      if (pre.probe_rounds >= MAX_PROBE_ROUNDS) {
+      if (pre.probe_rounds > MAX_PROBE_ROUNDS) {
         return reply.code(409).send({ error: `probe rounds exhausted (${MAX_PROBE_ROUNDS})` });
       }
 
@@ -981,7 +1083,7 @@ startService({
       const resolvedErrorCause = claim.payload?.candidates?.[0] && probeOk
         ? (claim.payload.candidates[0] as { error_cause_id?: string }).error_cause_id ?? null
         : null;
-      const claimStatus = probeOk ? "resolved" : nextRound >= MAX_PROBE_ROUNDS ? "unresolved" : "open";
+      const claimStatus = probeOk ? "resolved" : nextRound > MAX_PROBE_ROUNDS ? "unresolved" : "open";
       await withTenant(pool, tenantId, async (c) => {
         const cur = await c.query(
           "select payload from runtime_diagnostic_claim where claim_id = $1",

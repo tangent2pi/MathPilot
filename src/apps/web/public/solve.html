@@ -192,11 +192,22 @@
         if (cardId) await cardEvent(cardId, "bypassed_free_text", { answer });
         await sendProbe(answer || "（直接回复，未作答卡片）");
       };
-      document.getElementById("probeSkip").onclick = () => {
+      document.getElementById("probeSkip").onclick = async () => {
+        // 跳过即闭合（D.2）：只记录事件，不产生失败观测；服务端正常产出双产物进 Dream
         if (cardId) cardEvent(cardId, "skipped");
+        const res = await fetch(`${API}/api/sessions/${sessionId}/probe-skip`, {
+          method: "POST", headers: { "content-type": "application/json" },
+        });
+        const d = await res.json();
+        if (!res.ok) {
+          document.getElementById("probeSlot").innerHTML =
+            `<div class="error-card">跳过失败：${esc(d.error ?? res.status)}</div>`;
+          return;
+        }
         document.getElementById("probeSlot").innerHTML = evidenceHtml("错因追问 · 跳过", "",
           `<p class="verdict-note">已跳过追问——只记录事件，不产生失败观测（设计 §1.1-10）。本题证据已封装。</p>`);
         advance("DIAGNOSE");
+        renderClosed(d);
       };
     }
 
