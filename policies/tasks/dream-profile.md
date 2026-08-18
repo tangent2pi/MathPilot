@@ -29,7 +29,7 @@ description: 长期画像更新：综合程序评价与教学总结双产物输�
 {
   "dimension_updates": [{
     "dimension_id": "...",
-    "p_baseline": 程序基准（必须引用 SER，不得凭空写）,
+    "p_baseline": 程序基准（pyBKT Roster 逐维度掌握度，与 SER 一致；不得凭空写）,
     "p_final": 最终概率,
     "state_final": "insufficient_evidence|weak|learning|possibly_mastered|mastered",
     "evidence_ledger": [{
@@ -43,6 +43,11 @@ description: 长期画像更新：综合程序评价与教学总结双产物输�
     }],
     "alternatives": [...],
     "uncertainty": "low|medium|high"
+  }],
+  "misconception_updates": [{
+    "error_cause_id": "E_...",
+    "state_final": "suspected|confirmed|improving|resolved|superseded",
+    "evidence_refs": ["obs_..."]
   }],
   "semantic_profile_updates": [],
   "review_required": false

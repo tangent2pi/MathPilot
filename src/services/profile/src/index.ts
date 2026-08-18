@@ -472,7 +472,10 @@ startService({
           if (!g.ok) {
             return reply.code(502).send({ error: "roster_get_failed", detail: `${g.error}: ${g.detail ?? ""}` });
           }
-          rosterBase.set(r.dimension_id, g.value.p_mastery ?? r.p_bkt_baseline);
+          if (g.value.p_mastery === null) {
+            return { ok: false, error: "roster_no_evidence", detail: `维度 ${r.dimension_id} 无独立有效观测可作 Roster 基准` };
+          }
+          rosterBase.set(r.dimension_id, g.value.p_mastery);
         }
         latestByDim.set(r.dimension_id, { p: rosterBase.get(r.dimension_id)!, count: r.obs_count });
       }
@@ -501,6 +504,7 @@ startService({
           dimension_id?: string; p_baseline?: number; p_final?: number; state_final?: string;
           evidence_ledger?: unknown[]; alternatives?: string[]; uncertainty?: string;
         }[];
+        misconception_updates?: { error_cause_id?: string; state_final?: string; evidence_refs?: string[] }[];
         semantic_profile_updates?: unknown[];
         review_required?: boolean;
       };
@@ -632,13 +636,27 @@ startService({
           uncertainty: d.uncertainty,
           independent_observation_count: latestByDim.get(d.dimension_id)?.count ?? 0,
         }));
+        // 错因六档物化（P1-5/§9.7）：Dream 输出的 misconception_updates 经状态白名单校验后落库
+        const misconceptionUpdates = (dreamJson.misconception_updates ?? [])
+          .filter((m): m is { error_cause_id: string; state_final: string; evidence_refs?: string[] } =>
+            typeof m.error_cause_id === "string"
+            && ["suspected", "confirmed", "improving", "resolved", "superseded"].includes(m.state_final ?? ""));
+        for (const m of misconceptionUpdates) {
+          await c.query(
+            `insert into state_misconception_state (tenant_id, student_id, error_cause_id, state, evidence_refs, updated_at)
+             values ($1,$2,$3,$4,$5::jsonb,now())
+             on conflict (student_id, error_cause_id)
+             do update set state = excluded.state, evidence_refs = excluded.evidence_refs, updated_at = now()`,
+            [tenantId, studentId, m.error_cause_id, m.state_final, JSON.stringify(m.evidence_refs ?? [])],
+          );
+        }
         const snapshotPayload = {
           snapshot_id: snapshotId,
           student_id: studentId,
           source_decision_id: decisionId,
           supersedes: read.priorSnapshotId,
           dimensions,
-          misconceptions: [],
+          misconceptions: misconceptionUpdates,
           semantic_profile: {},
           profile_lag: false,
           published_at: now,
@@ -659,11 +677,15 @@ startService({
             [tenantId, studentId, d.dimension_id, d.p_profile, d.state, decisionId],
           );
         }
-        // 只消费本次实际处理的记录：TOCTOU 窗口内新入队或 integrity 失败的 SLR 绝不能被静默标记
-        await c.query(
-          "update runtime_session_learning_record set dream_consumed_at = now() where record_id = any($1::text[])",
+        // 只消费本次实际处理的记录（P1-3 并发守卫）：条件更新 + 行数校验，
+        // 并发窗口下重复消费 → 409 回滚（本事务抛错触发 withTenant rollback）
+        const consumed = await c.query(
+          "update runtime_session_learning_record set dream_consumed_at = now() where record_id = any($1::text[]) and dream_consumed_at is null",
           [read.pending.map((r) => r.record_id)],
         );
+        if ((consumed.rowCount ?? 0) !== read.pending.length) {
+          throw new Error(`concurrent_dream_consumption: expected ${read.pending.length}, consumed ${consumed.rowCount}`);
+        }
 
         return {
           status: 200 as const,

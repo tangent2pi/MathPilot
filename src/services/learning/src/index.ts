@@ -17,6 +17,7 @@
 import { startService, createPool, withTenant, newId } from "./lib.ts";
 import { createAgentRuntimeClient } from "@agmath/providers-model";
 import { bktReplay, BKT_PRIOR_V1 } from "@agmath/mastery";
+import { I90_GRID, initialI90Prior } from "@agmath/mastery/retention";
 import { selectNext, type QuestionCandidate, type SelectorContext, type SelectionGoal } from "@agmath/selector";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
@@ -212,7 +213,6 @@ async function registerProbeCard(
   c: { query: (q: string, v?: unknown[]) => Promise<unknown> },
   tenantId: string,
   sessionId: string,
-  studentId: string,
   card: QuestionCard,
 ): Promise<void> {
   await c.query(
@@ -380,14 +380,11 @@ async function closeChain(
     }
 
     // 保持率初值（§9.6）：均匀 I90 先验 + 证据不足（复测估计不稳定，不伪造日期）
-    const retentionPrior = JSON.stringify(
-      Object.fromEntries([0.5, 1, 2, 4, 8, 16, 32, 64].map((d) => [String(d), 1 / 8])),
-    );
+    const retentionPrior = JSON.stringify(initialI90Prior());
     await c.query(
       `insert into state_retention_state (tenant_id, student_id, dimension_id, i90_posterior, next_review_due, stable, updated_at)
        values ($1,$2,$3,$4::jsonb,null,false,now())
-       on conflict (student_id, dimension_id)
-       do update set i90_posterior = excluded.i90_posterior, stable = false, updated_at = now()`,
+       on conflict (student_id, dimension_id) do nothing`,
       [tenantId, session.student_id, dimensionId, retentionPrior],
     );
     // 错因疑似状态（§9.7 / §7.2 单会话层只标 suspected，画像级判定归 Dream）
@@ -590,6 +587,22 @@ startService({
       return reply.code(201).send({ run_id: runId, goal, status: "active" });
     });
 
+    /** 测评轮查询（api 网关归属校验用） */
+    app.get("/assessment-runs/:id", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { id } = req.params as { id: string };
+      const row = await withTenant(pool, tenantId, async (c) => {
+        const r = await c.query(
+          "select run_id, student_id, goal, status from runtime_assessment_run where run_id = $1",
+          [id],
+        );
+        return r.rows[0];
+      });
+      if (!row) return reply.code(404).send({ error: "assessment run not found" });
+      return row;
+    });
+
     /** 下一题（阶段 B：传统程序硬过滤+评分；题目候选来自已发布章节包） */
     app.post("/assessment-runs/:id/next", async (req, reply) => {
       const tenantId = tenantOf(req);
@@ -685,6 +698,9 @@ startService({
         return r.rows[0];
       });
       if (!run) return reply.code(404).send({ error: "assessment run not found" });
+      if (run.status === "completed") {
+        return reply.code(409).send({ error: "assessment run already completed" });
+      }
 
       // 会话摘要（本题证据）+ 学生投影
       const session = await withTenant(pool, tenantId, async (c) => {
@@ -789,6 +805,18 @@ startService({
           return r.rows[0]?.payload ?? null;
         });
         if (!existing) return reply.code(409).send({ error: "resume requires existing verdict facts" });
+        // P2-8：DIAGNOSE 且有未答探针的 claim → 先标 unresolved（"待观察"语义，§8.3）再闭合
+        if (pre.state === "DIAGNOSE") {
+          await withTenant(pool, tenantId, async (c) => {
+            const claim = await c.query(
+              "select claim_id, status from runtime_diagnostic_claim where session_id = $1 order by created_at desc limit 1",
+              [id],
+            );
+            if (claim.rows[0] && claim.rows[0].status === "open") {
+              await c.query("update runtime_diagnostic_claim set status = 'unresolved' where claim_id = $1", [claim.rows[0].claim_id]);
+            }
+          });
+        }
         const closed = await closeChain(tenantId, id);
         if (closed.status !== 200) return reply.code(closed.status).send(closed.body);
         return reply.send({ session_id: id, resumed: true, judgment: existing, ...(closed.body as Record<string, unknown>) });
@@ -890,7 +918,7 @@ startService({
         created_at: now,
       };
       await withTenant(pool, tenantId, async (c) => {
-        if (card) await registerProbeCard(c, tenantId, id, "usr_student01", card);
+        if (card) await registerProbeCard(c, tenantId, id, card);
         await c.query(
           `insert into runtime_diagnostic_claim (claim_id, tenant_id, session_id, status, payload)
            values ($1,$2,$3,'open',$4)`,
@@ -987,7 +1015,7 @@ startService({
       // 卡片事件（若已登记）
       await withTenant(pool, tenantId, async (c) => {
         const claim = await c.query(
-          "select payload from runtime_diagnostic_claim where session_id = $1 order by created_at desc limit 1",
+          "select claim_id, payload from runtime_diagnostic_claim where session_id = $1 order by created_at desc limit 1",
           [id],
         );
         const card = claim.rows[0]?.payload?.card as { artifact_id?: string; card_id?: string } | null;
@@ -1144,7 +1172,7 @@ startService({
       }
       const nextCard = buildProbeCard(id, newId("art"), diag.outcome.probe);
       await withTenant(pool, tenantId, async (c) => {
-        await registerProbeCard(c, tenantId, id, pre.student_id, nextCard);
+        await registerProbeCard(c, tenantId, id, nextCard);
         await c.query(
           `update runtime_diagnostic_claim
               set payload = payload || jsonb_build_object('probe', $2::jsonb, 'card', $3::jsonb)

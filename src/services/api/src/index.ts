@@ -54,6 +54,28 @@ async function relay(reply: FastifyReply, res: Response): Promise<FastifyReply> 
   return reply.code(res.status).send(await res.json());
 }
 
+/** 学生只能操作本人测评轮（P2-3：OIDC 路径强制归属校验；教师可代查） */
+async function assertRunOwner(
+  p: Principal,
+  reply: FastifyReply,
+  runId: string,
+): Promise<boolean> {
+  if (p.via !== "oidc" || p.roles.includes("teacher")) return true;
+  const res = await longFetch(`${LEARNING_URL}/assessment-runs/${encodeURIComponent(runId)}`, {
+    headers: { "x-tenant-id": p.tenantId },
+  }, 30_000).catch(() => null);
+  if (!res || !res.ok) {
+    reply.code(404).send({ error: "assessment run not found" });
+    return false;
+  }
+  const d = (await res.json()) as { student_id?: string };
+  if (d.student_id !== p.userId) {
+    reply.code(403).send({ error: "not your assessment run" });
+    return false;
+  }
+  return true;
+}
+
 /** 学生只能操作本人会话（D.5：OIDC 路径强制归属校验；教师可代查） */
 async function assertSessionOwner(
   p: Principal,
@@ -124,12 +146,14 @@ startService({
       const p = await principalOf(req, reply);
       if (!p) return;
       const { id } = req.params as { id: string };
+      if (!(await assertRunOwner(p, reply, id))) return;
       return relay(reply, await forward(p, `${LEARNING_URL}/assessment-runs/${encodeURIComponent(id)}/next`, { method: "POST", body: req.body }));
     });
     app.post("/api/assessment-runs/:id/decide", async (req, reply) => {
       const p = await principalOf(req, reply);
       if (!p) return;
       const { id } = req.params as { id: string };
+      if (!(await assertRunOwner(p, reply, id))) return;
       return relay(reply, await forward(p, `${LEARNING_URL}/assessment-runs/${encodeURIComponent(id)}/decide`, { method: "POST", body: req.body }));
     });
 

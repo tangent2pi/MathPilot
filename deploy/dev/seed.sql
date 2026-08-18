@@ -101,15 +101,15 @@ commit;
 
 -- ── 演示数据（无模型 key 时可展示报告/计划完整内容；黄金数据，§17.2） ──
 insert into state_student_profile (student_id, tenant_id, grade, current_score, target_score, weekly_hours, self_weak, device_draft, payload)
-values ('usr_demo01', 'tnt_dev00001', '高二', 95, 115, '4-6', array['K_SSA'], '触屏手写',
+values ('usr_student01', 'tnt_dev00001', '高二', 95, 115, '4-6', array['K_SSA'], '触屏手写',
   '{"student_id":"usr_demo01","tenant_id":"tnt_dev00001","grade":"高二","current_score":95,"target_score":115,"weekly_hours":"4-6","self_weak":["K_SSA"],"device_draft":"触屏手写"}')
 on conflict (student_id) do nothing;
 
 insert into state_profile_update_decision
   (decision_id, tenant_id, student_id, evidence_bundle_id, prior_snapshot_id, supersedes, review_required, model_id, prompt_version, skill_version, payload)
 values
-  ('pud_demo_0001', 'tnt_dev00001', 'usr_demo01', null, null, null, false, 'demo.model', 'dream-profile@0.4.0', 'profile-skill@0.3.0',
-   '{"decision_id":"pud_demo_0001","student_id":"usr_demo01","prior_snapshot_id":null,"baseline_report_refs":["ser_demo_0001"],
+  ('pud_demo_0002', 'tnt_dev00001', 'usr_student01', null, null, null, false, 'demo.model', 'dream-profile@0.4.0', 'profile-skill@0.3.0',
+   '{"decision_id":"pud_demo_0002","student_id":"usr_demo01","prior_snapshot_id":null,"baseline_report_refs":["ser_demo_0001"],
      "teaching_summary_refs":["tss_demo_0001"],"dimension_updates":[
        {"dimension_id":"K_SSA","p_baseline":0.42,"p_final":0.62,"state_final":"learning","uncertainty":"medium","evidence_ledger":[]},
        {"dimension_id":"K_SINE_RULE","p_baseline":0.85,"p_final":0.88,"state_final":"possibly_mastered","uncertainty":"low","evidence_ledger":[]}],
@@ -118,13 +118,13 @@ values
 on conflict (decision_id) do nothing;
 
 insert into state_profile_decision_validation (validation_id, tenant_id, decision_id, result, validator_version, payload)
-values ('pvr_demo_0001', 'tnt_dev00001', 'pud_demo_0001', 'passed', 'profile-validator-0.1.0',
-  '{"validation_id":"pvr_demo_0001","decision_id":"pud_demo_0001","result":"passed","validator_version":"profile-validator-0.1.0"}')
+values ('pvr_demo_0002', 'tnt_dev00001', 'pud_demo_0002', 'passed', 'profile-validator-0.1.0',
+  '{"validation_id":"pvr_demo_0002","decision_id":"pud_demo_0002","result":"passed","validator_version":"profile-validator-0.1.0"}')
 on conflict (validation_id) do nothing;
 
 insert into state_student_snapshot (snapshot_id, tenant_id, student_id, source_decision_id, supersedes, profile_lag, payload)
-values ('snap_demo_0001', 'tnt_dev00001', 'usr_demo01', 'pud_demo_0001', null, false,
-  '{"snapshot_id":"snap_demo_0001","student_id":"usr_demo01","source_decision_id":"pud_demo_0001","supersedes":null,
+values ('snap_demo_0002', 'tnt_dev00001', 'usr_student01', 'pud_demo_0002', null, false,
+  '{"snapshot_id":"snap_demo_0002","student_id":"usr_demo01","source_decision_id":"pud_demo_0002","supersedes":null,
     "dimensions":[
       {"dimension_id":"K_SSA","p_profile":0.62,"p_bkt_baseline":0.42,"state":"learning","uncertainty":"medium","independent_observation_count":3},
       {"dimension_id":"K_SINE_RULE","p_profile":0.88,"p_bkt_baseline":0.85,"state":"possibly_mastered","uncertainty":"low","independent_observation_count":4}],
@@ -133,23 +133,23 @@ on conflict (snapshot_id) do nothing;
 
 insert into state_mastery_state (tenant_id, student_id, dimension_id, p_profile, state, source_decision_id)
 values
-  ('tnt_dev00001', 'usr_demo01', 'K_SSA', 0.62, 'learning', 'pud_demo_0001'),
-  ('tnt_dev00001', 'usr_demo01', 'K_SINE_RULE', 0.88, 'possibly_mastered', 'pud_demo_0001')
+  ('tnt_dev00001', 'usr_student01', 'K_SSA', 0.62, 'learning', 'pud_demo_0002'),
+  ('tnt_dev00001', 'usr_student01', 'K_SINE_RULE', 0.88, 'possibly_mastered', 'pud_demo_0002')
 on conflict (student_id, dimension_id) do update set p_profile = excluded.p_profile, state = excluded.state,
   source_decision_id = excluded.source_decision_id, updated_at = now();
 
 insert into state_retention_state (tenant_id, student_id, dimension_id, i90_posterior, next_review_due, stable)
-values ('tnt_dev00001', 'usr_demo01', 'K_SSA',
+values ('tnt_dev00001', 'usr_student01', 'K_SSA',
   '{"0.5":0.125,"1":0.125,"2":0.125,"4":0.125,"8":0.125,"16":0.125,"32":0.125,"64":0.125}', null, false)
 on conflict (student_id, dimension_id) do nothing;
 
 insert into state_misconception_state (tenant_id, student_id, error_cause_id, state, evidence_refs)
-values ('tnt_dev00001', 'usr_demo01', 'E_SSA_MISSING_OBTUSE', 'suspected', '["claim://clm_demo_0001"]')
+values ('tnt_dev00001', 'usr_student01', 'E_SSA_MISSING_OBTUSE', 'suspected', '["claim://clm_demo_0001"]')
 on conflict (student_id, error_cause_id) do nothing;
 
 insert into state_learning_plan (plan_id, tenant_id, student_id, horizon_weeks, payload)
-values ('pln_demo_0001', 'tnt_dev00001', 'usr_demo01', 4,
-  '{"plan_id":"pln_demo_0001","student_id":"usr_demo01","tenant_id":"tnt_dev00001","horizon_weeks":4,
+values ('pln_demo_0002', 'tnt_dev00001', 'usr_student01', 4,
+  '{"plan_id":"pln_demo_0002","student_id":"usr_demo01","tenant_id":"tnt_dev00001","horizon_weeks":4,
     "explanation":"先补 SSA 解的个数讨论（分类讨论专项），再练正弦定理迁移，最后延迟复测验证保持率。",
     "tasks":[
       {"week":1,"kind":"knowledge_review","dimension_ids":["K_SSA"],"criterion":"能独立复述 SSA 两解判定条件","review_condition":"下周低档练习正确率≥0.7","minutes":30},
@@ -158,4 +158,5 @@ values ('pln_demo_0001', 'tnt_dev00001', 'usr_demo01', 4,
       {"week":3,"kind":"practice_normal","dimension_ids":["K_SINE_RULE"],"criterion":"原难度综合题正确率≥0.7","review_condition":"周4迁移题验证","minutes":30},
       {"week":4,"kind":"transfer","dimension_ids":["K_SINE_RULE"],"criterion":"跨表征/题型独立迁移成功","review_condition":"迁移成功进入证据账本","minutes":30},
       {"week":4,"kind":"delayed_review","dimension_ids":["K_SSA"],"criterion":"独立延迟复测（无提示）","review_condition":"复测结果更新保持率后验","minutes":30}]}')
-on conflict (plan_id) do nothing;
+on conflict (plan_id) do update set student_id = excluded.student_id, horizon_weeks = excluded.horizon_weeks,
+  payload = excluded.payload;

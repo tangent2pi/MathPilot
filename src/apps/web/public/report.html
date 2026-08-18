@@ -76,14 +76,29 @@
       }
       const d = await res.json();
       const snapshot = d.snapshot;
+      document.getElementById("snapshotMeta").textContent =
+        snapshot ? `snapshot ${snapshot.snapshot_id}${snapshot.supersedes ? ` · 取代 ${snapshot.supersedes}` : " · 首版"} · 来源决策 ${snapshot.source_decision_id}` : "";
       if (!snapshot) {
         document.getElementById("dims").innerHTML =
           `<div class="empty">还没有画像快照（profile_lag）。到<a href="/solve.html">单题诊断</a>完成几道题后查看。</div>`;
+        renderRx(d);
         return;
       }
-      document.getElementById("snapshotMeta").textContent =
         `snapshot ${snapshot.snapshot_id}${snapshot.supersedes ? ` · 取代 ${snapshot.supersedes}` : " · 首版"} · 来源决策 ${snapshot.source_decision_id}`;
-      // 复测与错因（保持率/错因状态投影）
+      renderRx(d);
+      document.getElementById("dims").innerHTML = (snapshot.dimensions ?? []).map((dim) => `
+        <div class="dim-card">
+          <div class="dim">${esc(dim.dimension_id)}</div>
+          <div class="row">
+            <span class="state-tag ${esc(dim.state)}">${esc(ZH[dim.state] ?? dim.state)}</span>
+            <span class="big-number" style="font-size:1.5rem">${esc(dim.p_profile)}<small>P(画像)</small></span>
+            <span class="mono" style="font-size:.68rem">基准 ${esc(dim.p_bkt_baseline)} · 观测 ${esc(dim.independent_observation_count)} · ${esc(dim.uncertainty)}</span>
+          </div>
+        </div>`).join("") || `<div class="empty">快照无维度数据。</div>`;
+    }
+
+    // 复测与错因（保持率/错因状态投影；独立于快照渲染，P2-4）
+    function renderRx(d) {
       const rxEl = document.getElementById("rx");
       const rxRows = [
         ...(d.retention ?? []).map((r) => ({
@@ -99,16 +114,6 @@
         ? rxRows.map((r) => `<div class="dim-card"><div class="dim">${esc(r.key)} · ${esc(r.kind)}</div>
             <div class="row"><span style="font-size:.88rem">${r.text}</span></div></div>`).join("")
         : `<div class="empty">暂无复测与错因数据（完成测评后由系统沉淀）。</div>`;
-
-      document.getElementById("dims").innerHTML = (snapshot.dimensions ?? []).map((dim) => `
-        <div class="dim-card">
-          <div class="dim">${esc(dim.dimension_id)}</div>
-          <div class="row">
-            <span class="state-tag ${esc(dim.state)}">${esc(ZH[dim.state] ?? dim.state)}</span>
-            <span class="big-number" style="font-size:1.5rem">${esc(dim.p_profile)}<small>P(画像)</small></span>
-            <span class="mono" style="font-size:.68rem">基准 ${esc(dim.p_bkt_baseline)} · 观测 ${esc(dim.independent_observation_count)} · ${esc(dim.uncertainty)}</span>
-          </div>
-        </div>`).join("") || `<div class="empty">快照无维度数据。</div>`;
     }
 
     async function loadPlan() {
