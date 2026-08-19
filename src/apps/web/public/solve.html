@@ -1,331 +1,316 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>单题诊断 · AGMATH</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/app.css" />
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>练习 · AGMATH</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/math-render.css">
 </head>
-<body>
-  <header class="masthead">
-    <a class="brand" href="/"><span class="mark">◆</span>AGMATH<small>数学诊断卷宗</small></a>
-    <nav>
-      <a href="/">每日练习</a>
-      <a href="/report.html">报告与计划</a>
-      <a href="/teacher.html">教师复核</a>
-      <a href="/solve.html" aria-current="page">单题诊断</a>
-    </nav>
-  </header>
+<body class="proof-ui" data-page-title="练习">
+  <header class="app-header" data-app-shell aria-label="应用顶栏"></header>
 
-  <main class="dossier">
-    <aside class="evidence-rail" aria-label="证据目录">
-      <div class="rail-title">证据目录</div>
-      <a class="rail-item" href="#q" data-ev="出题"><span class="no">01</span>出题</a>
-      <a class="rail-item" href="#answer" data-ev="作答"><span class="no">02</span>作答</a>
-      <a class="rail-item" href="#verdict" data-ev="判定"><span class="no">03</span>判定</a>
-      <a class="rail-item" href="#probe" data-ev="追问"><span class="no">04</span>错因追问</a>
-      <a class="rail-item" href="#baseline" data-ev="程序基准"><span class="no">05</span>程序基准</a>
-      <a class="rail-item" href="#queue" data-ev="画像队列"><span class="no">06</span>画像队列</a>
+  <main class="proof-layout">
+    <aside class="proof-spine" aria-label="本题状态">
+      <p class="eyebrow">本题进度</p>
+      <ol id="stateSpine">
+        <li class="active">查看题目</li><li>写下解答</li><li>检查解答</li><li>进一步提问</li><li>本题总结</li>
+      </ol>
+      <div class="hint-meter" id="hintMeter">L0 · 独立作答</div>
     </aside>
 
-    <section class="flow" aria-label="学习流">
-      <div class="seals" id="seals" aria-label="Session 状态">
-        <span class="seal" data-state="CREATE">创建</span>
-        <span class="seal" data-state="SUBMIT">提交</span>
-        <span class="seal" data-state="GRADE">判答</span>
-        <span class="seal" data-state="DIAGNOSE">错因归因</span>
-        <span class="seal" data-state="SCIENTIFIC_EVALUATE">程序评价</span>
-        <span class="seal" data-state="QUEUE_DREAM">画像队列</span>
+    <section class="proof-main">
+      <div id="freeAsk" class="proof-sheet" hidden>
+        <p class="eyebrow">自由问答</p>
+        <h1>把题目发给我</h1>
+        <p class="lede">输入题目或上传截图，我们可以从你的问题开始一步步讨论。</p>
+        <textarea id="askText" rows="5" placeholder="例如：这道几何题为什么要作这条辅助线？"></textarea>
+        <div class="file-row"><label class="file-chip">上传题图<input id="askImages" type="file" accept="image/png,image/jpeg,image/webp" multiple></label><span id="askFileMeta"></span></div>
+        <button class="btn cinnabar" id="askSend" type="button">发送问题</button>
+        <div id="askConversation" class="conversation" aria-live="polite"></div>
+        <div id="askArtifacts" class="artifact-deck"></div>
       </div>
 
-      <article class="question-card" id="q">
-        <div class="q-meta">
-          <span id="qid">Q_TRI_012</span>
-          <span id="pkgVer" class="mono">0.1.0</span>
-          <span class="mode-tag" id="modeTag">诊断</span>
-          <span class="indep-tag">计入独立证据</span>
-        </div>
-        <p class="q-stem" id="stem">在△ABC中，已知 a=√3，b=2，A=30°。求角 B（注意讨论解的个数）。</p>
+      <article id="questionSheet" class="proof-sheet" hidden>
+        <div class="q-meta"><span id="qid"></span><span id="pkgVer" class="mono"></span><span>当前练习</span></div>
+        <h1 id="stem">读取已发布题目…</h1>
+        <div id="questionAssets" class="asset-grid"></div>
       </article>
 
-      <section class="answer-panel" id="answer" hidden>
-        <label for="answerText" id="answerLabel">你的解答</label>
-        <textarea id="answerText" rows="4" placeholder="写下你的解答…（LaTeX 或文字均可）"></textarea>
-        <div class="answer-actions">
-          <span class="pending-line" id="grading" hidden><span class="spinner"></span>Teaching Agent 判读中（推理模型，可能需 30–90 秒）…</span>
-          <button class="btn" id="submitBtn" type="button">提交答案</button>
+      <section id="workspace" class="proof-sheet" hidden>
+        <div class="sheet-heading"><div><p class="eyebrow">我的解答</p><h2>写下你的思路</h2></div><span id="sessionLabel" class="mono"></span></div>
+        <div id="answerControl" class="answer-control"></div>
+        <textarea id="answerText" rows="6" placeholder="逐步写下你的解答；检查某一步时，请指出要检查的位置。"></textarea>
+        <div class="file-row"><label class="file-chip">补充作答图片<input id="answerImages" type="file" accept="image/png,image/jpeg,image/webp" multiple></label><span id="answerFileMeta">最多 4 张</span></div>
+        <div class="action-cluster" aria-label="学习帮助方式">
+          <button class="btn ghost" data-action="stuck" type="button">给我一个提示</button>
+          <button class="btn ghost" data-action="check_step" type="button">检查这一步</button>
+          <button class="btn ghost" data-action="method_hint" type="button">换一种思路</button>
+          <button class="btn cinnabar" id="submitAnswer" type="button">提交解答</button>
         </div>
+        <p id="busy" class="pending-line" hidden><span class="spinner"></span>正在阅读你的解答…</p>
       </section>
 
-      <div id="verdictSlot"></div>
-      <div id="probeSlot"></div>
-      <div id="baselineSlot"></div>
-      <div id="queueSlot"></div>
+      <section id="dialogueSheet" class="proof-sheet" hidden>
+        <div class="sheet-heading"><div><p class="eyebrow">教学对话</p><h2>一起把这道题想清楚</h2></div><span class="live-dot">对话中</span></div>
+        <div id="conversation" class="conversation" aria-live="polite"></div>
+        <div id="artifacts" class="artifact-deck"></div>
+      </section>
 
-      <div class="empty-note" id="startNote">卷宗待启。开始本题后，判定、追问与证据会按顺序落在这里。</div>
+      <section id="verdictSheet" class="proof-sheet" hidden>
+        <p class="eyebrow">本题反馈</p><div id="verdict"></div><div id="probe"></div>
+        <div id="runActions" class="action-cluster" hidden></div>
+      </section>
+
+      <details id="stepsSheet" class="proof-sheet model-steps" hidden>
+        <summary>查看处理过程 <span id="usage" class="mono"></span></summary>
+        <ol id="steps"></ol>
+      </details>
     </section>
 
-    <aside class="draft-pane" aria-label="草稿区">
-      <div class="draft-title"><span>草稿区</span><span>未启用</span></div>
-      <div class="draft-sheet">
-        <div class="draft-placeholder">手写草稿空间<br /><span style="font-size:.7rem">设备支持时启用；无草稿不影响诊断</span></div>
-      </div>
+    <aside id="draftPane" class="draft-studio" hidden>
+      <div class="sheet-heading"><div><p class="eyebrow">草稿</p><h2>手写区</h2></div><button id="clearDraft" class="text-button" type="button">清空</button></div>
+      <canvas id="draftCanvas" width="420" height="520" aria-label="手写草稿画布"></canvas>
+      <p>草稿会随本题保存，提问和提交时会一起用于理解你的思路。</p>
     </aside>
   </main>
 
-  <div class="action-bar" role="toolbar" aria-label="本题动作">
-    <button class="btn ghost" id="actDone" type="button">完成本题</button>
-    <span class="hint-level" id="hintLevelBar">L0 · 无提示</span>
-  </div>
-
-  <script>
-    const API = "";
-    const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
-      (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-    const SEAL_ORDER = ["CREATE", "SUBMIT", "GRADE", "DIAGNOSE", "SCIENTIFIC_EVALUATE", "QUEUE_DREAM"];
-    const ZH_VERDICT = { correct: "正确", partially_correct: "部分正确", incorrect: "不正确", unresolved: "待核" };
-    const VERDICT_CLS = { correct: "ok", partially_correct: "partial", incorrect: "bad", unresolved: "" };
-    const RUBRIC_ZH = { met: "达成", not_met: "未达成", unclear: "待澄清" };
-
-    let sessionId = null;
-    let flowState = 0;
-    let probeRound = 0;
+  <script type="module">
+    import { requirePrincipal, apiFetch } from "/assets/app-shell.js";
+    import { renderMath } from "/assets/math-render.js";
+    const principal = await requirePrincipal();
     const params = new URLSearchParams(location.search);
-    const runId = params.get("run");
-    const runQuestion = params.get("q");
+    let sessionId = null, conversationId = null, eventSource = null, strokeCount = 0, drawing = false;
+    const assessmentRunId = params.get("run");
+    const assessmentGoal = params.get("goal") || "coverage";
+    let lastJudgment = null, currentProbeCard = null;
+    let question = null;
+    const $ = (id) => document.getElementById(id);
+    const setBusy = (on) => { $("busy").hidden = !on; document.querySelectorAll("button").forEach((b) => { if (!b.closest("#authIdentity")) b.disabled = on; }); };
 
-    function stamp(state) {
-      const el = document.querySelector(`.seal[data-state="${state}"]`);
-      if (!el) return;
-      el.classList.remove("done");
-      void el.offsetWidth;
-      el.classList.add("stamping", "done");
+    async function filesToImages(input) {
+      const files = [...input.files].slice(0, 4);
+      const images = await Promise.all(files.map((file) => new Promise((resolve, reject) => {
+        const reader = new FileReader(); reader.onerror = reject;
+        reader.onload = () => resolve({ data: String(reader.result).split(",")[1], mimeType: file.type });
+        reader.readAsDataURL(file);
+      })));
+      return images;
     }
-    function advance(to) {
-      const idx = SEAL_ORDER.indexOf(to);
-      for (let i = flowState; i <= idx; i++) stamp(SEAL_ORDER[i]);
-      flowState = Math.max(flowState, idx + 1);
-      document.querySelectorAll(".rail-item").forEach((r, i) => r.classList.toggle("done", i <= idx));
+    function addMessage(role, text, label = "") {
+      const item = document.createElement("article"); item.className = `message-row ${role === "student" ? "user" : "assistant"}`;
+      const avatar = document.createElement("span"); avatar.className = "message-avatar"; avatar.textContent = role === "student" ? "你" : "∴";
+      const wrap = document.createElement("div"); wrap.className = "message-wrap"; const head = document.createElement("div"); head.className = "message-head";
+      const name = document.createElement("strong"); name.textContent = role === "agent" ? "AGMATH" : "你"; const tag = document.createElement("small"); tag.textContent = label || ""; head.append(name, tag);
+      const body = document.createElement("div"); body.className = "message-bubble"; body.textContent = text; renderMath(body); wrap.append(head, body); item.append(avatar, wrap); $(sessionId ? "conversation" : "askConversation").append(item);
+      item.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
     }
-    const evidenceHtml = (k, id, inner) =>
-      `<article class="evidence"><div class="ev-head"><span class="ev-k">${esc(k)}</span>` +
-      (id ? `<span class="ev-id">${esc(id)}</span>` : "") + `</div>${inner}</article>`;
+    function safeUri(uri, kind) {
+      if (!uri) return null;
+      if (kind === "image" && /^data:image\/(png|jpeg|webp);base64,/.test(uri)) return uri;
+      const ref = sessionId || conversationId;
+      if (ref && uri.startsWith(`/api/sessions/${encodeURIComponent(ref)}/artifacts/`)) return uri;
+      return null;
+    }
+    async function renderArtifacts(items = []) {
+      const host = $(sessionId ? "artifacts" : "askArtifacts"); host.replaceChildren();
+      for (const artifact of items) {
+        const card = document.createElement("article"); card.className = "artifact-card";
+        const title = document.createElement("strong"); title.textContent = artifact.title || artifact.kind; card.append(title);
+        if (artifact.kind === "text") { const p = document.createElement("p"); p.textContent = artifact.content || ""; card.append(p); }
+        else if (artifact.kind === "question_card") {
+          let spec = null;
+          try { spec = artifact.content ? JSON.parse(artifact.content) : safeUri(artifact.uri, "card") ? await (await apiFetch(artifact.uri)).json() : null; } catch { spec = null; }
+          const prompt = document.createElement("p"); prompt.textContent = spec?.prompt || spec?.question || artifact.content || "交互题卡"; card.append(prompt);
+          const input = document.createElement("textarea"); input.rows = 2; input.placeholder = "写下你的回答"; card.append(input);
+          const actions = document.createElement("div"); actions.className = "action-cluster";
+          for (const [label, responseType] of [["提交卡片", "submitted"], ["跳过", "skipped"], ["直接文字回复", "bypassed_free_text"]]) {
+            const button = document.createElement("button"); button.className = responseType === "submitted" ? "btn" : "btn ghost"; button.type = "button"; button.textContent = label;
+            button.onclick = () => handleCardEvent(artifact, { type: `card.${responseType === "submitted" ? "answer_submitted" : responseType === "skipped" ? "skipped" : "free_text_requested"}`, card_id: spec?.card_id || artifact.artifact_id, answer: input.value });
+            actions.append(button);
+          }
+          card.append(actions);
+        }
+        else if (artifact.kind === "image" && safeUri(artifact.uri, "image")) { const img = new Image(); img.src = safeUri(artifact.uri, "image"); img.alt = artifact.title || "教学图片"; card.append(img); }
+        else if (artifact.kind === "video" && safeUri(artifact.uri, "video")) { const video = document.createElement("video"); video.src = safeUri(artifact.uri, "video"); video.controls = true; video.preload = "metadata"; card.append(video); }
+        else if (artifact.kind === "html" && safeUri(artifact.uri, "html")) { const f = document.createElement("iframe"); f.sandbox = "allow-scripts"; f.src = `${safeUri(artifact.uri, "html")}?interaction_token=${encodeURIComponent(artifact.interaction_token || "")}`; f.title = artifact.title || "教学演示"; f.dataset.artifactId = artifact.artifact_id || ""; f.dataset.interactionToken = artifact.interaction_token || ""; card.append(f); }
+        else { const p = document.createElement("p"); p.textContent = "这项互动内容正在准备，你可以先继续文字对话。"; card.append(p); }
+        renderMath(card); host.append(card);
+      }
+    }
+    async function handleCardEvent(artifact, data) {
+      const ref = sessionId || conversationId;
+      if (!ref || !["card.answer_submitted", "card.skipped", "card.free_text_requested"].includes(data?.type)) return;
+      const responseType = ({ "card.answer_submitted": "submitted", "card.skipped": "skipped", "card.free_text_requested": "bypassed_free_text" })[data.type];
+      const cardId = String(data.card_id || artifact.artifact_id || "").slice(0, 160);
+      const payload = { answer: String(data.answer ?? "").slice(0, 4000), source: "learning_artifact" };
+      const eventUrl = sessionId ? `/api/sessions/${sessionId}/card-event` : `/api/teaching-conversations/${conversationId}/card-event`;
+      const saved = await apiFetch(eventUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ card_id: cardId, artifact_id: artifact.artifact_id, interaction_token: artifact.interaction_token, response_type: responseType, payload }) });
+      if (!saved.ok) { addMessage("agent", "这次互动没有保存成功，请直接用文字回复。", "提示"); return; }
+      if (responseType === "bypassed_free_text") { $(sessionId ? "answerText" : "askText").focus(); return; }
+      if (sessionId) $("dialogueSheet").hidden = false;
+      addMessage("student", responseType === "skipped" ? "跳过这张教学卡片" : `卡片回答：${payload.answer || "（已提交）"}`, "教学卡片");
+      const followup = { action: "card_event", text: JSON.stringify({ response_type: responseType, card_id: cardId, payload }) };
+      const reply = await apiFetch(sessionId ? `/api/sessions/${sessionId}/interact` : "/api/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sessionId ? followup : { ...followup, conversation_id: conversationId }) });
+      const result = await reply.json();
+      if (reply.ok) { addMessage("agent", result.reply, result.status); await renderArtifacts(result.artifacts); }
+      else addMessage("agent", "回答已经保存，但暂时没有收到后续回复。你可以再发一条消息。", "提示");
+    }
+    window.addEventListener("message", (event) => {
+      if (event.origin !== "null") return;
+      const frame = [...document.querySelectorAll("#artifacts iframe, #askArtifacts iframe")].find((item) => item.contentWindow === event.source);
+      if (!frame) return;
+      const artifact = { artifact_id: frame.dataset.artifactId, interaction_token: frame.dataset.interactionToken };
+      if (!event.data || event.data.interaction_token !== artifact.interaction_token) return;
+      handleCardEvent(artifact, event.data);
+    });
+    function renderTrace(data) {
+      $("stepsSheet").hidden = false;
+      const list = $("steps"); list.replaceChildren();
+      let tokens = 0, promptInput = 0, cacheRead = 0;
+      for (const step of (data.steps || []).slice(-80)) {
+        const li = document.createElement("li");
+        const state = document.createElement("span"); state.className = `step-state ${step.status || "running"}`; state.textContent = step.status || "running";
+        const text = document.createElement("span"); text.textContent = `${step.taskType || "agent"} · ${step.label || step.detail || "处理中"}`;
+        li.append(state, text); list.append(li); tokens += Number(step.usage?.total || 0);
+        promptInput += Number(step.usage?.input || 0); cacheRead += Number(step.usage?.cacheRead || 0);
+      }
+      const promptTokens = promptInput + cacheRead;
+      const cacheText = promptTokens ? ` · 提示缓存 ${Math.round(cacheRead / promptTokens * 100)}%` : "";
+      $("usage").textContent = tokens ? `${tokens.toLocaleString()} tokens${cacheText}` : "";
+    }
+    function connectEvents() {
+      const ref = sessionId || conversationId; if (!ref) return;
+      eventSource?.close(); eventSource = new EventSource(`/api/sessions/${encodeURIComponent(ref)}/agent-events`);
+      eventSource.addEventListener("trace", (event) => renderTrace(JSON.parse(event.data)));
+    }
 
-    function renderVerdict(judgment) {
-      const v = judgment?.verdict;
-      document.getElementById("verdictSlot").innerHTML = evidenceHtml("判定 · ANSWER JUDGMENT", judgment?.judgment_id ?? "",
-        `<div class="verdict-seal"><span class="stamp ${esc(VERDICT_CLS[v])} landing">${esc(ZH_VERDICT[v] ?? v)}` +
-        `<span class="zh">${esc(judgment?.uncertainty ?? "")}${v === "unresolved" ? "·待复核" : ""}</span></span>` +
-        `<p class="verdict-note">${v === "unresolved" ? "判定不确定，已进入教师复核队列。" : "模型主判 · 按评分点逐项判定"}</p></div>` +
-        `<p class="verdict-summary">${esc(judgment?.decision_summary ?? "")}</p>` +
-        `<ul class="rubric-list">${(judgment?.rubric_items ?? []).map((r) =>
-          `<li><span class="mark ${esc(r.status)}">${esc(RUBRIC_ZH[r.status] ?? r.status)}</span><span>${esc(r.id)}</span></li>`).join("")}</ul>`);
-      advance("GRADE");
+    async function canvasImage() {
+      if (!strokeCount) return null;
+      const url = $("draftCanvas").toDataURL("image/png");
+      const raw = Uint8Array.from(atob(url.split(",")[1]), (c) => c.charCodeAt(0));
+      const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", raw))].map((b) => b.toString(16).padStart(2, "0")).join("");
+      await apiFetch(`/api/sessions/${sessionId}/draft`, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ segment_id: "draft-main", content_hash: `sha256:${digest}`, event_count: strokeCount, bbox: [0,0,420,520] }) });
+      return { data: url.split(",")[1], mimeType: "image/png" };
     }
-    function renderClosed(d) {
-      const ser = d.scientific_evaluation_report;
-      if (ser) {
-        document.getElementById("baselineSlot").innerHTML = evidenceHtml("程序基准 · SCIENTIFIC EVALUATION", ser.report_id ?? "",
-          `<div class="baseline"><span class="big-number">${esc(ser.p_bkt_baseline)}<small>P(掌握)</small></span>` +
-          `<span class="prior-flag">${esc(ser.calibration_status)} · 未校准</span>` +
-          `<span class="mono-line">独立观测 ${esc(ser.independent_observation_count)} 次 · 参数集 ${esc(ser.parameter_set_id)}</span></div>`);
-        advance("SCIENTIFIC_EVALUATE");
-      }
-      document.getElementById("queueSlot").innerHTML = evidenceHtml("画像队列", d.session_learning_record_id ?? "",
-        `<p class="teaching-summary">双产物已封装并入队。长期画像只在 Dream 整理后更新——到<a href="/report.html">报告与计划</a>查看。</p>`);
-      advance("QUEUE_DREAM");
-      if (runId) runDecide();
+    function setupCanvas() {
+      const c = $("draftCanvas"), ctx = c.getContext("2d");
+      ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.strokeStyle = "#17233B";
+      const point = (e) => { const r = c.getBoundingClientRect(); return [(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]; };
+      c.onpointerdown = (e) => { drawing = true; c.setPointerCapture(e.pointerId); const [x,y]=point(e); ctx.beginPath(); ctx.moveTo(x,y); };
+      c.onpointermove = (e) => { if (!drawing) return; const [x,y]=point(e); ctx.lineTo(x,y); ctx.stroke(); strokeCount++; };
+      c.onpointerup = () => { drawing = false; };
+      $("clearDraft").onclick = () => { ctx.clearRect(0,0,c.width,c.height); strokeCount=0; };
     }
 
-    // 自适应测评闭环（§10/§7.4）：会话结束 → 教学主模型判定下一目标 → 下一题或结束
-    async function runDecide() {
-      const btn = document.getElementById("actDone");
-      btn.disabled = true;
-      const res = await fetch(`${API}/api/assessment-runs/${runId}/decide`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId }),
-      });
-      const d = await res.json();
-      if (!res.ok) {
-        document.getElementById("queueSlot").innerHTML +=
-          `<div class="error-card" style="margin-top:.6rem">目标判定失败：${esc(d.error ?? res.status)}（下一题需重试）</div>`;
-        btn.disabled = false;
-        return;
+    function renderAnswerControl(q) {
+      const host = $("answerControl"); host.replaceChildren();
+      const options = Array.isArray(q.options) ? q.options : [];
+      if (!["single_choice", "multiple_choice", "true_false"].includes(q.stem_format)) return;
+      const choices = q.stem_format === "true_false"
+        ? [{ key: "true", text_markdown: "正确" }, { key: "false", text_markdown: "错误" }]
+        : options;
+      const legend = document.createElement("p"); legend.className = "eyebrow";
+      legend.textContent = q.stem_format === "multiple_choice" ? "可选择多项" : "请选择一项";
+      host.append(legend);
+      for (const choice of choices) {
+        const label = document.createElement("label"); label.className = "answer-choice";
+        const input = document.createElement("input");
+        input.type = q.stem_format === "multiple_choice" ? "checkbox" : "radio";
+        input.name = "structured-answer"; input.value = choice.key;
+        const key = document.createElement("strong"); key.textContent = choice.key.toUpperCase();
+        const body = document.createElement("span"); body.textContent = choice.text_markdown;
+        label.append(input, key, body); renderMath(body); host.append(label);
       }
-      if (d.stop) {
-        document.getElementById("queueSlot").innerHTML = evidenceHtml("测评完成", "",
-          `<p class="teaching-summary">本轮测评目标达成（${esc(d.goal)}：${esc(d.reason ?? "")}）。到<a href="/report.html">报告与计划</a>查看画像更新。</p>`);
-        btn.textContent = "查看报告";
-        btn.onclick = () => { location.href = "/report.html"; };
-        return;
-      }
-      const next = await fetch(`${API}/api/assessment-runs/${runId}/next`, {
-        method: "POST", headers: { "content-type": "application/json" },
-      });
+    }
+
+    function collectAnswer() {
+      const selected = [...document.querySelectorAll('#answerControl input:checked')].map((i) => i.value.toUpperCase());
+      const detail = $("answerText").value.trim();
+      if (!selected.length) return detail;
+      return `${question?.stem_format === "multiple_choice" ? "选择答案" : "答案"}：${selected.join("、")}${detail ? `\n推导说明：${detail}` : ""}`;
+    }
+
+    async function interact(action) {
+      const text = collectAnswer();
+      if (action === "check_step" && !text) { $("answerText").focus(); return; }
+      setBusy(true); $("dialogueSheet").hidden = false; addMessage("student", text || ({stuck:"请给我一个提示",method_hint:"请换一种思路讲解"}[action]), "");
+      try {
+        const images = await filesToImages($("answerImages")); const draft = await canvasImage(); if (draft) images.push(draft);
+        const res = await apiFetch(`/api/sessions/${sessionId}/interact`, { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({action,text,images:images.slice(0,4)}) });
+        const data = await res.json(); if (!res.ok) throw new Error(data.detail || data.error || String(res.status));
+        addMessage("agent", data.reply, data.status === "completed" ? "" : data.status); renderArtifacts(data.artifacts); $("hintMeter").textContent = `提示 L${data.hint_level}`;
+      } catch (e) { addMessage("agent", "这次回复没有完成，请稍后再试。" , "提示"); } finally { setBusy(false); }
+    }
+
+    async function advanceAssessment() {
+      if (!assessmentRunId) return;
+      const host = $("runActions"); host.replaceChildren(); host.hidden = false;
+      const status = document.createElement("p"); status.className = "pending-line"; status.textContent = "正在安排下一步学习…"; host.append(status);
+      const decided = await apiFetch(`/api/assessment-runs/${encodeURIComponent(assessmentRunId)}/decide`, { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({session_id:sessionId}) });
+      const d = await decided.json();
+      if (!decided.ok) { status.textContent = "暂时无法选择下一题，请稍后再试。"; return; }
+      if (d.stop) { status.textContent = `本轮已完成：${d.reason || "证据已足够"}`; const a=document.createElement("a");a.className="btn cinnabar";a.href="/report.html";a.textContent="查看报告与计划";host.append(a);return; }
+      const next = await apiFetch(`/api/assessment-runs/${encodeURIComponent(assessmentRunId)}/next`, { method:"POST" });
       const n = await next.json();
-      if (!next.ok || !n.question_id) {
-        document.getElementById("queueSlot").innerHTML +=
-          `<div class="error-card" style="margin-top:.6rem">下一题失败：${esc(n.detail ?? n.error ?? next.status)}</div>`;
-        btn.disabled = false;
-        return;
-      }
-      btn.textContent = "下一题";
-      btn.onclick = () => { location.href = `/solve.html?run=${runId}&q=${encodeURIComponent(n.question_id)}`; };
+      if (!next.ok || !n.question_id) { status.textContent = n.detail || n.error || "本轮没有更多合适题目"; return; }
+      status.textContent = `${d.reason || "已确定下一诊断目标"} · 正在进入下一题`;
+      location.href = `/solve.html?run=${encodeURIComponent(assessmentRunId)}&goal=${encodeURIComponent(n.goal || d.goal || "coverage")}&q=${encodeURIComponent(n.question_id)}`;
     }
-    // 卡片事件（§5.4：submitted/skipped/bypassed_free_text 统一交互协议）
-    async function cardEvent(cardId, responseType, payload = {}) {
+
+    function showCompletion(data) {
+      if (data.state !== "CLOSED" && !data.session_learning_record_id) return;
+      const host = $("runActions"); host.replaceChildren(); host.hidden = false;
+      if (assessmentRunId) {
+        const next = document.createElement("button"); next.className="btn cinnabar"; next.type="button"; next.textContent="继续下一题"; next.onclick=()=>{next.disabled=true;advanceAssessment()}; host.append(next);
+      }
+      const report = document.createElement("a"); report.className="btn ghost"; report.href="/report.html"; report.textContent="查看当前证据"; host.append(report);
+    }
+
+    function renderVerdict(data) {
+      $("verdictSheet").hidden = false;
+      if (data.judgment) lastJudgment = data.judgment;
+      if (data.card) currentProbeCard = data.card;
+      const j = lastJudgment || {};
+      $("verdict").replaceChildren(); const seal = document.createElement("div"); seal.className = `judgment-seal ${j.verdict || "unresolved"}`; seal.textContent = ({correct:"正确",partially_correct:"部分正确",incorrect:"需要修正",unresolved:"证据不足"})[j.verdict] || "已判读";
+      const summary = document.createElement("p"); summary.textContent = j.decision_summary || ""; renderMath(summary); $("verdict").append(seal,summary);
+      if (data.probe) {
+        const p = document.createElement("p"); p.textContent = data.probe.question; renderMath(p); const ta = document.createElement("textarea"); ta.rows=3; ta.placeholder="回答这条错因追问";
+        const send = document.createElement("button"); send.className="btn"; send.textContent="用文字回答追问"; send.onclick=async()=>{ if(!ta.value.trim())return;send.disabled=true;if(currentProbeCard?.card_id)await apiFetch(`/api/sessions/${sessionId}/card-event`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({card_id:currentProbeCard.card_id,response_type:"bypassed_free_text"})});const res=await apiFetch(`/api/sessions/${sessionId}/probe`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({answer_text:ta.value.trim()})});const out=await res.json();renderVerdict(out);showCompletion(out); };
+        const skip = document.createElement("button"); skip.className="btn ghost"; skip.textContent="跳过，不计为答错"; skip.onclick=async()=>{skip.disabled=true;const res=await apiFetch(`/api/sessions/${sessionId}/probe-skip`,{method:"POST"});const out=await res.json();renderVerdict(out);showCompletion(out)};
+        $("probe").replaceChildren(p,ta,send,skip);
+      } else { $("probe").replaceChildren(); }
+      if (data.claim?.status) $("probe").append(document.createTextNode(`错因结论：${data.claim.status}${data.claim.resolved_error_cause ? ` · ${data.claim.resolved_error_cause}` : ""}`));
+      showCompletion(data);
+    }
+    async function submit() {
+      const answer = collectAnswer(); if (!answer) { $("answerText").focus(); return; }
+      setBusy(true);
       try {
-        await fetch(`${API}/api/sessions/${sessionId}/card-event`, {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ card_id: cardId, response_type: responseType, payload }),
-        });
-      } catch { /* 事件丢失不阻塞主流程（审计事件尽力而为） */ }
+        const images=await filesToImages($("answerImages")); const draft=await canvasImage(); if(draft)images.push(draft);
+        const res=await apiFetch(`/api/sessions/${sessionId}/submit`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({answer_text:answer,answer_images:images.slice(0,4)})});
+        const data=await res.json(); if(!res.ok)throw new Error(data.detail||data.error||String(res.status)); renderVerdict(data);
+      } catch(e){ addMessage("agent","这次提交没有完成，请检查网络后重试。","提示"); $("dialogueSheet").hidden=false; } finally {setBusy(false);}
     }
 
-    async function renderProbe(probe, card, round, max) {
-      probeRound = round;
-      const cardId = card?.card_id ?? "";
-      document.getElementById("probeSlot").innerHTML = evidenceHtml(`错因追问 · PROBE ${round}/${max}`, card?.artifact_id ? `artifact://…/${esc(card.artifact_id)}` : "",
-        `<div class="probe-card">
-          <div class="p-head"><span class="p-k">消歧追问卡（可跳过或直接回复）</span><span class="p-skip" id="probeSkip">跳过，不作答</span></div>
-          <p class="teaching-summary">${esc(probe?.question ?? card?.prompt ?? "")}</p>
-          <textarea id="probeAnswer" rows="2" style="width:100%;border:1px solid var(--hairline);font:inherit;padding:.6rem" placeholder="回答这个追问…"></textarea>
-          <div class="probe-options">
-            <button class="btn" id="probeSubmit" type="button">提交答案</button>
-            <button class="btn ghost" id="probeFreeText" type="button">不作答，直接回复</button>
-          </div>
-        </div>`);
-      document.getElementById("probeSlot").scrollIntoView({ behavior: "smooth", block: "center" });
-
-      const sendProbe = async (answer) => {
-        const res = await fetch(`${API}/api/sessions/${sessionId}/probe`, {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ answer_text: answer }),
-        });
-        const d = await res.json();
-        if (!res.ok) {
-          document.getElementById("probeSlot").innerHTML = `<div class="error-card">追问失败：${esc(d.error ?? res.status)}</div>`;
-          return;
-        }
-        document.getElementById("probeSlot").innerHTML = evidenceHtml("错因追问 · 已作答", "",
-          `<p class="verdict-note">追问 ${round} 已判答：${esc(d.probe?.verdict ?? d.claim?.status ?? "已处理")}</p>`);
-        if (d.scientific_evaluation_report || d.session_learning_record_id) {
-          advance("DIAGNOSE");
-          renderClosed(d);
-        } else if (d.probe) {
-          renderProbe(d.probe, d.card, d.probe_rounds, d.max_probe_rounds);
-        }
-      };
-
-      document.getElementById("probeSubmit").onclick = async () => {
-        const answer = document.getElementById("probeAnswer").value.trim();
-        if (!answer) return;
-        document.getElementById("probeSubmit").disabled = true;
-        if (cardId) await cardEvent(cardId, "submitted", { answer });
-        await sendProbe(answer);
-      };
-      document.getElementById("probeFreeText").onclick = async () => {
-        const answer = document.getElementById("probeAnswer").value.trim();
-        if (cardId) await cardEvent(cardId, "bypassed_free_text", { answer });
-        await sendProbe(answer || "（直接回复，未作答卡片）");
-      };
-      document.getElementById("probeSkip").onclick = async () => {
-        // 跳过即闭合（D.2）：只记录事件，不产生失败观测；服务端正常产出双产物进 Dream
-        if (cardId) cardEvent(cardId, "skipped");
-        const res = await fetch(`${API}/api/sessions/${sessionId}/probe-skip`, {
-          method: "POST", headers: { "content-type": "application/json" },
-        });
-        const d = await res.json();
-        if (!res.ok) {
-          document.getElementById("probeSlot").innerHTML =
-            `<div class="error-card">跳过失败：${esc(d.error ?? res.status)}</div>`;
-          return;
-        }
-        document.getElementById("probeSlot").innerHTML = evidenceHtml("错因追问 · 跳过", "",
-          `<p class="verdict-note">已跳过追问——只记录事件，不产生失败观测（设计 §1.1-10）。本题证据已封装。</p>`);
-        advance("DIAGNOSE");
-        renderClosed(d);
-      };
+    async function openQuestion(qid) {
+      const qres=await apiFetch(`/api/questions/${encodeURIComponent(qid)}`), q=await qres.json(); if(!qres.ok)throw new Error(q.error||"题目不可用");
+      question=q; $("qid").textContent="本题"; $("stem").textContent=q.stem_markdown; renderMath($("stem")); $("pkgVer").textContent=q.published_packages?.[0]?.version?`内容版本 ${q.published_packages[0].version}`:""; renderAnswerControl(q);
+      $("questionAssets").replaceChildren(); for(const a of q.assets||[]){const f=document.createElement("figure"),img=new Image(),cap=document.createElement("figcaption");img.src=a.image_data_url;img.alt="题目配图";cap.textContent="题目配图";f.append(img,cap);$("questionAssets").append(f);}
+      const mode=assessmentGoal==="review"?"review":"diagnostic";
+      const sres=await apiFetch("/api/sessions",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({student_id:principal.user_id,question_id:qid,chapter_package_version:q.published_packages?.[0]?.version,mode,draft_enabled:true,...(assessmentRunId?{assessment_run_id:assessmentRunId}:{})})});
+      const s=await sres.json(); if(!sres.ok)throw new Error(s.detail||s.error); sessionId=s.session_id; $("sessionLabel").textContent="自动保存"; $("questionSheet").hidden=false;$("workspace").hidden=false;$("draftPane").hidden=false; connectEvents(); setupCanvas();
+    }
+    async function ask() {
+      const text=$("askText").value.trim(), images=await filesToImages($("askImages")); if(!text&&!images.length)return;
+      addMessage("student",text||"（上传图片）"); $("askSend").disabled=true;
+      try{const res=await apiFetch("/api/ask",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({conversation_id:conversationId,text,images})});const d=await res.json();if(!res.ok)throw new Error(d.detail||d.error);conversationId=d.conversation_id;addMessage("agent",d.reply,d.evidence_policy);await renderArtifacts(d.artifacts);connectEvents();}
+      catch(e){addMessage("agent","暂时没有收到回复，请稍后再试。","提示");}finally{$("askSend").disabled=false;}
     }
 
-    document.getElementById("actDone").onclick = () => {
-      if (!sessionId) return;
-      document.getElementById("queueSlot").innerHTML = evidenceHtml("画像队列", "",
-        `<p class="teaching-summary">本题已结束。查看<a href="/report.html">报告与计划</a>。</p>`);
-    };
-
-    const startBtn = document.createElement("button");
-    startBtn.className = "btn cinnabar"; startBtn.textContent = "开始本题"; startBtn.id = "startBtn";
-    document.getElementById("startNote").appendChild(startBtn);
-    async function openSession(questionId) {
-      const res = await fetch(`${API}/api/sessions`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ student_id: "usr_student01", question_id: questionId,
-          chapter_package_version: "0.1.0", mode: "diagnostic", draft_enabled: false }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        document.getElementById("startNote").innerHTML =
-          `<div class="error-card">无法创建会话：${esc(data.error ?? res.status)}<span class="code">${esc(data.detail ?? "")}</span></div>`;
-        return;
-      }
-      sessionId = data.session_id;
-      document.getElementById("startNote").hidden = true;
-      document.getElementById("answer").hidden = false;
-      document.getElementById("qid").textContent = data.question_id;
-      document.getElementById("pkgVer").textContent = data.chapter_package_version;
-      stamp("CREATE"); flowState = 1;
-    }
-    startBtn.onclick = () => openSession("Q_TRI_012");
-
-    // run 模式：自适应测评进入的题目（每日练习/错题重刷）
-    if (runId && runQuestion) {
-      document.getElementById("startNote").textContent = `测评轮 ${runId} · 第 ${runQuestion} 题`;
-      openSession(runQuestion);
-    }
-
-    document.getElementById("submitBtn").onclick = async () => {
-      const answer = document.getElementById("answerText").value.trim();
-      if (!answer || !sessionId) return;
-      document.getElementById("submitBtn").disabled = true;
-      document.getElementById("grading").hidden = false;
-      advance("SUBMIT");
-      let res, data;
-      try {
-        res = await fetch(`${API}/api/sessions/${sessionId}/submit`, {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ answer_text: answer }),
-        });
-        data = await res.json();
-      } catch {
-        document.getElementById("grading").hidden = true;
-        document.getElementById("submitBtn").disabled = false;
-        document.getElementById("verdictSlot").innerHTML =
-          `<div class="error-card">请求失败：网络错误或服务不可达。<span class="code">network_error</span></div>`;
-        return;
-      }
-      document.getElementById("grading").hidden = true;
-      document.getElementById("submitBtn").disabled = false;
-      if (!res.ok) {
-        const msgs = { 502: "判答模型暂不可用（限流或超时）。系统不会伪造判定——请稍后重试。",
-          409: "会话状态不允许此操作。", 404: "会话不存在或题目未发布。", 422: "提交内容不合法。" };
-        document.getElementById("verdictSlot").innerHTML =
-          `<div class="error-card">${esc(msgs[res.status] ?? "判答被拒绝。")}<span class="code">${esc(data.error ?? res.status)}</span></div>`;
-        return;
-      }
-      renderVerdict(data.judgment);
-      // 追问路径：partial/incorrect → PROBE_AWAIT（教学卡片协议渲染）；正确/待核 → 直接关闭
-      if (data.probe && data.state === "PROBE_AWAIT") {
-        document.getElementById("answer").hidden = true;
-        advance("DIAGNOSE");
-        renderProbe(data.probe, data.card, data.probe_rounds, data.max_probe_rounds);
-      } else {
-        renderClosed(data);
-      }
-    };
+    document.querySelectorAll("[data-action]").forEach((b)=>b.onclick=()=>interact(b.dataset.action)); $("submitAnswer").onclick=submit; $("askSend").onclick=ask;
+    $("answerImages").onchange=()=>{$("answerFileMeta").textContent=`已选择 ${Math.min(4,$("answerImages").files.length)} 张`;}; $("askImages").onchange=()=>{$("askFileMeta").textContent=`已选择 ${Math.min(4,$("askImages").files.length)} 张`;};
+    const qid=params.get("q"); if(qid){try{await openQuestion(qid);}catch(e){$("freeAsk").hidden=false;addMessage("agent","这道练习暂时无法打开，你可以先在这里提问。","提示");}}else{$("freeAsk").hidden=false;}
   </script>
-</body>
-</html>
+</body></html>

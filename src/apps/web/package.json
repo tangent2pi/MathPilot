@@ -3,5 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "正式前端（设计：用户呈现形式v1；视觉：数学卷宗——方格草稿纸/蓝黑墨水/朱砂批注）。静态页，仅经 api 访问后端，不持有任何密钥"
+  "description": "正式前端（设计：用户呈现形式v1；视觉：数学卷宗——方格草稿纸/蓝黑墨水/朱砂批注）。静态页，仅经 api 访问后端，不持有任何密钥",
+  "scripts": {
+    "build": "esbuild src/auth-client.ts src/math-render.ts --bundle --minify --format=esm --platform=browser --target=es2022 --outdir=public/assets --loader:.woff=file --loader:.woff2=file --loader:.ttf=file --asset-names=fonts/[name]-[hash]",
+    "test": "node --experimental-vm-modules test/inline-modules.test.mjs"
+  },
+  "dependencies": {
+    "better-auth": "1.6.23",
+    "katex": "0.18.1",
+    "lxgw-wenkai-webfont": "1.7.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.0"
+  }
 }

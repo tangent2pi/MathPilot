@@ -1,88 +1,92 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>最小画像 · AGMATH</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/app.css" />
-  <style>
-    .profile-page { max-width: 560px; margin: 0 auto; padding: 2.4rem 1.6rem 4rem; }
-    .profile-page h1 { font-family: var(--serif); font-size: 1.6rem; margin: 0 0 .3rem; }
-    .profile-page .sub { color: var(--ink-soft); font-size: .92rem; margin: 0 0 2rem; }
-    .field { margin-bottom: 1.1rem; }
-    .field label { display: block; font-family: var(--serif); font-size: .92rem; margin-bottom: .4rem; }
-    .field input, .field select {
-      width: 100%; border: 1px solid var(--ink-soft); background: var(--paper);
-      padding: .55rem .7rem; font: inherit; font-size: .95rem;
-    }
-    .notice { border: 1px dashed var(--ink-faint); padding: .8rem 1rem; font-size: .8rem; color: var(--ink-soft); margin-bottom: 1.4rem; }
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>学习设置 · AGMATH</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body>
-  <header class="masthead">
-    <a class="brand" href="/"><span class="mark">◆</span>AGMATH<small>数学诊断卷宗</small></a>
-    <nav>
-      <a href="/">每日练习</a>
-      <a href="/report.html">报告与计划</a>
-      <a href="/teacher.html">教师复核</a>
-      <a href="/solve.html">单题诊断</a>
-    </nav>
-  </header>
+<body data-page-title="我的">
+  <header class="app-header" data-app-shell aria-label="应用顶栏"></header>
+  <main class="page narrow">
+    <section class="page-hero compact">
+      <p class="eyebrow">学习设置</p>
+      <h1>告诉我们你的目标和学习节奏</h1>
+      <p class="lede">这些信息会帮助系统安排第一轮练习和每周计划，你可以随时回来更新。</p>
+    </section>
 
-  <main class="profile-page">
-    <h1>最小画像</h1>
-    <p class="sub">画像只影响首轮选题覆盖与计划优先级，不直接判定"已掌握/薄弱"。</p>
-
-    <div class="notice">
-      数据用途：用于自适应选题与学习计划排布。你的作答、草稿与对话仅用于诊断，
-      教师只能看到你所在班级的证据摘要。
-    </div>
-
-    <form id="profileForm">
-      <div class="field"><label for="grade">年级</label>
-        <select id="grade"><option>高一</option><option selected>高二</option><option>高三</option></select></div>
-      <div class="field"><label for="current">当前分（150 满分制，选填）</label>
-        <input id="current" type="number" min="0" max="150" value="90" /></div>
-      <div class="field"><label for="target">目标分（选填）</label>
-        <input id="target" type="number" min="0" max="150" value="110" /></div>
-      <div class="field"><label for="hours">每周可投入时间</label>
-        <select id="hours"><option>1-3</option><option selected>4-6</option><option>7-10</option><option>10+</option></select></div>
-      <div class="field"><label for="weak">自认薄弱（知识点，选填）</label>
-        <input id="weak" value="K_SSA" placeholder="K_SSA,K_SINE_RULE…" /></div>
-      <div class="field"><label for="device">设备与草稿方式</label>
-        <select id="device"><option>触屏手写</option><option>纸面拍照</option><option selected>无草稿</option></select></div>
-      <button class="btn cinnabar" type="submit">保存画像</button>
-      <span id="out" style="margin-left:1rem;font-size:.85rem"></span>
-    </form>
+    <section class="section-card interview" style="margin-top:18px">
+      <div class="notice" id="bindingNotice">正在读取教学绑定…</div>
+      <form id="profileForm">
+        <div class="interview-step">
+          <p class="eyebrow">学习阶段</p>
+          <div class="field-row">
+            <label for="grade">你现在是哪个年级？
+              <select id="grade"><option>高一</option><option selected>高二</option><option>高三</option></select>
+            </label>
+            <label for="hours">每周能稳定投入多少时间？
+              <select id="hours"><option>1-3</option><option selected>4-6</option><option>7-10</option><option>10+</option></select>
+            </label>
+          </div>
+        </div>
+        <div class="interview-step" style="margin-top:12px">
+          <p class="eyebrow">学习目标</p>
+          <div class="field-row">
+            <label for="current">最近数学大约多少分？（150 分制，选填）<input id="current" type="number" min="0" max="150" placeholder="例如 90"></label>
+            <label for="target">希望提升到多少分？（选填）<input id="target" type="number" min="0" max="150" placeholder="例如 110"></label>
+          </div>
+        </div>
+        <div class="interview-step" style="margin-top:12px">
+          <p class="eyebrow">学习习惯</p>
+          <label for="weak">你觉得哪些知识点最容易卡住？（选填，用逗号分隔）<input id="weak" placeholder="例如：正弦定理、数列、不等式"></label>
+          <label for="device">通常怎样写草稿？
+            <select id="device"><option>触屏手写</option><option>纸面拍照</option><option selected>无草稿</option></select>
+          </label>
+        </div>
+        <div class="action-cluster">
+          <button class="btn cinnabar" type="submit">保存设置</button>
+          <a class="btn ghost" href="/">暂不修改</a>
+        </div>
+        <p id="out" class="status-note" aria-live="polite" hidden></p>
+      </form>
+    </section>
   </main>
-
-  <script>
-    const API = "";
-    const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
-      (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-    const out = document.getElementById("out");
-
-    document.getElementById("profileForm").onsubmit = async (e) => {
-      e.preventDefault();
+  <script type="module">
+    import { requirePrincipal, apiFetch } from "/assets/app-shell.js";
+    const principal = await requirePrincipal();
+    const studentId = principal.user_id;
+    const $ = (id) => document.getElementById(id);
+    const teacherResponse = await apiFetch("/api/my-teacher");
+    const teacherData = teacherResponse.ok ? await teacherResponse.json() : { binding: null };
+    $("bindingNotice").textContent = teacherData.binding
+      ? `你的学习记录会用于生成报告和计划，并与 ${teacherData.binding.teacher_name || "你的教师"} 共享。`
+      : "当前使用公共教学内容。绑定教师后，还可以使用教师为你准备的内容。";
+    const existing = await apiFetch(`/api/students/${encodeURIComponent(studentId)}/profile`);
+    if (existing.ok) {
+      const data = await existing.json();
+      $("grade").value = data.grade ?? "高二";
+      $("current").value = data.current_score ?? "";
+      $("target").value = data.target_score ?? "";
+      $("hours").value = data.weekly_hours ?? "4-6";
+      $("weak").value = Array.isArray(data.self_reported_weak) ? data.self_reported_weak.join(",") : "";
+      $("device").value = data.device_draft ?? "无草稿";
+    }
+    $("profileForm").onsubmit = async (event) => {
+      event.preventDefault();
+      const button = event.submitter; button.disabled = true;
       const body = {
-        grade: document.getElementById("grade").value,
-        current_score: Number(document.getElementById("current").value) || null,
-        target_score: Number(document.getElementById("target").value) || null,
-        weekly_hours: document.getElementById("hours").value,
-        self_weak: document.getElementById("weak").value.split(",").map((s) => s.trim()).filter(Boolean),
-        device_draft: document.getElementById("device").value,
+        grade: $("grade").value,
+        current_score: $("current").value === "" ? null : Number($("current").value),
+        target_score: $("target").value === "" ? null : Number($("target").value),
+        weekly_hours: $("hours").value,
+        self_reported_weak: $("weak").value.split(/[,，]/).map((value) => value.trim()).filter(Boolean),
+        device_draft: $("device").value,
       };
-      const res = await fetch(`${API}/api/students/usr_student01/profile`, {
-        method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const d = await res.json();
-      if (!res.ok) { out.textContent = `保存失败：${esc(d.error ?? res.status)}`; return; }
-      out.textContent = "已保存 ✓";
-      setTimeout(() => { location.href = "/"; }, 600);
+      const res = await apiFetch(`/api/students/${encodeURIComponent(studentId)}/profile`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (res.ok) location.href = "/";
+      else { $("out").hidden = false; $("out").className = "status-note error"; $("out").textContent = `保存失败：${data.error ?? res.status}`; button.disabled = false; }
     };
   </script>
 </body>

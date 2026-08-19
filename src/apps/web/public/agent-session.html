@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>处理对话 · AGMATH</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/assets/app.css"><link rel="stylesheet" href="/assets/math-render.css">
+</head>
+<body data-page-title="处理对话">
+  <header class="app-header" data-app-shell></header>
+  <main class="page agent-chat-page">
+    <nav class="breadcrumb" aria-label="面包屑"><a href="/content.html">内容</a><span aria-hidden="true">/</span><span>处理对话</span></nav>
+    <header class="chat-page-header">
+      <div><p class="eyebrow" id="sessionKind">内容整理</p><h1 id="title">处理对话</h1><p id="ref" class="mono"></p></div>
+      <div class="session-status"><span id="status" class="status-pill is-running">连接中</span><a href="/content.html" class="btn ghost">返回内容任务</a></div>
+    </header>
+
+    <div class="agent-chat-layout">
+      <section class="chat-panel" aria-label="会话内容">
+        <div id="events" class="chat-stream" aria-live="polite">
+          <div class="chat-empty"><span class="spinner"></span><p>正在连接这段对话…</p></div>
+        </div>
+        <form id="composer" class="chat-composer">
+          <label class="sr-only" for="message">发送消息</label>
+          <textarea id="message" rows="2" maxlength="4000" placeholder="补充说明，或请它核对某份资料…"></textarea>
+          <div class="composer-foot"><p id="feedback" aria-live="polite">消息会加入当前对话的下一回合</p><button id="send" class="btn cinnabar" type="submit">发送</button></div>
+        </form>
+      </section>
+
+      <aside class="session-overview">
+        <section class="section-card"><p class="eyebrow">当前任务</p><h2 id="taskLabel">内容整理</h2><dl class="session-facts"><div><dt>状态</dt><dd id="factStatus">连接中</dd></div><div><dt>回复</dt><dd id="factReplies">0</dd></div><div><dt>操作</dt><dd id="factTools">0</dd></div><div><dt>用量</dt><dd id="factTokens">—</dd></div><div><dt>提示缓存</dt><dd id="factCache" title="已复用的提示 tokens 占全部提示 tokens 的比例">—</dd></div></dl></section>
+        <section class="section-card"><h2>对话会自动保存</h2><p class="muted">离开页面后仍可从内容任务重新打开。操作过程和引用资料会跟随对应回复保留。</p></section>
+      </aside>
+    </div>
+  </main>
+
+  <script type="module">
+    import { requirePrincipal, apiFetch } from "/assets/app-shell.js";
+    import { renderMath } from "/assets/math-render.js";
+    await requirePrincipal(["teacher","content_reviewer"]);
+    const $ = (id) => document.getElementById(id);
+    const ref = new URLSearchParams(location.search).get("ref") || "";
+    const safe = /^(run_ktq|run_er)_[a-f0-9]{32}$/.test(ref);
+    const task = ref.startsWith("run_er_") ? "补充错因与诊断规则" : "整理题目与知识点";
+    $("ref").textContent = safe ? ref : "无效的会话地址";
+    $("title").textContent = task;
+    $("taskLabel").textContent = task;
+    $("sessionKind").textContent = ref.startsWith("run_er_") ? "诊断研究" : "内容整理";
+    let previous = "", stopped = false, pollTimer = 0;
+
+    function message(role, text, meta, at) {
+      const row = document.createElement("article"); row.className = `message-row ${role}`;
+      const avatar = document.createElement("span"); avatar.className = "message-avatar"; avatar.textContent = role === "user" ? "你" : "∴";
+      const wrap = document.createElement("div"); wrap.className = "message-wrap";
+      const head = document.createElement("div"); head.className = "message-head";
+      const name = document.createElement("strong"); name.textContent = role === "user" ? "你" : "AGMATH";
+      const time = document.createElement("time"); time.textContent = at ? new Date(at).toLocaleTimeString("zh-CN", { hour:"2-digit", minute:"2-digit" }) : "";
+      head.append(name, time);
+      const bubble = document.createElement("div"); bubble.className = "message-bubble"; bubble.textContent = text; renderMath(bubble);
+      wrap.append(head, bubble); if (meta) wrap.append(meta); row.append(avatar, wrap); return { row, wrap };
+    }
+
+    function toolDetails(events) {
+      if (!events.length) return null;
+      const details = document.createElement("details"); details.className = "message-attachments";
+      const summary = document.createElement("summary");
+      const failures = events.filter((event) => event.status === "failed").length;
+      summary.textContent = failures ? `${events.length} 个操作，其中 ${failures} 个需要查看` : `查看 ${events.length} 个操作`;
+      details.append(summary);
+      const list = document.createElement("div"); list.className = "attachment-list";
+      for (const event of events) {
+        const item = document.createElement("details"); item.className = `attachment-item ${event.status || "completed"}`;
+        const label = document.createElement("summary"); label.textContent = `${event.toolName || "操作"} · ${event.status === "failed" ? "未完成" : "已完成"}`;
+        const body = document.createElement("pre"); body.textContent = event.detail || ""; item.append(label, body); list.append(item);
+      }
+      details.append(list); return details;
+    }
+
+    function render(events) {
+      events = events.filter((event) => event.type !== "model_update");
+      const encoded = JSON.stringify(events); if (encoded === previous) return; previous = encoded;
+      const stream = $("events");
+      const followLatest = !stream.children.length || stream.scrollHeight - stream.scrollTop - stream.clientHeight < 120;
+      stream.replaceChildren();
+      let current = null, tools = [], replyCount = 0, toolCount = 0, tokens = 0, promptInput = 0, cacheRead = 0;
+      const flushTools = () => {
+        if (!tools.length) return;
+        if (!current) {
+          current = message("assistant", "完成了一组资料操作", null, tools.at(-1)?.at);
+          stream.append(current.row);
+        }
+        current.wrap.append(toolDetails(tools)); tools = [];
+      };
+      for (const event of events) {
+        if (event.type === "turn_start") { flushTools(); current = null; continue; }
+        if (event.type === "user_message") { flushTools(); current = message("user", event.detail || "已发送一条引导", null, event.at); stream.append(current.row); continue; }
+        if (event.type === "assistant_message") {
+          const pendingTools = tools; tools = [];
+          current = message("assistant", event.detail || event.label || "处理完成", null, event.at);
+          stream.append(current.row);
+          if (pendingTools.length) current.wrap.append(toolDetails(pendingTools));
+          replyCount++; continue;
+        }
+        if (event.type === "tool_start") { toolCount++; tools.push({ ...event }); continue; }
+        if (event.type === "tool_end") {
+          const open = [...tools].reverse().find((item) => item.toolName === event.toolName && item.status === "running");
+          if (open) Object.assign(open, event); else tools.push(event);
+          continue;
+        }
+        if (event.type === "turn_end" && event.usage) {
+          const turnInput = Number(event.usage.input || 0), turnCache = Number(event.usage.cacheRead || 0);
+          tokens += Number(event.usage.total || 0); promptInput += turnInput; cacheRead += turnCache; flushTools();
+          if (current) {
+            const usage = document.createElement("small"); usage.className = "message-usage";
+            const turnPrompt = turnInput + turnCache;
+            const turnCacheText = turnPrompt && turnCache ? ` · 提示缓存 ${Math.round(turnCache / turnPrompt * 100)}%` : "";
+            usage.textContent = `本回合 ${Number(event.usage.total || 0).toLocaleString()} tokens${turnCacheText}`; current.wrap.append(usage);
+          }
+        }
+      }
+      flushTools();
+      const lifecycleEvents = events.filter((event) => event.type === "session_end");
+      // 旧 Session 没有 session_end；仅对这些历史记录兼容 agent_end。
+      stopped = lifecycleEvents.length
+        ? lifecycleEvents.some((event) => event.status === "completed")
+        : events.some((event) => event.type === "agent_end" && event.status === "completed");
+      const isFailed = lifecycleEvents.length
+        ? lifecycleEvents.some((event) => event.status === "failed")
+        : events.some((event) => event.type === "agent_end" && event.status === "failed");
+      if (!stopped && events.length) {
+        const pending = document.createElement("div"); pending.className = "agent-typing"; pending.innerHTML = '<span></span><span></span><span></span><em>正在处理</em>'; stream.append(pending);
+      }
+      if (!events.length) stream.innerHTML = '<div class="chat-empty"><span class="spinner"></span><p>会话正在准备，请稍候…</p></div>';
+      const statusText = isFailed ? "需要处理" : stopped ? "已完成" : events.length ? "处理中" : "准备中";
+      $("status").textContent = statusText; $("factStatus").textContent = statusText;
+      $("status").className = `status-pill ${isFailed ? "is-error" : stopped ? "is-complete" : "is-running"}`;
+      const promptTokens = promptInput + cacheRead;
+      $("factReplies").textContent = String(replyCount); $("factTools").textContent = String(toolCount); $("factTokens").textContent = tokens ? tokens.toLocaleString() : "—";
+      $("factCache").textContent = promptTokens ? `${Math.round(cacheRead / promptTokens * 100)}%` : "—";
+      $("send").disabled = !safe || stopped; $("message").disabled = stopped;
+      $("message").placeholder = stopped ? "这段处理对话已经完成" : "补充说明，或请它核对某份资料…";
+      if (followLatest) requestAnimationFrame(() => stream.scrollTo({ top: stream.scrollHeight, behavior: "auto" }));
+    }
+
+    async function poll() {
+      clearTimeout(pollTimer);
+      if (!safe) { $("status").textContent = "地址无效"; return; }
+      try {
+        const response = await apiFetch(`/api/agent-sessions/${encodeURIComponent(ref)}/events`), data = await response.json();
+        if (response.ok) render(data.events || []); else $("status").textContent = "会话尚未开始";
+      } catch { $("status").textContent = "正在重新连接"; }
+      pollTimer = setTimeout(poll, stopped ? 5000 : 1200);
+    }
+
+    $("composer").onsubmit = async (event) => {
+      event.preventDefault(); const value = $("message").value.trim(); if (!value) return;
+      $("send").disabled = true; $("send").textContent = "发送中…"; $("feedback").textContent = "正在发送…";
+      try {
+        const response = await apiFetch(`/api/agent-sessions/${encodeURIComponent(ref)}/messages`, { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ message:value }) });
+        const data = await response.json();
+        $("feedback").textContent = response.ok ? "已发送，将在当前步骤完成后继续" : (data.detail || data.error || "发送失败，请重试");
+        if (response.ok) { $("message").value = ""; previous = ""; await poll(); }
+      } catch {
+        $("feedback").textContent = "发送失败，请检查网络后重试。";
+      } finally {
+        $("send").textContent = "发送"; $("send").disabled = stopped;
+      }
+    };
+    poll();
+  </script>
+</body>
+</html>

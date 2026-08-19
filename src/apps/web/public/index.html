@@ -1,115 +1,56 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>每日练习 · AGMATH</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/app.css" />
-  <style>
-    .home { max-width: 980px; margin: 0 auto; padding: 2.4rem 1.6rem 4rem; }
-    .home-title { font-family: var(--serif); font-size: 1.7rem; margin: 0 0 .3rem; }
-    .home-sub { color: var(--ink-soft); font-size: .95rem; margin: 0 0 2rem; }
-    .entries { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
-    .entry {
-      border: 1px solid var(--ink); padding: 1.3rem 1.4rem; text-decoration: none;
-      display: block; transition: box-shadow .15s, transform .15s; background: var(--paper);
-    }
-    .entry:hover { box-shadow: var(--shadow); transform: translateY(-2px); }
-    .entry .no { font-family: var(--mono); font-size: .68rem; color: var(--cinnabar); letter-spacing: .14em; }
-    .entry h2 { font-family: var(--serif); font-size: 1.15rem; margin: .4rem 0 .3rem; }
-    .entry p { font-size: .85rem; color: var(--ink-soft); margin: 0; line-height: 1.6; }
-    .profile-card {
-      border: 1px dashed var(--ink-soft); padding: 1rem 1.2rem; margin-bottom: 1.6rem;
-      display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;
-    }
-    .profile-card .mono-line { font-family: var(--mono); font-size: .72rem; color: var(--ink-soft); }
-  </style>
-</head>
-<body>
-  <header class="masthead">
-    <a class="brand" href="/"><span class="mark">◆</span>AGMATH<small>数学诊断卷宗</small></a>
-    <nav>
-      <a href="/" aria-current="page">每日练习</a>
-      <a href="/report.html">报告与计划</a>
-      <a href="/teacher.html">教师复核</a>
-      <a href="/solve.html">单题诊断</a>
-    </nav>
-  </header>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>学习 · AGMATH</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/assets/app.css"></head>
+<body data-page-title="学习">
+  <header class="app-header" data-app-shell aria-label="应用顶栏"></header>
+  <main class="page student-home">
+    <section class="home-focus">
+      <div class="home-intro"><p class="eyebrow">今天的学习</p><h1>从最值得继续的一步开始</h1><p id="welcomeLine">正在为你整理今天的任务…</p></div>
+      <blockquote class="daily-note"><p>“真正的理解，会在你能解释每一步时出现。”</p><footer>今日学习提示</footer></blockquote>
+    </section>
 
-  <main class="home">
-    <h1 class="home-title">学习首页</h1>
-    <p class="home-sub">少量题目完成有效诊断——每一次作答都会变成可追溯的证据。</p>
+    <section class="next-task" id="nextTask">
+      <div class="next-task-copy"><span class="next-task-label">下一步</span><h2 id="nextTitle">读取学习设置</h2><p id="nextDescription">稍候，我们正在确定最合适的开始方式。</p><div class="next-task-meta" id="nextMeta"></div></div>
+      <button class="btn cinnabar" id="startPrimary" type="button" disabled>开始</button>
+    </section>
 
-    <div class="profile-card" id="profileCard">
-      <div class="mono-line" id="profileStatus">正在读取画像…</div>
-      <a class="btn ghost" href="/profile.html">完善画像</a>
-    </div>
+    <div class="home-columns">
+      <section class="section-card"><div class="section-heading"><div><p class="eyebrow">快捷开始</p><h2>你想做什么？</h2></div></div>
+        <div class="quick-list">
+          <button class="quick-action" id="entryReview" type="button" disabled><span class="nav-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M5.5 15a7.5 7.5 0 0 0 12.8 2.3L20 14M4 10l1.7-3.3A7.5 7.5 0 0 1 18.5 9"/></svg></span><span><strong>复习到期内容</strong><small>看看哪些知识需要再确认一次</small></span><span>→</span></button>
+          <button class="quick-action" id="entryTraining" type="button" disabled><span class="nav-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m12 3 9 17H3Z"/><path d="M9.5 15.5h5M12 8v4"/></svg></span><span><strong>专项练习</strong><small>围绕一个薄弱点逐步巩固</small></span><span>→</span></button>
+          <a class="quick-action" href="/solve.html"><span class="nav-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 1 1 3.8 2c-1 .7-1.6 1.1-1.6 2.5M12 17.5h.01"/></svg></span><span><strong>问一道题</strong><small>上传题目或草稿，和智能老师讨论</small></span><span>→</span></a>
+        </div>
+      </section>
 
-    <div class="entries">
-      <a class="entry" href="#" id="entryDaily">
-        <div class="no">01</div><h2>每日练习</h2>
-        <p>按计划与薄弱项自适应选题，聊天式一题一诊断。</p>
-      </a>
-      <a class="entry" href="#" id="entryReview">
-        <div class="no">02</div><h2>错题重刷</h2>
-        <p>复测目标驱动的自适应测评，验证保持率与提取能力。</p>
-      </a>
-      <a class="entry" href="/solve.html">
-        <div class="no">03</div><h2>问问 AI</h2>
-        <p>自带题目或自由提问。库外题不计入正式画像。</p>
-      </a>
-      <a class="entry" href="/report.html">
-        <div class="no">04</div><h2>报告与计划</h2>
-        <p>五档掌握状态、证据展开、薄弱排序与 1-4 周学习计划。</p>
-      </a>
+      <section class="section-card progress-card"><div class="section-heading"><div><p class="eyebrow">最近进度</p><h2>学习概览</h2></div><a href="/report.html">查看报告</a></div><div id="progress"><div class="empty-note">完成一次学习后，这里会显示最近变化</div></div></section>
     </div>
   </main>
 
-  <script>
-    const API = "";
-    const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
-      (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-    const card = document.getElementById("profileCard");
-    const status = document.getElementById("profileStatus");
-
-    // 自适应测评：创建测评轮 → 下一题 → 进入单题页（run 参数驱动闭环）
+  <script type="module">
+    import { apiFetch, requirePrincipal } from "/assets/app-shell.js";
+    const principal = await requirePrincipal(); const studentId = principal.user_id; const $ = (id) => document.getElementById(id); let profileReady = false;
     async function startRun(goal) {
-      const res = await fetch(`${API}/api/assessment-runs`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ student_id: "usr_student01", goal }),
-      });
-      const d = await res.json();
-      if (!res.ok) {
-        alert(`无法创建测评：${d.error ?? res.status}`);
-        return;
-      }
-      const next = await fetch(`${API}/api/assessment-runs/${d.run_id}/next`, {
-        method: "POST", headers: { "content-type": "application/json" },
-      });
-      const n = await next.json();
-      if (!next.ok || !n.question_id) {
-        alert(`暂无合适题目：${n.detail ?? n.error ?? next.status}`);
-        return;
-      }
-      location.href = `/solve.html?run=${d.run_id}&q=${encodeURIComponent(n.question_id)}`;
+      if (!profileReady) { location.href = "/profile.html?first=1"; return; }
+      const buttons = [$("startPrimary"),$("entryReview"),$("entryTraining")], primaryLabel = $("startPrimary").textContent; buttons.forEach((button)=>button.disabled=true); $("startPrimary").textContent = "正在准备…";
+      const response = await apiFetch("/api/assessment-runs", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ student_id:studentId, goal }) }); const data = await response.json();
+      if (!response.ok) { $("nextDescription").textContent = data.error === "no_questions" ? "当前还没有可用练习，请稍后再来。" : "暂时无法开始，请稍后重试。"; $("startPrimary").textContent = primaryLabel; buttons.forEach((button)=>button.disabled=false); return; }
+      const nextResponse = await apiFetch(`/api/assessment-runs/${data.run_id}/next`, { method:"POST" }); const next = await nextResponse.json();
+      if (!nextResponse.ok || !next.question_id) { $("nextDescription").textContent = "当前没有合适的下一题。你可以先查看报告或问一道题。"; $("startPrimary").textContent = primaryLabel; buttons.forEach((button)=>button.disabled=false); return; }
+      location.href = `/solve.html?run=${encodeURIComponent(data.run_id)}&goal=${encodeURIComponent(next.goal || goal)}&q=${encodeURIComponent(next.question_id)}`;
     }
-    document.getElementById("entryDaily").onclick = (e) => { e.preventDefault(); startRun("coverage"); };
-    document.getElementById("entryReview").onclick = (e) => { e.preventDefault(); startRun("review"); };
-
-    (async () => {
-      const res = await fetch(`${API}/api/students/usr_student01/profile`).catch(() => null);
-      if (!res) { status.textContent = "服务不可达。"; return; }
-      if (res.status === 404) {
-        status.innerHTML = `尚未完成最小画像注册——<a href="/profile.html">立即注册</a>（画像只影响选题与计划，不直接判定掌握）。`;
-        return;
-      }
-      const d = await res.json();
-      status.innerHTML = `画像：${esc(d.grade)} · 当前 ${esc(d.current_score ?? "—")} 分 · 目标 ${esc(d.target_score ?? "—")} 分 · ` +
-        `每周 ${esc(d.weekly_hours)} 小时 · 草稿方式：${esc(d.device_draft)}`;
-    })();
+    $("startPrimary").onclick = () => startRun("coverage"); $("entryReview").onclick = () => startRun("review"); $("entryTraining").onclick = () => startRun("training");
+    const [profileResponse, projectionResponse] = await Promise.all([apiFetch(`/api/students/${encodeURIComponent(studentId)}/profile`).catch(()=>null), apiFetch(`/api/students/${encodeURIComponent(studentId)}/projection`).catch(()=>null)]);
+    if (!profileResponse || profileResponse.status === 404) {
+      $("welcomeLine").textContent = "先用两分钟告诉我们你的学习目标。"; $("nextTitle").textContent = "完成学习设置"; $("nextDescription").textContent = "设置年级、目标和每周时间，系统就能安排第一轮练习。"; $("startPrimary").textContent = "开始设置"; $("startPrimary").disabled = false;
+    } else if (profileResponse.ok) {
+      const profile = await profileResponse.json(); profileReady = true; $("welcomeLine").textContent = `目标 ${profile.target_score ?? "待设置"} 分 · 每周 ${profile.weekly_hours || "按你的节奏"}`; $("nextTitle").textContent = "开始一轮短练习"; $("nextDescription").textContent = "从当前学习证据中选择一道最有价值的题，完成后再决定是否继续。"; $("nextMeta").textContent = "通常 10–15 分钟"; $("startPrimary").textContent = "开始学习"; $("startPrimary").disabled = false; $("entryReview").disabled = false; $("entryTraining").disabled = false;
+    } else { $("welcomeLine").textContent = "暂时无法读取学习设置。"; $("nextTitle").textContent = "稍后再试"; $("nextDescription").textContent = "服务恢复后可以继续上次的学习进度。"; }
+    if (projectionResponse?.ok) {
+      const data = await projectionResponse.json(), dims = data.snapshot?.dimensions || []; const host = $("progress"); host.replaceChildren();
+      const counts = { mastered:0, learning:0, weak:0, review:0 }; for (const dim of dims) { if (dim.state === "mastered" || dim.state === "possibly_mastered") counts.mastered++; else if (dim.state === "weak") counts.weak++; else counts.learning++; }
+      const grid = document.createElement("div"); grid.className = "progress-grid"; for (const [label,value] of [["较稳定",counts.mastered],["学习中",counts.learning],["需要关注",counts.weak]]) { const item=document.createElement("div");item.innerHTML=`<strong>${value}</strong><span>${label}</span>`;grid.append(item); } host.append(grid);
+    }
   </script>
 </body>
 </html>
