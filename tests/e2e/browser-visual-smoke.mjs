@@ -116,6 +116,12 @@ async function main() {
       main: Boolean(document.querySelector('main')),
       nav: Boolean(document.querySelector('nav')),
       h1: [...document.querySelectorAll('h1')].find((heading) => !heading.closest('[hidden]'))?.textContent?.trim() || '',
+      mainGutters: (() => {
+        const main=document.querySelector('main');
+        if (!main) return null;
+        const rect=main.getBoundingClientRect();
+        return {left:rect.left,right:innerWidth-rect.right};
+      })(),
       accountWithinHeader: (() => {
         const header=document.querySelector('.app-header');
         const account=document.querySelector('.app-account');
@@ -131,6 +137,9 @@ async function main() {
     }
     if (width <= 720 && metrics.accountWithinHeader === false) {
       throw new Error(`${name}: account control escaped the mobile header`);
+    }
+    if (width <= 720 && metrics.mainGutters && Math.abs(metrics.mainGutters.left - metrics.mainGutters.right) > 1) {
+      throw new Error(`${name}: mobile main is off-center ${JSON.stringify(metrics.mainGutters)}`);
     }
     const shot = await client.send("Page.captureScreenshot", {
       format: "png", captureBeyondViewport: true, fromSurface: true,

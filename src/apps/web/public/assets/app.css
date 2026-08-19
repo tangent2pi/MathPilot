@@ -573,7 +573,7 @@ dialog[data-state="closing"] .review-dialog-form { opacity: 0; transform: transl
   .account-trigger { width: 42px; min-height: 42px; justify-content: center; padding: 4px; }
   .account-copy, .account-chevron { display: none; }
   .side-nav { display: none; }
-  main.page, main.proof-layout { margin-left: 0; }
+  main.page, main.proof-layout { margin-inline: auto; }
   .page { width: min(calc(100% - 24px), var(--content)); padding: 18px 0 28px; }
   .session-desk { width: min(calc(100% - 24px), 1040px); margin: 0 auto; }
   .chat-page-header { align-items: stretch; flex-direction: column; gap: 12px; }
