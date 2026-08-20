@@ -15,7 +15,7 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { startService, newId } from "./lib.ts";
 import { buildScnetProvider, type ProviderConfig } from "./providers.ts";
-import { queueActiveSessionMessage, recoverLegacyKtqResult, runTask, type TaskRunOptions } from "./runtime.ts";
+import { cancelActiveSession, queueActiveSessionMessage, recoverLegacyKtqResult, runTask, type TaskRunOptions } from "./runtime.ts";
 import type { TaskType } from "./skills.ts";
 import {
   appendWorkspaceEvent,
@@ -109,6 +109,17 @@ startService({
         type: "user_message", label: "教师引导", status: "completed", detail: message.trim(),
       });
       return reply.code(202).send({ session_ref: sessionRef, status: "queued", task_type: queued.taskType, position: queued.position });
+    });
+
+    /** 领域服务超时/失败时显式中止同一 Session，防止 HTTP 已失败但模型仍在后台运行。 */
+    app.post("/runtime/sessions/:sessionRef/cancel", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { sessionRef } = req.params as { sessionRef: string };
+      const body = (req.body ?? {}) as { reason?: string };
+      const result = await cancelActiveSession(tenantId, sessionRef, body.reason?.slice(0, 500));
+      if (!result.cancelled) return reply.code(409).send({ error: "session_not_running" });
+      return reply.code(202).send({ session_ref: sessionRef, status: "cancelling", task_type: result.taskType });
     });
 
     app.post("/runtime/sessions/:sessionRef/recover-legacy-ktq", async (req, reply) => {

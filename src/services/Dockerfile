@@ -21,7 +21,7 @@ RUN if [ "$SERVICE_NAME" = "profile" ]; then \
       rm -rf /var/lib/apt/lists/*; \
     elif [ "$SERVICE_NAME" = "agent-runtime" ]; then \
       apt-get update && \
-      apt-get install -y --no-install-recommends ripgrep findutils gawk jq util-linux bubblewrap ca-certificates curl tar python3 python3-venv python3-psycopg2 python3-numpy python3-scipy python3-sympy postgresql-client socat ffmpeg chromium libreoffice-writer libreoffice-impress fonts-noto-cjk && \
+      apt-get install -y --no-install-recommends ripgrep findutils gawk jq util-linux bubblewrap ca-certificates curl tar python3 python3-venv python3-pypdf2 python3-psycopg2 python3-numpy python3-scipy python3-sympy poppler-utils qpdf postgresql-client socat ffmpeg chromium libreoffice-writer libreoffice-impress fonts-noto-cjk && \
       npm install --global hyperframes@0.8.3 && \
       python3 -m venv /opt/qwen-mm && \
       /opt/qwen-mm/bin/pip install --no-cache-dir \

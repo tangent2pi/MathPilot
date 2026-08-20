@@ -23,7 +23,7 @@
     },
     "ktq_extract": {
       "file": "tasks/ktq-extract.md",
-      "prompt_version": "ktq-extract@0.8.1",
+      "prompt_version": "ktq-extract@0.9.0",
       "role": "main"
     },
     "er_research": {

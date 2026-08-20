@@ -56,8 +56,8 @@ export function AgentSessionPage() {
     retry: true,
     refetchInterval: (query) => {
       const list = (query.state.data as EventsResponse | undefined)?.events ?? [];
-      const complete = list.some((event) => (event.type === "session_end" || event.type === "agent_end") && event.status === "completed");
-      return complete ? 5_000 : 1_200;
+      const terminal = list.some((event) => (event.type === "session_end" || event.type === "agent_end") && ["completed", "failed"].includes(event.status || ""));
+      return terminal ? 5_000 : 1_200;
     },
   });
   const rawEvents = (events.data?.events ?? []).filter((event) => event.type !== "model_update");
@@ -65,6 +65,7 @@ export function AgentSessionPage() {
   const lifecycle = rawEvents.filter((event) => event.type === "session_end");
   const stopped = lifecycle.length ? lifecycle.some((event) => event.status === "completed") : rawEvents.some((event) => event.type === "agent_end" && event.status === "completed");
   const failed = lifecycle.length ? lifecycle.some((event) => event.status === "failed") : rawEvents.some((event) => event.type === "agent_end" && event.status === "failed");
+  const terminal = stopped || failed;
   const toolCount = rawEvents.filter((event) => event.type === "tool_start").length;
   const usages = rawEvents.filter((event) => event.type === "turn_end" && event.usage).map((event) => event.usage as Usage);
   const tokens = usages.reduce((sum, usage) => sum + Number(usage.total || 0), 0);
@@ -103,9 +104,9 @@ export function AgentSessionPage() {
                 {message.usage && <small className="message-usage">本回合 {Number(message.usage.total || 0).toLocaleString()} tokens{Number(message.usage.input || 0) + Number(message.usage.cacheRead || 0) > 0 && Number(message.usage.cacheRead || 0) > 0 ? ` · 提示缓存 ${Math.round(Number(message.usage.cacheRead || 0) / (Number(message.usage.input || 0) + Number(message.usage.cacheRead || 0)) * 100)}%` : ""}</small>}
               </div>
             </article>)}
-            {!stopped && safe && <div className="agent-typing"><span /><span /><span /><em>正在处理</em></div>}
+            {!terminal && safe && <div className="agent-typing"><span /><span /><span /><em>正在处理</em></div>}
           </div>
-          <form className="chat-composer" onSubmit={submit}><label className="sr-only" htmlFor="agent-message">发送消息</label><textarea id="agent-message" value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={4000} disabled={stopped || !safe} placeholder={stopped ? "这段处理对话已经完成" : "补充说明，或请它核对某份资料…"} /><div className="composer-foot"><p aria-live="polite">{feedback}</p><AsyncButton className="cinnabar" type="submit" pending={send.isPending} pendingLabel="发送中…" disabled={!safe || stopped || !text.trim()}><Send aria-hidden="true" />发送</AsyncButton></div></form>
+          <form className="chat-composer" onSubmit={submit}><label className="sr-only" htmlFor="agent-message">发送消息</label><textarea id="agent-message" value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={4000} disabled={terminal || !safe} placeholder={failed ? "这段处理未完成，请返回内容任务后重试" : stopped ? "这段处理对话已经完成" : "补充说明，或请它核对某份资料…"} /><div className="composer-foot"><p aria-live="polite">{feedback}</p><AsyncButton className="cinnabar" type="submit" pending={send.isPending} pendingLabel="发送中…" disabled={!safe || terminal || !text.trim()}><Send aria-hidden="true" />发送</AsyncButton></div></form>
         </section>
         <aside className="session-overview"><section className="section-card"><p className="eyebrow">当前任务</p><h2>{task}</h2><dl className="session-facts"><div><dt>状态</dt><dd>{status}</dd></div><div><dt>回复</dt><dd>{messages.filter((item) => item.role === "assistant").length}</dd></div><div><dt>操作</dt><dd>{toolCount}</dd></div><div><dt>用量</dt><dd id="factTokens">{tokens ? tokens.toLocaleString() : "—"}</dd></div><div><dt>提示缓存</dt><dd id="factCache" title="已复用的提示 tokens 占全部提示 tokens 的比例">{prompt ? `${Math.round(cache / prompt * 100)}%` : "—"}</dd></div></dl></section><section className="section-card"><h2>对话会自动保存</h2><p className="muted">离开页面后仍可从内容任务重新打开。操作过程和引用资料会跟随对应回复保留。</p></section></aside>
       </div>

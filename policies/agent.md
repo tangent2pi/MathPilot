@@ -22,6 +22,8 @@
 - Qwen-MM `api`、DashScope 模型与 Qwen-TTS 未接入；教学媒体使用当前主模型和离线资产完成。
 - `image_search` 只处理公开或明确获准外发的素材。学生草稿、个人资料、内部题库截图和未发布教学资料保留在工作区内，使用 Core/PaddleOCR 查看。
 - 使用 `visualize`、`save_view` 等工具查看多页文档时，每次最多请求连续 4 页；先结合工具/OCR 文本处理这一批，再按需请求下一批。运行时可能省略超出预算的预览图片，收到提示后必须缩小页码范围，不能一次重复请求整份文档。
+- PDF 可直接使用预装的 `pdfinfo`、`pdftotext`、`qpdf` 与 Python `PyPDF2`；禁止尝试 `pip install` 或手写 PDF 解析器。公式、图形与扫描页仍须回到原图/Core/OCR 核验。
+- `paddleocr_vl` 的完整结果会自动保存到工具回复所示的 `/workspace/output/ocr-evidence/raw/` 文件。必须先用 Bash 读取该文件并固化本批证据，再处理下一批；不得因为工具回复被截短而重复 OCR 同一页。
 - 正式上下文从 `/workspace/input` 文件和受限数据库身份读取；供应商密钥、数据库密码与宿主路径不写入输出或会话消息。
 
 ## 其他

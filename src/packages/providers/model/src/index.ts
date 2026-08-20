@@ -80,8 +80,9 @@ export type TaskResult =
     }
   | { readonly ok: false; readonly status: number; readonly error: string; readonly detail?: string };
 
-/** undici 默认 headersTimeout=300s 会先于业务超时断开长生成（推理模型判答可达数分钟） */
-const longAgent = new Agent({ headersTimeout: 600_000, bodyTimeout: 600_000, connectTimeout: 30_000 });
+/** 抽取任务可处理多份长文档；具体业务仍由各客户端 timeout signal 收紧。 */
+const TRANSPORT_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const longAgent = new Agent({ headersTimeout: TRANSPORT_TIMEOUT_MS, bodyTimeout: TRANSPORT_TIMEOUT_MS, connectTimeout: 30_000 });
 
 function fetchLong(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   return undiciFetch(url, {
@@ -94,6 +95,7 @@ function fetchLong(url: string, init: RequestInit, timeoutMs: number): Promise<R
 export function createAgentRuntimeClient(cfg: AgentRuntimeClientConfig): {
   runTask(opts: TaskRunOptions): Promise<TaskResult>;
   getSessionEvents(sessionRef: string, tenantId: string): Promise<{ ok: true; events: AgentTraceEvent[] } | { ok: false; status: number; error: string }>;
+  cancelSession(sessionRef: string, tenantId: string, reason?: string): Promise<{ ok: boolean; status: number }>;
 } {
   const timeoutMs = cfg.timeoutMs ?? 600_000;
   const base = cfg.baseUrl.replace(/\/$/, "");
@@ -148,7 +150,21 @@ export function createAgentRuntimeClient(cfg: AgentRuntimeClientConfig): {
         ...(d.trace?.events ? { events: d.trace.events } : {}),
       };
     } catch {
+      if (opts.tenantId) await cancelSession(opts.sessionRef, opts.tenantId, "上游模型请求超时或连接中断").catch(() => undefined);
       return { ok: false, status: 502, error: "agent_runtime_unreachable" };
+    }
+  }
+
+  async function cancelSession(sessionRef: string, tenantId: string, reason = "上游任务已取消"): Promise<{ ok: boolean; status: number }> {
+    try {
+      const res = await fetchLong(`${base}/runtime/sessions/${encodeURIComponent(sessionRef)}/cancel`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-tenant-id": tenantId },
+        body: JSON.stringify({ reason }),
+      }, 30_000);
+      return { ok: res.ok || res.status === 409, status: res.status };
+    } catch {
+      return { ok: false, status: 502 };
     }
   }
 
@@ -168,5 +184,5 @@ export function createAgentRuntimeClient(cfg: AgentRuntimeClientConfig): {
     }
   }
 
-  return { runTask, getSessionEvents };
+  return { runTask, getSessionEvents, cancelSession };
 }

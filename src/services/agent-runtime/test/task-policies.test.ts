@@ -47,3 +47,11 @@ test("task isolation does not inject another task goal", () => {
   assert.match(dream, /Dream \/ Profile Update Agent/);
   assert.doesNotMatch(dream, /KTQ 任务目标/);
 });
+
+test("KTQ policy exposes the bounded PDF and OCR checkpoint contract", () => {
+  const ktq = compileSystemPrompt("ktq_extract", context, "/workspace");
+  assert.equal(taskPromptVersion("ktq_extract"), "ktq-extract@0.9.0");
+  assert.match(ktq, /pdfinfo/);
+  assert.match(ktq, /output\/ocr-evidence\/raw/);
+  assert.match(ktq, /不得因为工具回复被截短而重复 OCR/);
+});

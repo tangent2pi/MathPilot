@@ -14,6 +14,7 @@
  * - 诊断上下文（P0-7）：候选只来自本题测量维度关联的诊断规则及其错因，不再返回租户全量。
  */
 import { createHash } from "node:crypto";
+import { request } from "node:http";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { startService, createPool, withTenant, newId } from "./lib.ts";
@@ -32,7 +33,9 @@ const OCR_API_BASE = (process.env.OCR_API_BASE ?? "https://paddleocr.aistudio-ap
 const OCR_API_TOKEN = process.env.OCR_API_TOKEN ?? "";
 const OCR_MODEL = process.env.OCR_MODEL ?? "PaddleOCR-VL-1.6";
 
-const runtime = createAgentRuntimeClient({ baseUrl: AGENT_RUNTIME_URL });
+// 大批次必须在 45 分钟内完成；到期后客户端会调用 runtime cancel，不能留下孤儿模型进程。
+const PIPELINE_TASK_TIMEOUT_MS = 45 * 60 * 1000;
+const runtime = createAgentRuntimeClient({ baseUrl: AGENT_RUNTIME_URL, timeoutMs: PIPELINE_TASK_TIMEOUT_MS });
 const ocrClient = createAistudioOcrClient({ baseUrl: OCR_API_BASE, apiToken: OCR_API_TOKEN, model: OCR_MODEL });
 
 function safeName(value: string, fallback: string): string {
@@ -187,22 +190,51 @@ async function updatePipeline(tenantId: string, runId: string, patch: { status?:
 }
 
 const runningPipelines = new Set<string>();
+async function postPipelineStage(
+  route: "/ktq/run" | "/er/run",
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = request(new URL(route, CONTENT_SELF_URL), {
+      method: "POST",
+      headers: { ...headers, "content-length": Buffer.byteLength(payload).toString() },
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      res.on("end", () => {
+        try {
+          const responseBody = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+          resolve({ ok: (res.statusCode ?? 500) < 400, status: res.statusCode ?? 500, body: responseBody });
+        } catch (error) { reject(error); }
+      });
+    });
+    req.setTimeout(PIPELINE_TASK_TIMEOUT_MS, () => req.destroy(new Error(`pipeline stage exceeded ${PIPELINE_TASK_TIMEOUT_MS}ms`)));
+    req.on("error", reject);
+    req.end(payload);
+  });
+}
+
 async function executePipeline(row: { run_id:string; tenant_id:string; created_by:string; chapter_id:string; document_ids:string[]; ktq_session_ref:string; er_session_ref:string; stage?:string; library_visibility?:LibraryVisibility; owner_teacher_id?:string|null }): Promise<void> {
   if (runningPipelines.has(row.run_id)) return;
   runningPipelines.add(row.run_id);
+  let activeSessionRef = row.stage === "er" ? row.er_session_ref : row.ktq_session_ref;
   try {
     if (row.stage !== "er") {
       await updatePipeline(row.tenant_id,row.run_id,{status:"running",stage:"ktq"});
-      const ktq = await fetch(`${CONTENT_SELF_URL}/ktq/run`, { method:"POST", headers:{"content-type":"application/json","x-tenant-id":row.tenant_id,"x-user-id":row.created_by,"x-library-visibility":row.library_visibility??"teacher"}, body:JSON.stringify({document_ids:row.document_ids,chapter_id:row.chapter_id,agent_run_id:row.ktq_session_ref}) });
-      const ktqBody = await ktq.json() as Record<string,unknown>;
+      const ktq = await postPipelineStage("/ktq/run", {"content-type":"application/json","x-tenant-id":row.tenant_id,"x-user-id":row.created_by,"x-library-visibility":row.library_visibility??"teacher"}, {document_ids:row.document_ids,chapter_id:row.chapter_id,agent_run_id:row.ktq_session_ref});
+      const ktqBody = ktq.body;
       if (!ktq.ok) throw new Error(`KTQ ${ktq.status}: ${JSON.stringify(ktqBody)}`);
       await updatePipeline(row.tenant_id,row.run_id,{stage:"er",payload:{ktq:ktqBody}});
+      activeSessionRef = row.er_session_ref;
     }
-    const er = await fetch(`${CONTENT_SELF_URL}/er/run`, { method:"POST", headers:{"content-type":"application/json","x-tenant-id":row.tenant_id,"x-user-id":row.created_by,"x-library-visibility":row.library_visibility??"teacher"}, body:JSON.stringify({chapter_id:row.chapter_id,agent_run_id:row.er_session_ref}) });
-    const erBody = await er.json() as Record<string,unknown>;
+    const er = await postPipelineStage("/er/run", {"content-type":"application/json","x-tenant-id":row.tenant_id,"x-user-id":row.created_by,"x-library-visibility":row.library_visibility??"teacher"}, {chapter_id:row.chapter_id,agent_run_id:row.er_session_ref});
+    const erBody = er.body;
     if (!er.ok) throw new Error(`ER ${er.status}: ${JSON.stringify(erBody)}`);
     await updatePipeline(row.tenant_id,row.run_id,{status:"review_ready",stage:"review",payload:{er:erBody},completed:true});
   } catch (err) {
+    await runtime.cancelSession(activeSessionRef, row.tenant_id, "内容生产管线已失败或超时");
     await updatePipeline(row.tenant_id,row.run_id,{status:"failed",error:err instanceof Error?err.message:String(err),completed:true});
   } finally { runningPipelines.delete(row.run_id); }
 }

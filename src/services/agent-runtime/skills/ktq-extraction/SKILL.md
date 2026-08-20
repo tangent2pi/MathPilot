@@ -13,11 +13,12 @@ All Bash paths are sandbox paths below `/workspace`. Never use a host path shown
 
 ## Workflow
 
-1. Inspect `/workspace/input/original/` and `/workspace/input/sources/` with Bash and Qwen Core. Read `$ocr-routing` before using `paddleocr_vl`. When OCR is used, retain its Markdown, layout, bbox and image evidence below `/workspace/output/ocr-evidence/` so the separate ER Session can inspect it.
-2. Read `$database`, then query the smallest useful pages of the existing K/T/Q library for reuse and deduplication.
-3. Extract every real example, exercise, variant, and assessment item. Preserve wording, order, choices, diagrams, and source evidence. Do not invent questions or answers.
-4. Write the complete object to `/workspace/output/ktq-result.json` using `assets/result-template.json` as the shape. Never hand the full object directly to `respond`.
-5. Validate the exact file:
+1. Inspect `/workspace/input/original/` and `/workspace/input/sources/` with Bash and Qwen Core. For PDFs use the preinstalled `pdfinfo`, `pdftotext`, `qpdf`, or Python `PyPDF2`; never install packages or hand-write a PDF parser. Read `$ocr-routing` before using `paddleocr_vl`.
+2. Work on one document and at most four consecutive pages at a time. After every OCR call, immediately read the complete checkpoint path reported under `/workspace/output/ocr-evidence/raw/`, then write durable Markdown/layout/bbox/image evidence below `/workspace/output/ocr-evidence/<document>/`. Finish that checkpoint before inspecting the next batch; never re-OCR completed pages.
+3. Read `$database`, then query the smallest useful pages of the existing K/T/Q library for reuse and deduplication.
+4. Extract every real example, exercise, variant, and assessment item. Preserve wording, order, choices, diagrams, and source evidence. Do not invent questions or answers.
+5. Write the complete object to `/workspace/output/ktq-result.json` using `assets/result-template.json` as the shape. Never hand the full object directly to `respond`.
+6. Validate the exact file:
 
    ```sh
    python3 /opt/mathpilot-skills/ktq-extraction/scripts/validate.py \
@@ -26,7 +27,7 @@ All Bash paths are sandbox paths below `/workspace`. Never use a host path shown
      --receipt /workspace/output/ktq-result.validation.json
    ```
 
-6. Fix the file until validation passes. Then call `respond` once with:
+7. Fix the file until validation passes. Then call `respond` once with:
 
    ```json
    {"result_file":"output/ktq-result.json","validation_file":"output/ktq-result.validation.json"}

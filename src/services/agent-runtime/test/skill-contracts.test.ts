@@ -96,3 +96,13 @@ test("skill validators accept valid fixtures and reject unsafe or malformed outp
   python("ktq-extraction/scripts/validate.py", [write("ktq.json", { schema: "wrong", questions: [] }), "--workspace", temporary, "--receipt", path.join(temporary, "bad-ktq.receipt")], 1);
   python("er-research/scripts/validate.py", [write("er.json", { schema: "wrong", error_causes: [], diagnosis_rules: [] }), "--frozen", path.join(fixtures, "frozen-ktq.json"), "--receipt", path.join(temporary, "bad-er.receipt")], 1);
 });
+
+test("OCR and KTQ skills require bounded durable checkpoints", () => {
+  const ocr = readFileSync(path.join(skills, "ocr-routing/SKILL.md"), "utf8");
+  const ktq = readFileSync(path.join(skills, "ktq-extraction/SKILL.md"), "utf8");
+  for (const instructions of [ocr, ktq]) {
+    assert.match(instructions, /output\/ocr-evidence\/raw/);
+    assert.match(instructions, /four consecutive pages/);
+    assert.match(instructions, /PyPDF2/);
+  }
+});

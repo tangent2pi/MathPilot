@@ -32,6 +32,7 @@ import pg from "pg";
 import { publishWorkspaceArtifacts, type PublishedArtifact } from "./artifact-publisher.ts";
 import { compileSystemPrompt, taskPromptVersion, taskRole, type TaskContext, type TaskType } from "./skills.ts";
 import { governMultimodalProviderPayload, type MultimodalPayloadStats } from "./multimodal-payload.ts";
+import { createOcrCheckpointExtension } from "./ocr-checkpoint.ts";
 import {
   createWorkspace,
   archivePiSessionTranscripts,
@@ -62,6 +63,8 @@ interface ActiveRun {
   taskType: TaskType;
   messages: string[];
   acceptingMessages: boolean;
+  abort?: () => Promise<void>;
+  cancelReason?: string;
 }
 const activeRuns = new Map<string, ActiveRun>();
 
@@ -79,6 +82,21 @@ export function queueActiveSessionMessage(
   if (!active?.acceptingMessages) return { queued: false };
   active.messages.push(message);
   return { queued: true, taskType: active.taskType, position: active.messages.length };
+}
+
+/** 服务间取消：让超时/失败的领域请求同步终止 Pi loop，避免孤儿 Session 继续消耗模型。 */
+export async function cancelActiveSession(
+  tenantId: string,
+  sessionRef: string,
+  reason = "上游任务已取消",
+): Promise<{ cancelled: boolean; taskType?: TaskType }> {
+  const active = activeRuns.get(activeRunKey(tenantId, sessionRef));
+  if (!active) return { cancelled: false };
+  active.acceptingMessages = false;
+  active.messages.length = 0;
+  active.cancelReason = reason;
+  await active.abort?.();
+  return { cancelled: true, taskType: active.taskType };
 }
 
 function shellQuote(value: string): string {
@@ -257,7 +275,7 @@ function capabilityExtensionFactories(workspaceRoot: string, onPayloadTrimmed: (
       },
       mcpServers: servers,
     },
-  })];
+  }), createOcrCheckpointExtension(workspaceRoot)];
 }
 
 async function waitForQwenTools(
@@ -577,6 +595,8 @@ export async function runTask(
       customTools: [bashTool as unknown as ToolDefinition, respondTool],
     });
     disposeSession = () => boundedShutdown(session);
+    activeRun.abort = () => session.abort();
+    if (activeRun.cancelReason) throw new Error(activeRun.cancelReason);
     // 首次连接 MCP 时 direct tools 由元数据热加载；禁止在临时 mcp 代理仍是
     // 唯一搜索入口时启动模型回合，确保 ER 始终看到稳定的专用工具名。
     await waitForQwenTools(session);
@@ -590,6 +610,7 @@ export async function runTask(
         opts.promptText ?? "请读取当前工作区的任务上下文，按任务提示执行，并用 respond 输出最终结构化结果。",
         opts.promptImages?.length ? { images: [...opts.promptImages] } : undefined,
       );
+      if (activeRun.cancelReason) throw new Error(activeRun.cancelReason);
       // 当前工具/模型回合结束后消费教师在运行期间排队的引导；最终 respond 才交给领域服务。
       // 每轮结束保留一个短暂的可见接续窗口，覆盖浏览器轮询刚看到回复时追加引导的边界。
       let guidanceDeadline = Date.now() + 1_500;
@@ -601,6 +622,7 @@ export async function runTask(
           break;
         }
         await session.prompt(`教师在管理页面追加了引导。请在同一个 Session 中结合已有对话与工作区继续执行，并重新用 respond 提交完整结果：\n\n${guidance}`);
+        if (activeRun.cancelReason) throw new Error(activeRun.cancelReason);
         guidanceDeadline = Date.now() + 1_500;
       }
       activeRun.acceptingMessages = false;
@@ -681,6 +703,7 @@ export async function runTask(
     }
     return { ok: false, error: "pi_run_failed", detail: err instanceof Error ? err.message : String(err) };
   } finally {
+    delete activeRun.abort;
     activeRuns.delete(runKey);
   }
 }
