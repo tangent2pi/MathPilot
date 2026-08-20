@@ -6,6 +6,7 @@ import { useAuth } from "../app/auth";
 import { AsyncButton } from "../components/feedback/AsyncButton";
 import { EmptyState } from "../components/feedback/EmptyState";
 import { apiFetch, formatDate, jsonBody } from "../lib/api";
+import { aiRequestErrorMessage } from "../lib/ai-feedback";
 
 type PipelineFile = { document_id?: string; name?: string; duplicate?: boolean };
 type Pipeline = {
@@ -63,7 +64,7 @@ function PipelineCard({ run }: { run: Pipeline }) {
     retry: false,
   });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["content-pipelines"] });
-  const confirm = useMutation({ mutationFn: () => apiFetch(`/api/content/pipelines/${encodeURIComponent(run.run_id)}/confirm`, { method: "POST" }), onSuccess: async () => { setFeedback("任务已开始，可以打开对话查看进度。"); await refresh(); }, onError: () => setFeedback("无法开始处理，请确认至少保留一份资料。") });
+  const confirm = useMutation({ mutationFn: () => apiFetch(`/api/content/pipelines/${encodeURIComponent(run.run_id)}/confirm`, { method: "POST" }), onSuccess: async () => { setFeedback("任务已开始，可以打开对话查看进度。"); await refresh(); }, onError: (error) => setFeedback(aiRequestErrorMessage(error, "无法开始处理，请确认至少保留一份资料后重试。")) });
   const retry = useMutation({
     mutationFn: () => apiFetch<Partial<Pipeline> & { run_id: string }>(`/api/content/pipelines/${encodeURIComponent(run.run_id)}/retry`, { method: "POST" }),
     onSuccess: async (next) => {
@@ -74,7 +75,7 @@ function PipelineCard({ run }: { run: Pipeline }) {
       } : current);
       await refresh();
     },
-    onError: () => setFeedback("暂时无法重试，请刷新任务状态后再试。"),
+    onError: (error) => setFeedback(aiRequestErrorMessage(error, "暂时无法重试，请刷新任务状态后再试。")),
   });
   const dismiss = useMutation({
     mutationFn: () => apiFetch(`/api/content/pipelines/${encodeURIComponent(run.run_id)}/dismiss`, { method: "POST" }),

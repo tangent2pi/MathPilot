@@ -33,6 +33,7 @@ test("task policies are versioned prompts and compile without unresolved placeho
     const prompt = compileSystemPrompt(taskType, context, "唯一工作区：/workspace");
     assert.match(prompt, /## 当前任务/);
     assert.match(prompt, /唯一工作区：\/workspace/);
+    assert.match(prompt, /每次最多请求连续 4 页/);
     assert.doesNotMatch(prompt, /\{\{[A-Za-z0-9_]+\}\}/);
     assert.doesNotMatch(prompt, /比赛|赛题|评委|竞赛|硬门槛/);
   }

@@ -7,6 +7,7 @@ import { AsyncButton } from "../components/feedback/AsyncButton";
 import { ImagePicker } from "../components/ImagePicker";
 import { MathText } from "../components/MathText";
 import { ApiError, apiFetch, jsonBody } from "../lib/api";
+import { aiRequestErrorMessage } from "../lib/ai-feedback";
 import { PRODUCT_NAME } from "../lib/brand";
 import { optionLabel, stemFormatLabel } from "../lib/content";
 
@@ -121,7 +122,18 @@ function ArtifactCard({ artifact, sessionRef, onEvent }: { artifact: Artifact; s
 }
 
 function MessageRow({ message, sessionRef, onArtifactEvent }: { message: ChatMessage; sessionRef: string | null; onArtifactEvent: (artifact: Artifact, response: "submitted" | "skipped" | "bypassed_free_text", answer: string) => void }) {
-  return <article className={`chatbox-message ${message.role}`}><div className="chatbox-avatar" aria-hidden="true">{message.role === "student" ? "你" : "∴"}</div><div className="chatbox-message-body"><div className="chatbox-message-head"><strong>{message.role === "student" ? "你" : PRODUCT_NAME}</strong>{message.label && <small>{message.label}</small>}</div>{message.role === "agent" && !!message.thinking?.length && <ThinkingPanel steps={message.thinking} />}{message.text && <div className="chatbox-copy"><MathText text={message.text} as="div" /></div>}{!!message.images?.length && <div className="chatbox-images">{message.images.map((src, index) => <img key={index} src={src} alt={`附件 ${index + 1}`} width="640" height="480" loading="lazy" decoding="async" />)}</div>}{message.artifacts?.map((artifact, index) => <ArtifactCard key={artifact.artifact_id || index} artifact={artifact} sessionRef={sessionRef} onEvent={onArtifactEvent} />)}</div></article>;
+  return <article className={`chatbox-message ${message.role}`}>
+    <div className="chatbox-avatar" aria-hidden="true">{message.role === "student" ? "你" : "∴"}</div>
+    <div className="chatbox-message-body">
+      <div className="chatbox-message-head"><strong>{message.role === "student" ? "你" : PRODUCT_NAME}</strong>{message.label && <small>{message.label}</small>}</div>
+      {message.role === "agent" && !!message.thinking?.length && <ThinkingPanel steps={message.thinking} />}
+      {(message.text || message.images?.length) && <div className="chatbox-message-content">
+        {message.text && <div className="chatbox-copy"><MathText text={message.text} as="div" /></div>}
+        {!!message.images?.length && <div className="chatbox-images">{message.images.map((src, index) => <img key={src} src={src} alt={`${message.role === "student" ? "你发送的" : PRODUCT_NAME + "发送的"}图片 ${index + 1}`} width="640" height="480" loading="lazy" decoding="async" />)}</div>}
+      </div>}
+      {message.artifacts?.map((artifact, index) => <ArtifactCard key={artifact.artifact_id || index} artifact={artifact} sessionRef={sessionRef} onEvent={onArtifactEvent} />)}
+    </div>
+  </article>;
 }
 
 function PracticeQuestionCard({ question, selected, answer, files, disabled, sessionReady, busy, onSelected, onAnswer, onFiles, onHelp, onSubmit }: { question?: Question; selected: string[]; answer: string; files: File[]; disabled: boolean; sessionReady: boolean; busy: boolean; onSelected: (values: string[]) => void; onAnswer: (value: string) => void; onFiles: (files: File[]) => void; onHelp: (action: "stuck" | "check_step" | "method_hint") => void; onSubmit: () => void }) {
@@ -141,6 +153,7 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
   const assessmentRunId = params.get("run");
   const assessmentGoal = params.get("goal") || "coverage";
   const mounted = useRef(true);
+  const previewUrls = useRef(new Set<string>());
   const startedQuestion = useRef("");
   const streamEnd = useRef<HTMLDivElement>(null);
   const hydratedSessions = useRef(new Set<string>());
@@ -163,7 +176,8 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
   const [loadedDraftKey, setLoadedDraftKey] = useState("");
   const draftKey = qid ? `mathpilot:practice-draft:${principal.user_id}:${assessmentRunId || "standalone"}:${qid}` : "";
   const stillOnThisRoute = () => mounted.current && window.location.pathname === (askMode ? "/ask" : "/solve");
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; previewUrls.current.forEach((url) => URL.revokeObjectURL(url)); previewUrls.current.clear(); }; }, []);
+  const createMessagePreviews = (files: File[]) => files.map((file) => { const url = URL.createObjectURL(file); previewUrls.current.add(url); return url; });
   const question = useQuery({ queryKey: ["question", qid], queryFn: () => apiFetch<Question>(`/api/questions/${encodeURIComponent(qid)}`), enabled: Boolean(qid), retry: false });
   const addMessage = (role: "student" | "agent", text: string, label = "", artifacts: Artifact[] = [], thinking: TraceStep[] = [], images: string[] = []) => setMessages((current) => [...current, { id: `${Date.now()}-${Math.random()}`, role, text, label, artifacts, thinking, images }]);
   const latestSteps = async (ref: string | null, startedAt?: string) => {
@@ -188,11 +202,12 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
       return { profile: true, run_id: run.run_id, ...next };
     },
     onSuccess: (data) => { if (!stillOnThisRoute()) return; if (!data.profile) navigate("/profile?first=1", { replace: true }); else if (data.question_id) navigate(`/solve?run=${encodeURIComponent(data.run_id)}&goal=${encodeURIComponent(data.goal || "coverage")}&q=${encodeURIComponent(data.question_id)}`, { replace: true }); else setAdvanceStatus("当前还没有可用练习，请稍后再来。"); },
-    onError: () => { if (stillOnThisRoute()) setAdvanceStatus("暂时无法开始练习，请稍后重试。"); },
+    onError: (error) => { if (stillOnThisRoute()) setAdvanceStatus(aiRequestErrorMessage(error, "暂时无法开始练习，请稍后重试。")); },
   });
   useEffect(() => { if (!askMode && !qid && !bootstrap.isPending && !bootstrap.isSuccess) bootstrap.mutate(); }, [askMode, qid]);
   useEffect(() => {
     if (!qid) return;
+    previewUrls.current.forEach((url) => URL.revokeObjectURL(url)); previewUrls.current.clear();
     startedQuestion.current = "";
     setSessionId(null); setSessionState("CREATE"); setMessages([]); setTransitionMessages([]); setAnswerFiles([]); setChatFiles([]); setVerdict(null); setProbeAnswer(""); setTrace({}); setAdvanceStatus("");
     let restored: { answer?: string; selected?: string[]; chatText?: string } = {};
@@ -227,7 +242,7 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
         }
         startedQuestion.current = "";
         setSessionState("FAILED");
-        addMessage("agent", "题目已经打开，但教学对话还没有准备好。请稍后刷新本页重试。", "提示");
+        addMessage("agent", aiRequestErrorMessage(error, "题目已经打开，但教学对话还没有准备好。请稍后刷新本页重试。"), "提示");
       }
     };
     void openSession();
@@ -253,35 +268,35 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
   }, [sessionId, conversationId]);
   const interact = useMutation({
     mutationFn: async ({ action, text, files = [] }: { action: "stuck" | "check_step" | "method_hint" | "free_text"; text?: string; files?: File[] }) => { if (!sessionId) throw new Error("session_not_ready"); const content = text ?? (action === "check_step" ? collectAnswer() : ""); if (action === "check_step" && !content) throw new Error("请先写下需要检查的思路。"); return apiFetch<any>(`/api/sessions/${encodeURIComponent(sessionId)}/interact`, { method: "POST", ...jsonBody({ action, text: content, images: await filesToImages(files) }) }); },
-    onMutate: ({ action, text }) => { const startedAt = new Date().toISOString(); const content = text || ({ stuck: "请给我一个提示", check_step: collectAnswer(), method_hint: "请换一种思路讲解" } as Record<string, string>)[action] || "继续讨论"; addMessage("student", content); if (action === "free_text") { setChatText(""); setChatFiles([]); } return { startedAt }; },
+    onMutate: ({ action, text, files = [] }) => { const startedAt = new Date().toISOString(); const content = text || ({ stuck: "请给我一个提示", check_step: collectAnswer(), method_hint: "请换一种思路讲解" } as Record<string, string>)[action] || "继续讨论"; addMessage("student", content, "", [], [], createMessagePreviews(files)); if (action === "free_text") { setChatText(""); setChatFiles([]); } return { startedAt }; },
     onSuccess: async (data, _variables, context) => addMessage("agent", data.reply, data.status === "question_complete" ? "教学目标已完成" : "", data.artifacts || [], await latestSteps(sessionId, context?.startedAt)),
-    onError: (error) => addMessage("agent", error instanceof Error && error.message.startsWith("请先") ? error.message : "这次回复没有完成。你的内容仍保留在对话中，请稍后重试。", "提示"),
+    onError: (error) => addMessage("agent", aiRequestErrorMessage(error, "这次回复没有完成。你的内容仍保留在对话中，请稍后重试。"), "提示"),
   });
   const submit = useMutation({
-    mutationFn: async () => { const text = collectAnswer(); if (!text || !sessionId) throw new Error("请先完成题卡中的回答。"); return apiFetch<VerdictData>(`/api/sessions/${encodeURIComponent(sessionId)}/submit`, { method: "POST", ...jsonBody({ answer_text: text, answer_images: await filesToImages(answerFiles) }) }); },
-    onMutate: () => { const startedAt = new Date().toISOString(); const response = collectAnswer(); if (response) addMessage("student", response, "提交题卡"); return { startedAt }; },
+    mutationFn: async ({ text, files }: { text: string; files: File[] }) => { if (!text || !sessionId) throw new Error("请先完成题卡中的回答。"); return apiFetch<VerdictData>(`/api/sessions/${encodeURIComponent(sessionId)}/submit`, { method: "POST", ...jsonBody({ answer_text: text, answer_images: await filesToImages(files) }) }); },
+    onMutate: ({ text, files }) => { const startedAt = new Date().toISOString(); if (text) addMessage("student", text, "提交题卡", [], [], createMessagePreviews(files)); return { startedAt }; },
     onSuccess: async (data, _variables, context) => { setVerdict(data); setSessionState(data.state || (data.session_learning_record_id ? "CLOSED" : "GRADE")); const label = data.state === "CLOSED" || data.session_learning_record_id ? "本题完成" : data.probe?.question ? "继续确认" : "判读完成"; addMessage("agent", data.judgment?.decision_summary || "我已经读完你的回答。", label, [], await latestSteps(sessionId, context?.startedAt)); },
-    onError: (error) => addMessage("agent", error instanceof Error && error.message.startsWith("请先") ? error.message : "答案已经保留，但本次判读没有完成。请稍后再次提交。", "保存未完成"),
+    onError: (error) => addMessage("agent", aiRequestErrorMessage(error, "答案已经保留，但本次判读没有完成。请稍后再次提交。"), "保存未完成"),
   });
   const probe = useMutation({
     mutationFn: async (skip: boolean) => { if (!sessionId) throw new Error("session_not_ready"); if (skip) return apiFetch<VerdictData>(`/api/sessions/${encodeURIComponent(sessionId)}/probe-skip`, { method: "POST" }); if (!probeAnswer.trim()) throw new Error("请先回答追问"); return apiFetch<VerdictData>(`/api/sessions/${encodeURIComponent(sessionId)}/probe`, { method: "POST", ...jsonBody({ answer_text: probeAnswer.trim() }) }); },
     onMutate: (skip) => { const startedAt = new Date().toISOString(); addMessage("student", skip ? "先跳过这条追问" : probeAnswer.trim(), "追问回答"); return { startedAt }; },
     onSuccess: async (data, _skip, context) => { setVerdict(data); setSessionState(data.state || (data.session_learning_record_id ? "CLOSED" : "DIAGNOSE")); setProbeAnswer(""); addMessage("agent", data.judgment?.decision_summary || (data.state === "CLOSED" ? "这道题的学习记录已经整理好。" : "我还需要确认一点。"), data.state === "CLOSED" ? "本题完成" : "继续确认", [], await latestSteps(sessionId, context?.startedAt)); },
-    onError: () => addMessage("agent", "这条追问暂时没有保存成功，请稍后重试。", "提示"),
+    onError: (error) => addMessage("agent", aiRequestErrorMessage(error, "这条追问暂时没有保存成功，请稍后重试。"), "提示"),
   });
   const ask = useMutation({
-    mutationFn: async () => apiFetch<any>("/api/ask", { method: "POST", ...jsonBody({ conversation_id: conversationId, text: askText.trim(), images: await filesToImages(askFiles) }) }),
-    onMutate: () => {
+    mutationFn: async ({ text, files }: { text: string; files: File[] }) => apiFetch<any>("/api/ask", { method: "POST", ...jsonBody({ conversation_id: conversationId, text, images: await filesToImages(files) }) }),
+    onMutate: ({ text, files }) => {
       const startedAt = new Date().toISOString();
-      const previews = askFiles.map((file) => URL.createObjectURL(file));
-      addMessage("student", askText.trim() || "（上传图片）", "", [], [], previews);
+      addMessage("student", text || "（上传图片）", "", [], [], createMessagePreviews(files));
       setAskText("");
       setAskFiles([]);
-      return { startedAt, previews };
+      return { startedAt };
     },
-    onSuccess: async (data, _variables, context) => { setConversationId(data.conversation_id); addMessage("agent", data.reply, "", data.artifacts || [], await latestSteps(data.conversation_id, context?.startedAt)); context?.previews?.forEach((url) => URL.revokeObjectURL(url)); },
-    onError: (_error, _variables, context) => { addMessage("agent", "暂时没有收到回复，你的提问已保留在对话中。", "提示"); context?.previews?.forEach((url) => URL.revokeObjectURL(url)); },
+    onSuccess: async (data, _variables, context) => { setConversationId(data.conversation_id); addMessage("agent", data.reply, "", data.artifacts || [], await latestSteps(data.conversation_id, context?.startedAt)); },
+    onError: (error) => addMessage("agent", aiRequestErrorMessage(error, "AI 暂时没有完成回复。你的提问已保留在对话中，请检查网络后重试。"), "提示"),
   });
+  const sendAsk = () => { const text = askText.trim(); if (!ask.isPending && (text || askFiles.length)) ask.mutate({ text, files: [...askFiles] }); };
   const cardEvent = async (artifact: Artifact, response: "submitted" | "skipped" | "bypassed_free_text", cardAnswer: string) => {
     const ref = sessionId || conversationId; if (!ref) return;
     const startedAt = new Date().toISOString();
@@ -290,7 +305,7 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
     if (response === "bypassed_free_text") { document.getElementById(askMode ? "ask-text" : "learning-chat-input")?.focus(); return; }
     const payload = { answer: cardAnswer.slice(0, 4000), source: "learning_artifact" };
     const url = sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/card-event` : `/api/teaching-conversations/${encodeURIComponent(conversationId as string)}/card-event`;
-    try { await apiFetch(url, { method: "POST", ...jsonBody({ card_id: cardId, artifact_id: artifact.artifact_id, interaction_token: artifact.interaction_token, response_type: response, payload }) }); addMessage("student", response === "skipped" ? "跳过这张教学卡片" : `卡片回答：${payload.answer || "（已提交）"}`, "教学卡片"); const result = sessionId ? await apiFetch<any>(`/api/sessions/${encodeURIComponent(sessionId)}/interact`, { method: "POST", ...jsonBody({ action: "card_event", text: JSON.stringify({ response_type: response, card_id: cardId, payload }) }) }) : await apiFetch<any>("/api/ask", { method: "POST", ...jsonBody({ action: "card_event", conversation_id: conversationId, text: JSON.stringify({ response_type: response, card_id: cardId, payload }) }) }); addMessage("agent", result.reply, "", result.artifacts || [], await latestSteps(ref, startedAt)); } catch { addMessage("agent", "这次互动没有保存成功，请直接用文字回复。", "提示"); }
+    try { await apiFetch(url, { method: "POST", ...jsonBody({ card_id: cardId, artifact_id: artifact.artifact_id, interaction_token: artifact.interaction_token, response_type: response, payload }) }); addMessage("student", response === "skipped" ? "跳过这张教学卡片" : `卡片回答：${payload.answer || "（已提交）"}`, "教学卡片"); const result = sessionId ? await apiFetch<any>(`/api/sessions/${encodeURIComponent(sessionId)}/interact`, { method: "POST", ...jsonBody({ action: "card_event", text: JSON.stringify({ response_type: response, card_id: cardId, payload }) }) }) : await apiFetch<any>("/api/ask", { method: "POST", ...jsonBody({ action: "card_event", conversation_id: conversationId, text: JSON.stringify({ response_type: response, card_id: cardId, payload }) }) }); addMessage("agent", result.reply, "", result.artifacts || [], await latestSteps(ref, startedAt)); } catch (error) { addMessage("agent", aiRequestErrorMessage(error, "这次互动没有保存成功，请直接用文字回复。"), "提示"); }
   };
   const advance = useMutation({
     mutationFn: async () => { if (!assessmentRunId || !sessionId) return null; const transition = await apiFetch<any>(`/api/assessment-runs/${encodeURIComponent(assessmentRunId)}/decide`, { method: "POST", ...jsonBody({ session_id: sessionId }) }); const next = await apiFetch<any>(`/api/assessment-runs/${encodeURIComponent(assessmentRunId)}/next`, { method: "POST" }); return { ...next, goal: next.goal || transition.goal || "coverage" }; },
@@ -316,13 +331,13 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
   }, [messages, transitionMessages, verdict, busy]);
   const sendPracticeText = () => {
     const text = chatText.trim(); if (!text && !chatFiles.length) return;
-    if (!sessionId) { const user: ChatMessage = { id: `${Date.now()}-transition-user`, role: "student", text: text || "（上传图片）" }; const agent: ChatMessage = { id: `${Date.now()}-transition-agent`, role: "agent", text: "回复得有点快啦，上一题的学习记录还在后台整理。先再看看这道题，准备好后我会继续接收你的消息。", label: "对话准备中" }; setTransitionMessages((current) => [...current, user, agent]); setChatText(""); setChatFiles([]); return; }
+    if (!sessionId) { const user: ChatMessage = { id: `${Date.now()}-transition-user`, role: "student", text: text || "（上传图片）", images: createMessagePreviews(chatFiles) }; const agent: ChatMessage = { id: `${Date.now()}-transition-agent`, role: "agent", text: "回复得有点快啦，上一题的学习记录还在后台整理。先再看看这道题，准备好后我会继续接收你的消息。", label: "对话准备中" }; setTransitionMessages((current) => [...current, user, agent]); setChatText(""); setChatFiles([]); return; }
     interact.mutate({ action: "free_text", text: text || "请看看我上传的图片。", files: chatFiles });
   };
 
   if (!qid && !askMode) return <main className="learning-chat-page" id="main-content"><section className="learning-chat-shell"><header className="learning-chat-header"><div><p className="eyebrow">练习</p><h1>正在准备你的下一道题</h1></div></header><div className="learning-chat-stream"><article className="chatbox-message agent"><div className="chatbox-avatar" aria-hidden="true">∴</div><div className="chatbox-message-body"><ThinkingPanel steps={[]} running={bootstrap.isPending} />{advanceStatus && <div className="chatbox-copy"><p>{advanceStatus}</p></div>}</div></article><div ref={streamEnd} /></div></section></main>;
 
-  if (askMode) return <main className="learning-chat-page ask-chat-page" id="main-content"><section className="learning-chat-shell"><header className="learning-chat-header"><div><p className="eyebrow">向 AI 提问</p><h1>把问题、题目或草稿发给我</h1><p>AI 会直接解答或一步步引导，适合的内容会生成互动演示。</p></div></header><div className="learning-chat-stream">{messages.length ? messages.map((message) => <MessageRow key={message.id} message={message} sessionRef={conversationId} onArtifactEvent={cardEvent} />) : <article className="chatbox-message agent"><div className="chatbox-avatar" aria-hidden="true">∴</div><div className="chatbox-message-body"><div className="chatbox-copy"><p>把你正在想的问题发来吧。可以只写文字，也可以上传题图或草稿。</p></div></div></article>}{ask.isPending && <article className="chatbox-message agent"><div className="chatbox-avatar" aria-hidden="true">∴</div><div className="chatbox-message-body"><ThinkingPanel steps={steps} running /></div></article>}<div ref={streamEnd} /></div><footer className="learning-chat-composer"><textarea id="ask-text" rows={1} value={askText} onChange={(event) => setAskText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (!ask.isPending && (askText.trim() || askFiles.length)) ask.mutate(); } }} placeholder="输入你的问题…" /><details className="composer-attachment"><summary aria-label="添加图片" title="添加图片"><Paperclip aria-hidden="true" /></summary><ImagePicker files={askFiles} onChange={setAskFiles} label="添加题图或草稿" maxBytes={8 * 1_048_576} /></details><button className="chat-send-button" type="button" disabled={ask.isPending || (!askText.trim() && !askFiles.length)} aria-label="发送问题" onClick={() => ask.mutate()}><Send aria-hidden="true" /></button></footer></section></main>;
+  if (askMode) return <main className="learning-chat-page ask-chat-page" id="main-content"><section className="learning-chat-shell"><header className="learning-chat-header"><div><p className="eyebrow">向 AI 提问</p><h1>把问题、题目或草稿发给我</h1><p>AI 会直接解答或一步步引导，适合的内容会生成互动演示。</p></div></header><div className="learning-chat-stream">{messages.length ? messages.map((message) => <MessageRow key={message.id} message={message} sessionRef={conversationId} onArtifactEvent={cardEvent} />) : <article className="chatbox-message agent"><div className="chatbox-avatar" aria-hidden="true">∴</div><div className="chatbox-message-body"><div className="chatbox-copy"><p>把你正在想的问题发来吧。可以只写文字，也可以上传题图或草稿。</p></div></div></article>}{ask.isPending && <article className="chatbox-message agent"><div className="chatbox-avatar" aria-hidden="true">∴</div><div className="chatbox-message-body"><ThinkingPanel steps={steps} running /></div></article>}<div ref={streamEnd} /></div><footer className="learning-chat-composer"><textarea id="ask-text" rows={1} value={askText} onChange={(event) => setAskText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendAsk(); } }} placeholder="输入你的问题…" /><details className="composer-attachment"><summary aria-label="添加图片" title="添加图片"><Paperclip aria-hidden="true" /></summary><ImagePicker files={askFiles} onChange={setAskFiles} label="添加题图或草稿" maxBytes={8 * 1_048_576} /></details><button className="chat-send-button" type="button" disabled={ask.isPending || (!askText.trim() && !askFiles.length)} aria-label="发送问题" onClick={sendAsk}><Send aria-hidden="true" /></button></footer></section></main>;
 
   return (
     <main className="learning-chat-page" id="main-content">
@@ -336,7 +351,7 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
             <div className="chatbox-avatar" aria-hidden="true">∴</div>
             <div className="chatbox-message-body">
               <div className="chatbox-message-head"><strong>{PRODUCT_NAME}</strong><small>{question.data?.published_packages?.[0]?.version ? `内容版本 ${question.data.published_packages[0].version}` : "教学题卡"}</small></div>
-              {question.isPending ? <ThinkingPanel steps={[]} running /> : question.isError ? <div className="chatbox-copy"><p>这道练习暂时无法打开，请返回学习页重试。</p></div> : <PracticeQuestionCard question={question.data} selected={selected} answer={answer} files={answerFiles} disabled={completion || submit.isPending} sessionReady={Boolean(sessionId)} busy={busy} onSelected={setSelected} onAnswer={setAnswer} onFiles={setAnswerFiles} onHelp={(action) => interact.mutate({ action })} onSubmit={() => submit.mutate()} />}
+              {question.isPending ? <ThinkingPanel steps={[]} running /> : question.isError ? <div className="chatbox-copy"><p>这道练习暂时无法打开，请返回学习页重试。</p></div> : <PracticeQuestionCard question={question.data} selected={selected} answer={answer} files={answerFiles} disabled={completion || submit.isPending} sessionReady={Boolean(sessionId)} busy={busy} onSelected={setSelected} onAnswer={setAnswer} onFiles={setAnswerFiles} onHelp={(action) => interact.mutate({ action })} onSubmit={() => submit.mutate({ text: collectAnswer(), files: [...answerFiles] })} />}
             </div>
           </article>
           {messages.map((message) => <MessageRow key={message.id} message={message} sessionRef={sessionId} onArtifactEvent={cardEvent} />)}

@@ -444,16 +444,20 @@ main.learning-chat-page {
 .chatbox-message-head { min-height: 22px; display: flex; align-items: baseline; gap: 10px; }
 .chatbox-message-head strong { font-size: .78rem; }
 .chatbox-message-head small { color: var(--ink-faint); font-size: .65rem; }
+.chatbox-message-content { min-width: 0; max-width: 780px; display: grid; justify-items: start; gap: 8px; }
 .chatbox-copy { max-width: 780px; color: var(--ink); font-size: .89rem; line-height: 1.8; overflow-wrap: anywhere; }
 .chatbox-copy > :first-child { margin-top: 0; }
 .chatbox-copy > :last-child { margin-bottom: 0; }
-.chatbox-images { max-width: 560px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-.chatbox-images img { width: 100%; height: auto; max-height: 320px; object-fit: contain; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-soft); }
+.chatbox-images { width: fit-content; max-width: 100%; display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+.chatbox-images img { display: block; width: auto; height: auto; max-width: min(100%, 360px); max-height: 320px; object-fit: contain; object-position: left top; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-soft); }
 .chatbox-message.student { grid-template-columns: minmax(0,1fr) 34px; }
 .chatbox-message.student .chatbox-avatar { grid-column: 2; grid-row: 1; background: var(--ink); }
 .chatbox-message.student .chatbox-message-body { grid-column: 1; grid-row: 1; justify-self: end; justify-items: end; width: min(82%, 700px); }
 .chatbox-message.student .chatbox-message-head { justify-content: flex-end; }
+.chatbox-message.student .chatbox-message-content { max-width: 100%; justify-items: end; }
 .chatbox-message.student .chatbox-copy { width: fit-content; padding: 10px 14px; border-radius: 15px 4px 15px 15px; background: var(--surface-soft); white-space: pre-wrap; }
+.chatbox-message.student .chatbox-images { justify-content: flex-end; }
+.chatbox-message.student .chatbox-images img { object-position: right top; }
 
 .chat-thinking { width: min(100%, 780px); color: var(--ink-soft); }
 .chat-thinking > summary { width: fit-content; min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 4px 7px; border-radius: 8px; cursor: pointer; list-style: none; font-size: .72rem; font-weight: 700; }

@@ -16,6 +16,16 @@ describe("api client", () => {
     await expect(apiFetch("/api/example")).rejects.toMatchObject({ name: "ApiError", status: 409, message: "not_ready" } satisfies Partial<ApiError>);
   });
 
+  it("extracts nested API error messages instead of rendering object placeholders", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "模型暂时不可用" } }), { status: 502, headers: { "content-type": "application/json" } })));
+    await expect(apiFetch("/api/example")).rejects.toMatchObject({ status: 502, message: "模型暂时不可用" } satisfies Partial<ApiError>);
+  });
+
+  it("uses detail when an API response has no error field", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "会话已结束" }), { status: 409, headers: { "content-type": "application/json" } })));
+    await expect(apiFetch("/api/example")).rejects.toMatchObject({ status: 409, message: "会话已结束" } satisfies Partial<ApiError>);
+  });
+
   it("builds JSON requests and keeps fallbacks predictable", () => {
     expect(jsonBody({ value: 1 })).toEqual({ headers: { "content-type": "application/json" }, body: '{"value":1}' });
     expect(formatDate(null)).toBe("—");

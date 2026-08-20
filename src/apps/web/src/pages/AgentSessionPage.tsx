@@ -6,6 +6,7 @@ import { AsyncButton } from "../components/feedback/AsyncButton";
 import { BackButton } from "../components/BackButton";
 import { MathText } from "../components/MathText";
 import { apiFetch, jsonBody } from "../lib/api";
+import { aiRequestErrorMessage } from "../lib/ai-feedback";
 import { PRODUCT_NAME } from "../lib/brand";
 
 type Usage = { input?: number; cacheRead?: number; total?: number };
@@ -83,7 +84,7 @@ export function AgentSessionPage() {
       setFeedback("已发送，将在当前步骤完成后继续");
       await queryClient.invalidateQueries({ queryKey: ["agent-events", ref] });
     },
-    onError: () => setFeedback("发送失败，请检查网络后重试。"),
+    onError: (error) => setFeedback(aiRequestErrorMessage(error, "消息没有发送成功，请检查网络后重试。")),
   });
   const submit = (event: FormEvent) => { event.preventDefault(); const value = text.trim(); if (value) { setFeedback("正在发送…"); send.mutate(value); } };
 

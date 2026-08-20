@@ -18,6 +18,7 @@ import {
   type AgentSessionEvent,
   type ModelRuntime,
   SessionManager,
+  type ExtensionFactory,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { createMcpAdapter } from "pi-mcp-adapter";
@@ -30,6 +31,7 @@ import path from "node:path";
 import pg from "pg";
 import { publishWorkspaceArtifacts, type PublishedArtifact } from "./artifact-publisher.ts";
 import { compileSystemPrompt, taskPromptVersion, taskRole, type TaskContext, type TaskType } from "./skills.ts";
+import { governMultimodalProviderPayload, type MultimodalPayloadStats } from "./multimodal-payload.ts";
 import {
   createWorkspace,
   archivePiSessionTranscripts,
@@ -143,7 +145,7 @@ interface RuntimeAgentEvent {
   seq: number;
   at: string;
   taskType: TaskType;
-  type: "agent_start" | "turn_start" | "model_update" | "assistant_message" | "tool_start" | "tool_end" | "turn_end" | "agent_end" | "session_end" | "retry";
+  type: "agent_start" | "turn_start" | "model_update" | "assistant_message" | "tool_start" | "tool_end" | "turn_end" | "agent_end" | "session_end" | "retry" | "context_guard";
   label: string;
   status: "running" | "completed" | "failed" | "info";
   detail?: string;
@@ -209,7 +211,7 @@ function normalizeEvent(event: AgentSessionEvent, taskType: TaskType, seq: numbe
  * 任务差异由工作区、Skill、Prompt、数据库 scope 与目标形成，而不是裁剪 Pi 工具。
  * 工作区检索仍只用 Bash 内的 rg/find；Search 只处理外部网络事实。
  */
-function capabilityExtensionFactories(workspaceRoot: string) {
+function capabilityExtensionFactories(workspaceRoot: string, onPayloadTrimmed: (stats: MultimodalPayloadStats) => void) {
   const servers: Record<string, Record<string, unknown>> = {
     "qwen-mm-plugins-core": {
       command: CORE_MCP_COMMAND,
@@ -238,7 +240,14 @@ function capabilityExtensionFactories(workspaceRoot: string) {
       toolPrefix: "none",
     },
   };
-  return [createMcpAdapter({
+  const multimodalHistoryGuard: ExtensionFactory = (pi) => {
+    pi.on("before_provider_request", (event) => {
+      const result = governMultimodalProviderPayload(event.payload);
+      if (result.changed) onPayloadTrimmed(result);
+      return result.payload;
+    });
+  };
+  return [multimodalHistoryGuard, createMcpAdapter({
     config: {
       settings: {
         toolPrefix: "none",
@@ -543,7 +552,15 @@ export async function runTask(
       cwd: ws.root,
       // 嵌入式服务不得读取宿主用户的 ~/.pi 配置或插件。
       agentDir: path.join(ws.root, ".pi-agent"),
-      extensionFactories: capabilityExtensionFactories(ws.root),
+      extensionFactories: capabilityExtensionFactories(ws.root, (stats) => persistEvent({
+        seq: ++eventSeq,
+        at: new Date().toISOString(),
+        taskType: opts.taskType,
+        type: "context_guard",
+        label: "已控制工具图片上下文",
+        status: "info",
+        detail: `保留 ${stats.keptToolImages} 张工具预览，省略 ${stats.omittedToolImages} 张，发送 ${(stats.keptDataUrlChars / 1_000_000).toFixed(2)}M 字符`,
+      })),
       additionalSkillPaths: readdirSync(MATHPILOT_SKILL_ROOT, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(path.join(MATHPILOT_SKILL_ROOT, entry.name, "SKILL.md")))
           .map((entry) => path.join(MATHPILOT_SKILL_ROOT, entry.name)),
