@@ -106,7 +106,12 @@ async function main() {
     const loaded = client.event("Page.loadEventFired");
     await client.send("Page.navigate", { url: `${origin}${path}` });
     await loaded;
-    await delay(500);
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const ready = await evaluate(`!document.querySelector('.app-loading') && Boolean(document.querySelector('main h1, main .chat-page-header, main .auth-card'))`);
+      if (ready) break;
+      await delay(100);
+    }
+    await delay(200);
     const metrics = await evaluate(`(() => ({
       title: document.title,
       path: location.pathname + location.search,
@@ -175,12 +180,12 @@ async function main() {
   await navigate("/teacher.html", 1440, 900, "teacher-desktop");
   await navigate("/teacher.html", 834, 1112, "teacher-tablet");
   await navigate("/teacher.html", 390, 844, "teacher-mobile");
-  await evaluate(`(() => { const input=document.querySelector('#reviewSearch'); input.value='Q_SIN_011'; input.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+  await evaluate(`(() => { const input=document.querySelector('#reviewSearch'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(input,'Q_SIN_011'); input.dispatchEvent(new Event('input',{bubbles:true})); })()`);
   await delay(800);
   await evaluate(`document.querySelector('.review-list-item')?.click()`);
   await delay(600);
   const reviewDialog = await evaluate(`(() => ({
-    open: document.querySelector('#reviewDialog')?.open === true,
+    open: Boolean(document.querySelector('#reviewDialog')),
     images: [...document.querySelectorAll('#taskAssets img')].map(img => ({complete:img.complete,width:img.naturalWidth})),
     math: document.querySelectorAll('#taskSummary .katex').length,
     sourceCards: document.querySelectorAll('#taskEvidence article').length,
@@ -198,7 +203,7 @@ async function main() {
   const reviewShot = await client.send("Page.captureScreenshot", { format:"png", captureBeyondViewport:true, fromSurface:true });
   await writeFile("/tmp/agmath-review-dialog-desktop.png", Buffer.from(reviewShot.data,"base64"));
   console.log(JSON.stringify({name:"review-dialog-desktop",images:reviewDialog.images.length,math:reviewDialog.math}));
-  await evaluate(`document.querySelector('#reviewDialog')?.close()`);
+  await evaluate(`document.querySelector('#reviewDialog .icon-button')?.click()`);
   await navigate("/content.html", 1440, 900, "content-desktop");
   const contentReview = await evaluate(`(() => ({
     scopedLink: document.querySelector(${JSON.stringify(`a[href*="pipeline=${pipelineRef}"]`)})?.textContent?.trim() || "",
@@ -208,15 +213,19 @@ async function main() {
   if (!contentReview.scopedLink.includes("114") || contentReview.publishForms !== 0 || !contentReview.progress.includes("0 / 114")) {
     throw new Error(`content review progress is inconsistent: ${JSON.stringify(contentReview)}`);
   }
-  const uploadUx = await evaluate(`(() => {
+  const uploadUx = await evaluate(`(async () => {
     const input=document.querySelector('#materials'),zone=document.querySelector('#dropzone');
     const choose=(name) => { const transfer=new DataTransfer();transfer.items.add(new File([name],name,{type:'text/plain'}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true})); };
     choose('first.txt');choose('second.txt');
-    const dropped=new DataTransfer();dropped.items.add(new File(['third'],'third.txt',{type:'text/plain'}));zone.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dropped}));
-    let keyboardClicks=0;input.click=()=>{keyboardClicks++};zone.focus();zone.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
-    return {files:document.querySelectorAll('#fileList .file-item').length,summary:document.querySelector('#selectionSummary')?.textContent,keyboardClicks,focused:document.activeElement===zone};
+    const dropped=new DataTransfer();dropped.items.add(new File(['third'],'third.txt',{type:'text/plain'}));
+    zone.dispatchEvent(new DragEvent('dragenter',{bubbles:true,cancelable:true,dataTransfer:dropped}));
+    zone.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:dropped}));
+    zone.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dropped}));
+    let activationClicks=0;input.click=()=>{activationClicks++};zone.focus();zone.click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return {files:document.querySelectorAll('#fileList .file-item').length,summary:document.querySelector('#selectionSummary')?.textContent,activationClicks,focused:document.activeElement===zone};
   })()`);
-  if (uploadUx.files !== 3 || !uploadUx.summary.includes("3") || uploadUx.keyboardClicks !== 1 || !uploadUx.focused) {
+  if (uploadUx.files !== 3 || !uploadUx.summary.includes("3") || uploadUx.activationClicks !== 1 || !uploadUx.focused) {
     throw new Error(`upload interactions regressed: ${JSON.stringify(uploadUx)}`);
   }
   await navigate("/content.html", 834, 1112, "content-tablet");

@@ -444,7 +444,7 @@ main.proof-layout {
 .status-pill.is-error { background: var(--cinnabar-soft); color: var(--cinnabar); }
 .agent-chat-layout { display: grid; grid-template-columns: minmax(0,1fr) 260px; gap: 18px; align-items: start; }
 .chat-panel { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: 0 8px 22px rgba(22,37,58,.035); overflow: hidden; }
-.chat-stream { min-height: 58dvh; max-height: calc(100dvh - 270px); overflow-y: auto; padding: 28px clamp(16px,4vw,38px); display: flex; flex-direction: column; gap: 24px; scroll-behavior: smooth; }
+.chat-stream { min-height: 58dvh; max-height: calc(100dvh - 270px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 28px clamp(16px,4vw,38px); display: flex; flex-direction: column; gap: 24px; scroll-behavior: smooth; }
 .message-row { width: 100%; display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 11px; align-items: start; }
 .message-row.user { grid-template-columns: minmax(0,1fr) 34px; }
 .message-row.user .message-avatar { grid-column: 2; grid-row: 1; background: var(--ink); }

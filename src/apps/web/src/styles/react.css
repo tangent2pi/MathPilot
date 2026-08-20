@@ -1,0 +1,146 @@
+:root {
+  --press-duration: 140ms;
+  --panel-duration: 220ms;
+}
+
+#root { min-height: 100dvh; }
+.route-stage { min-height: calc(100dvh - var(--header-h)); }
+.route-stage > main:first-child { isolation: isolate; }
+
+.btn svg, .text-button svg, .dropzone > svg, .account-menu button svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+}
+.button-spinner { animation: spin .72s linear infinite; }
+
+.app-loading {
+  min-height: calc(100dvh - var(--header-h));
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: var(--ink-soft);
+  background: var(--paper);
+}
+.brand-pulse {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--cinnabar);
+  color: var(--cinnabar);
+  font: 700 1.2rem var(--serif);
+}
+.typing-dots { display: inline-flex; gap: 5px; }
+.typing-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--indigo); animation: pulse-dot 1.2s ease-in-out infinite; }
+.typing-dots i:nth-child(2) { animation-delay: .12s; }
+.typing-dots i:nth-child(3) { animation-delay: .24s; }
+
+.account-chevron { width: 15px; height: 15px; }
+.account-menu.react-menu { display: block; }
+.account-menu button { display: flex; align-items: center; gap: 8px; }
+.auth-eyebrow { margin-top: 28px; }
+.field-group { margin: 14px 0; }
+.field-group > label { margin: 0; }
+.password-control { position: relative; }
+.password-control input { padding-right: 52px; }
+.password-control button {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+}
+.password-control button:hover { background: var(--surface-soft); color: var(--ink); }
+.password-control button svg { width: 18px; height: 18px; }
+.inline-error { margin-top: 12px; }
+.profile-card { margin-top: 18px; }
+.interview-step + .interview-step { margin-top: 12px; }
+.plan-task + .plan-task, .judgment-detail + .judgment-detail { margin-top: 10px; }
+.evidence-session + .evidence-session { margin-top: 10px; }
+.probe-card { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+
+.dropzone {
+  width: 100%;
+  font: inherit;
+  transition: border-color var(--motion-ui) ease, background-color var(--motion-ui) ease, transform var(--press-duration) var(--ease-enter);
+}
+.dropzone > svg { width: 28px; height: 28px; margin-bottom: 8px; }
+.dropzone:active { transform: scale(.995); transition-duration: 0ms; }
+.dropzone.is-dragging { border-color: var(--cinnabar); background: var(--cinnabar-soft); }
+.field-stack small { display: block; margin-top: 5px; color: var(--ink-faint); font-weight: 400; }
+.run-card { scroll-margin-top: calc(var(--header-h) + 20px); }
+.run-card-head > div { min-width: 0; display: grid; gap: 2px; }
+.run-card-head small { color: var(--ink-faint); font-size: .68rem; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(17, 27, 44, .46);
+  backdrop-filter: blur(5px);
+}
+.react-review-dialog {
+  width: min(920px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  box-shadow: 0 28px 80px rgba(17, 27, 44, .24);
+}
+.react-review-dialog > .action-cluster {
+  position: sticky;
+  z-index: 3;
+  bottom: -1px;
+  margin: 22px clamp(-30px, -3vw, -20px) -1px;
+  padding: 12px clamp(20px, 3vw, 30px);
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, .97);
+  box-shadow: 0 -10px 20px rgba(22, 37, 58, .06);
+  backdrop-filter: blur(12px);
+}
+
+.skeleton-lines { display: grid; gap: 12px; padding: 24px 0; }
+.skeleton-lines i { height: 16px; border-radius: 4px; background: linear-gradient(90deg, var(--surface-soft) 25%, #f8fafc 50%, var(--surface-soft) 75%); background-size: 200% 100%; animation: skeleton-shift 1.4s linear infinite; }
+.skeleton-lines i:nth-child(2) { width: 86%; }
+.skeleton-lines i:nth-child(3) { width: 64%; }
+@keyframes skeleton-shift { to { background-position: -200% 0; } }
+
+.side-nav-link, .mobile-nav-link, .quick-action, .review-list-item, .work-row, .student-card, .run-card, .answer-choice, .subnav-item, .export-card {
+  transition: background-color var(--motion-ui) ease, border-color var(--motion-ui) ease, color var(--motion-ui) ease, box-shadow var(--motion-ui) var(--ease-enter), transform var(--press-duration) var(--ease-enter), opacity var(--motion-fast) ease;
+}
+button:active:not(:disabled), .quick-action:active, .side-nav-link:active, .mobile-nav-link:active, .work-row:active, .export-card:active {
+  transform: scale(.98);
+  transition-duration: 0ms;
+}
+.form-has-error input:invalid { border-color: var(--cinnabar); }
+
+@media (hover: hover) and (pointer: fine) {
+  .student-card:hover, .run-card:hover { border-color: rgba(55, 89, 167, .42); box-shadow: var(--shadow); }
+  .quick-action:hover .nav-glyph, .side-nav-link:hover .nav-glyph { transform: translateX(1px); }
+  .nav-glyph { transition: transform var(--press-duration) var(--ease-enter); }
+}
+
+@media (max-width: 720px) {
+  .route-stage { min-height: calc(100dvh - var(--header-h) - 80px); }
+  .react-review-dialog > .action-cluster { grid-template-columns: 1fr 1fr; margin-inline: -16px; padding-inline: 16px; }
+  .react-review-dialog > .action-cluster .btn:last-child { grid-column: 1 / -1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-stage, .button-spinner, .typing-dots i, .skeleton-lines i,
+  .side-nav-link, .mobile-nav-link, .quick-action, .review-list-item, .work-row,
+  .student-card, .run-card, .answer-choice, .subnav-item, .export-card, .dropzone {
+    animation: none !important;
+    transition: none !important;
+  }
+}

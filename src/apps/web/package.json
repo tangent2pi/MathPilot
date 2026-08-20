@@ -3,17 +3,35 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "正式前端（设计：用户呈现形式v1；视觉：数学卷宗——方格草稿纸/蓝黑墨水/朱砂批注）。静态页，仅经 api 访问后端，不持有任何密钥",
+  "description": "AGMATH React 单页应用。视觉延续数学卷宗，只经同源 API 访问后端，不持有任何密钥",
   "scripts": {
-    "build": "esbuild src/auth-client.ts src/math-render.ts --bundle --minify --format=esm --platform=browser --target=es2022 --outdir=public/assets --loader:.woff=file --loader:.woff2=file --loader:.ttf=file --asset-names=fonts/[name]-[hash]",
-    "test": "node --experimental-vm-modules test/inline-modules.test.mjs"
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.101.4",
     "better-auth": "1.6.23",
     "katex": "0.18.1",
-    "lxgw-wenkai-webfont": "1.7.0"
+    "lucide-react": "^1.32.0",
+    "lxgw-wenkai-webfont": "1.7.0",
+    "motion": "^13.1.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
-    "esbuild": "^0.27.0"
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "esbuild": "^0.27.0",
+    "jsdom": "^30.0.1",
+    "typescript": "^5.9.3",
+    "vite": "8.0.10",
+    "vitest": "^4.1.11"
   }
 }

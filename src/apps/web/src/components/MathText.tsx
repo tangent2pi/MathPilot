@@ -1,5 +1,6 @@
 import renderMathInElement from "katex/contrib/auto-render";
 import "katex/dist/katex.min.css";
+import { useEffect, useRef, type ElementType } from "react";
 
 const options = {
   delimiters: [
@@ -9,14 +10,15 @@ const options = {
     { left: "$", right: "$", display: false },
   ],
   ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "option"],
-  ignoredClasses: ["no-math", "katex"],
   throwOnError: false,
-  strict: "warn",
+  strict: "warn" as const,
   trust: false,
 };
 
-/** Render TeX delimiters in trusted text nodes without interpreting HTML. */
-export function renderMath(root: HTMLElement | Document = document): void {
-  const element = root instanceof Document ? root.body : root;
-  renderMathInElement(element, options);
+export function MathText({ text, as: Tag = "p", className }: { text: string; as?: ElementType; className?: string }) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (ref.current) renderMathInElement(ref.current, options);
+  }, [text]);
+  return <Tag ref={ref} className={className}>{text}</Tag>;
 }
