@@ -52,6 +52,8 @@ export interface TaskRunOptions {
     readonly questionIds?: readonly string[];
   };
   readonly workspaceLifecycle?: "continuing" | "terminal";
+  /** 保留业务 Session/工作区，但不重载已膨胀的底层 Pi transcript。 */
+  readonly freshModelContext?: boolean;
 }
 
 export interface AgentTraceEvent {
@@ -121,6 +123,7 @@ export function createAgentRuntimeClient(cfg: AgentRuntimeClientConfig): {
             ...(opts.promptImages !== undefined ? { prompt_images: opts.promptImages } : {}),
             ...(opts.databaseScope !== undefined ? { database_scope: opts.databaseScope } : {}),
             ...(opts.workspaceLifecycle !== undefined ? { workspace_lifecycle: opts.workspaceLifecycle } : {}),
+            ...(opts.freshModelContext !== undefined ? { fresh_model_context: opts.freshModelContext } : {}),
           }),
         },
         timeoutMs,

@@ -536,6 +536,7 @@ async function ktqRunModel(
       : "读取 /opt/mathpilot-skills/ktq-extraction/SKILL.md 后执行。先检查全部原件；OCR 由你决定。查询既有库、跨文档去重，写文件、验证，再用 respond 引用文件。",
     databaseScope: { actorId: actor },
     workspaceLifecycle: "terminal",
+    ...(body.continue_existing_session ? { freshModelContext: true } : {}),
   });
   if (!gen.ok) {
     return reply.code(gen.status).send({ error: "extraction_failed", detail: gen.detail ?? gen.error });

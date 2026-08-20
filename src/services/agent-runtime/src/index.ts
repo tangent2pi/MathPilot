@@ -173,6 +173,7 @@ startService({
         prompt_images?: { data?: string; mimeType?: string }[];
         database_scope?: { actorId?: string; studentId?: string; sessionId?: string; questionIds?: string[] };
         workspace_lifecycle?: WorkspaceLifecycle;
+        fresh_model_context?: boolean;
       };
       const taskType = body.task_type as TaskType;
       if (!taskType || !VALID_TASK_TYPES.has(taskType)) {
@@ -216,6 +217,7 @@ startService({
         ...(promptImages.length ? { promptImages } : {}),
         ...(body.database_scope ? { databaseScope: body.database_scope } : {}),
         ...(body.workspace_lifecycle ? { workspaceLifecycle: body.workspace_lifecycle } : {}),
+        ...(body.fresh_model_context === true ? { freshModelContext: true } : {}),
       });
 
       if (!result.ok) {

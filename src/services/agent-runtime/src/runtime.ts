@@ -120,6 +120,8 @@ export interface TaskRunOptions {
   databaseScope?: { actorId?: string; studentId?: string; sessionId?: string; questionIds?: readonly string[] };
   /** continuing 保留 input 供同一教学 Session 后续回合；terminal 只保留审计、结果和已发布 Artifact。 */
   workspaceLifecycle?: WorkspaceLifecycle;
+  /** 同一业务 Session 续跑时可新建底层 Pi transcript，工作区和事件流保持不变。 */
+  freshModelContext?: boolean;
 }
 
 interface TaskRunSuccess {
@@ -584,7 +586,9 @@ export async function runTask(
           .map((entry) => path.join(MATHPILOT_SKILL_ROOT, entry.name)),
     });
     await resourceLoader.reload();
-    const sessionManager = await sessionManagerFor(ws.root, opts.tenantId, opts.sessionRef);
+    const sessionManager = opts.freshModelContext
+      ? SessionManager.create(ws.root, path.join(PI_SESSION_ROOT, opts.tenantId, opts.sessionRef))
+      : await sessionManagerFor(ws.root, opts.tenantId, opts.sessionRef);
     const { session } = await createAgentSession({
       cwd: ws.root,
       model,
