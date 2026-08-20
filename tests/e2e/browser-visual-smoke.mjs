@@ -120,7 +120,9 @@ async function main() {
         const main=document.querySelector('main');
         if (!main) return null;
         const rect=main.getBoundingClientRect();
-        return {left:rect.left,right:innerWidth-rect.right};
+        const rail=document.querySelector('.side-nav');
+        const railRight=rail && getComputedStyle(rail).display !== 'none' ? rail.getBoundingClientRect().right : 0;
+        return {left:rect.left-railRight,right:innerWidth-rect.right,rail:railRight};
       })(),
       accountWithinHeader: (() => {
         const header=document.querySelector('.app-header');
@@ -138,8 +140,8 @@ async function main() {
     if (width <= 720 && metrics.accountWithinHeader === false) {
       throw new Error(`${name}: account control escaped the mobile header`);
     }
-    if (width <= 720 && metrics.mainGutters && Math.abs(metrics.mainGutters.left - metrics.mainGutters.right) > 1) {
-      throw new Error(`${name}: mobile main is off-center ${JSON.stringify(metrics.mainGutters)}`);
+    if (metrics.mainGutters && Math.abs(metrics.mainGutters.left - metrics.mainGutters.right) > 1) {
+      throw new Error(`${name}: main is off-center within its workspace ${JSON.stringify(metrics.mainGutters)}`);
     }
     const shot = await client.send("Page.captureScreenshot", {
       format: "png", captureBeyondViewport: true, fromSurface: true,

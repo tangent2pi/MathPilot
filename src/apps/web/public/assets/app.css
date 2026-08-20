@@ -408,10 +408,16 @@ body::before { inset: var(--header-h) 0 0; opacity: .7; }
 .side-nav-link[aria-current="page"] .nav-link-copy small { color: var(--indigo); }
 .side-nav-footer { display: flex; align-items: center; gap: 7px; margin: auto 10px 0; color: var(--ink-faint); font-size: .66rem; }
 .status-pip { width: 7px; height: 7px; border-radius: 50%; background: var(--pine); box-shadow: 0 0 0 4px var(--pine-soft); }
-main.page, main.proof-layout { margin-left: var(--rail-w); }
-.page { width: min(calc(100% - 56px), var(--content)); padding-top: 34px; }
+main.page {
+  --page-max: var(--content);
+  width: min(calc(100vw - var(--rail-w) - 56px), var(--page-max));
+  margin-left: calc(var(--rail-w) + max(28px, (100vw - var(--rail-w) - var(--page-max)) / 2));
+  margin-right: auto;
+}
+.page { padding-top: 34px; }
+.page.narrow { --page-max: var(--reading); max-width: none; }
 main.proof-layout {
-  width: min(calc(100% - var(--rail-w) - 56px), 1420px);
+  width: min(calc(100vw - var(--rail-w) - 56px), 1420px);
   margin-left: calc(var(--rail-w) + max(28px, (100vw - var(--rail-w) - 1420px) / 2));
   margin-right: 28px;
   grid-template-columns: minmax(140px,180px) minmax(0,800px) minmax(220px,330px);
@@ -546,9 +552,12 @@ dialog[data-state="closing"] .review-dialog-form { opacity: 0; transform: transl
   .side-nav-label, .nav-link-copy, .side-nav-footer { display: none; }
   .side-nav-link { justify-content: center; padding: 10px 6px; }
   .nav-glyph { width: 36px; height: 36px; }
-  main.page, main.proof-layout { margin-left: calc(var(--rail-w) + 20px); margin-right: 20px; }
-  .page { width: min(calc(100% - var(--rail-w) - 40px), var(--content)); }
-  .proof-layout { width: min(calc(100% - var(--rail-w) - 40px), 1420px); grid-template-columns: minmax(120px,150px) minmax(0,1fr); }
+  main.page {
+    width: min(calc(100vw - var(--rail-w) - 40px), var(--page-max));
+    margin-left: calc(var(--rail-w) + max(20px, (100vw - var(--rail-w) - var(--page-max)) / 2));
+    margin-right: auto;
+  }
+  main.proof-layout { width: min(calc(100vw - var(--rail-w) - 40px), 1420px); margin-left: calc(var(--rail-w) + 20px); margin-right: 20px; grid-template-columns: minmax(120px,150px) minmax(0,1fr); }
   .session-desk { margin-left: calc(var(--rail-w) + max(20px, (100vw - var(--rail-w) - 1040px) / 2)); }
   .agent-chat-layout { grid-template-columns: 1fr; }
   .session-overview { grid-template-columns: repeat(2,minmax(0,1fr)); }
