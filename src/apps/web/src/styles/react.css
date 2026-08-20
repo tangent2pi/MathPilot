@@ -91,6 +91,26 @@ main.proof-layout { width: min(calc(100% - 40px), 1420px); margin-inline: auto; 
 .run-card { scroll-margin-top: calc(var(--header-h) + 20px); }
 .run-card-head > div { min-width: 0; display: grid; gap: 2px; }
 .run-card-head small { color: var(--ink-faint); font-size: .68rem; }
+.file-item { min-width: 0; }
+.file-item > div { min-width: 0; }
+.file-item strong {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.file-item small { display: block; overflow-wrap: anywhere; }
+.file-item > .text-button { white-space: nowrap; }
+.run-file-checklist li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+.run-file-checklist li span {
+  width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.run-file-checklist small, .run-file-checklist .text-button { white-space: nowrap; }
+.status-note { overflow-wrap: anywhere; }
 
 .modal-backdrop {
   position: fixed;
@@ -306,7 +326,7 @@ main.review-page { --page-max: 1460px; }
 .class-create-form { grid-template-columns: minmax(260px,1fr) auto; align-items: end; }
 .class-create-form label { margin: 0; }
 .class-create-form input { margin-top: 6px; }
-.class-create-form .btn { min-height: 44px; align-self: end; margin: 0; }
+.class-create-form .btn { min-width: max-content; min-height: 44px; align-self: end; margin: 0; white-space: nowrap; }
 .class-code { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; padding: 12px; border-radius: 10px; background: var(--surface-soft); }
 .class-code span { grid-column: 1/-1; color: var(--ink-faint); font-size: .68rem; }
 .class-code strong { font: 700 1.5rem var(--mono); letter-spacing: .12em; }
@@ -571,6 +591,7 @@ main.learning-chat-page {
   .observation-row { grid-template-columns: 1fr; }
   .observation-correction { grid-template-columns: 1fr; }
   .observation-correction .action-cluster, .observation-correction .status-note { grid-column: auto; }
+  .run-file-checklist li { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 3px; }
   .ask-composer { bottom: calc(76px + env(safe-area-inset-bottom)); }
   main.learning-chat-page { padding-inline: 10px; padding-bottom: 0; }
   .learning-chat-shell { min-height: calc(100dvh - var(--header-h) - 78px); }

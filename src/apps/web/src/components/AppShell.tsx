@@ -122,8 +122,8 @@ export function AppShell() {
   }, []);
 
   const leave = async () => {
+    await navigate("/login?signed_out=1", { replace: true });
     await signOut();
-    navigate("/login?signed_out=1", { replace: true });
   };
 
   return (

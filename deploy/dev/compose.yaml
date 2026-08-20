@@ -119,12 +119,14 @@ services:
       context: ../..
       dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: agent-runtime }
-    # Docker 默认 seccomp 会拦截 unprivileged user namespace；仅放开 syscall
-    # 过滤以便每次 Bash 调用进入 Bubblewrap。外层容器仍 no-new-privileges，且能力
-    # 缩到创建工作区权限和启动 nobody 所需的最小集合。
+    # Bubblewrap 需要 unprivileged user namespace 和私有 mount namespace。
+    # Docker 默认 seccomp 会拦截前者，docker-default AppArmor 会拦截后者；
+    # 只对 Agent Runtime 放开这两层，外层容器仍 no-new-privileges，且能力缩到
+    # 创建工作区权限和启动 nobody 所需的最小集合。每个任务仍进入内部 bwrap 沙箱。
     security_opt:
       - no-new-privileges:true
       - seccomp=unconfined
+      - apparmor=unconfined
     cap_drop: [ALL]
     cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETUID, SETGID]
     environment:

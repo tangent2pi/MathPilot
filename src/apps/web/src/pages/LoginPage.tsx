@@ -8,8 +8,9 @@ import { Brand } from "../components/Brand";
 import { AsyncButton } from "../components/feedback/AsyncButton";
 import { authClient } from "../lib/auth-client";
 import { apiFetch } from "../lib/api";
+import { postLoginDestination, workspaceHome } from "../lib/auth-routing";
 import { PRODUCT_NAME } from "../lib/brand";
-import { isTeacher, type Principal } from "../lib/types";
+import type { Principal } from "../lib/types";
 
 export function LoginPage() {
   const auth = useAuthQuery();
@@ -24,9 +25,10 @@ export function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const signedOut = params.get("signed_out") === "1";
 
   useEffect(() => { document.title = `登录 · ${PRODUCT_NAME}`; }, []);
-  if (auth.data) return <Navigate to={isTeacher(auth.data.principal) ? "/teacher" : "/"} replace />;
+  if (auth.data && !pending && !signedOut) return <Navigate to={workspaceHome(auth.data.principal)} replace />;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -44,8 +46,7 @@ export function LoginPage() {
     const principal = await apiFetch<Principal>("/api/me").catch(() => null);
     const next = params.get("next");
     if (signup) navigate("/profile?first=1", { replace: true });
-    else if (params.get("signed_out") !== "1" && next?.startsWith("/") && !next.startsWith("//")) navigate(next, { replace: true });
-    else navigate(isTeacher(principal) ? "/teacher" : "/", { replace: true });
+    else navigate(postLoginDestination(principal, next, { signedOut }), { replace: true });
   };
 
   return (

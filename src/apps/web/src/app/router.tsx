@@ -3,6 +3,7 @@ import { Navigate, Outlet, createBrowserRouter, useLocation } from "react-router
 import { RequireAuth, useAuth } from "./auth";
 import { AppShell } from "../components/AppShell";
 import { AppLoading } from "../components/feedback/AppLoading";
+import { workspaceHome } from "../lib/auth-routing";
 import { hasRole, isTeacher } from "../lib/types";
 
 const LoginPage = lazy(() => import("../pages/LoginPage").then((module) => ({ default: module.LoginPage })));
@@ -29,6 +30,13 @@ function ProtectedShell() {
   return <RequireAuth><AppShell /></RequireAuth>;
 }
 
+function WorkspaceHome() {
+  const { state: { principal } } = useAuth();
+  return workspaceHome(principal) === "/teacher"
+    ? <Navigate to="/teacher" replace />
+    : <Load><HomePage /></Load>;
+}
+
 function RoleGate({ roles, children }: { roles: string[]; children: ReactNode }) {
   const { state: { principal } } = useAuth();
   return hasRole(principal, roles) ? children : <Navigate to={isTeacher(principal) ? "/teacher?forbidden=1" : "/?forbidden=1"} replace />;
@@ -45,7 +53,7 @@ export const router = createBrowserRouter([
   {
     element: <ProtectedShell />,
     children: [
-      { index: true, element: <Load><HomePage /></Load> },
+      { index: true, element: <WorkspaceHome /> },
       { path: "index.html", element: <LegacyRedirect to="/" /> },
       { path: "profile", element: <Load><ProfilePage /></Load> },
       { path: "account", element: <Load><AccountPage /></Load> },
