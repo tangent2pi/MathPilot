@@ -16,7 +16,7 @@
 | 设计宪法与完整规格 | `design-docs/系统设计v3.3-…md`、`架构修订v4`、`科学内核与Dream设计v1` |
 | 产品决策与需求溯源 | `design-docs/产品重构基线v1-用户任务与信息架构.md` |
 | 用户呈现形式（界面规格） | `design-docs/用户呈现形式v1` |
-| 标准运行时 Skills | `/opt/agmath-skills` 统一九项树；数学智元六项源于 `src/services/agent-runtime/skills/`，Core/Search/Edu 源于固定 Qwen-MM 本地克隆 |
+| 标准运行时 Skills | `/opt/mathpilot-skills` 统一九项树；数学智元六项源于 `src/services/agent-runtime/skills/`，Core/Search/Edu 源于固定 Qwen-MM 本地克隆 |
 | 任务策略源 | `policies/`（只管理任务目标、prompt_version 与主/辅模型角色） |
 | 算法侧车（pyBKT） | `sidecars/pybkt/`（ADR-001：Python 只作算法侧车） |
 

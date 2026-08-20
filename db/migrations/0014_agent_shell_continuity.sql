@@ -31,7 +31,7 @@ create table infra_agent_db_identity (
 revoke all on infra_agent_db_identity from public;
 
 -- Agent 身份只被授予这些安全函数，不获得正式表权限。范围由 session_user 映射得出，SQL 无 tenant 参数。
-create or replace function agmath_agent_library(p_kind text, p_query text, p_limit integer, p_offset integer)
+create or replace function mathpilot_agent_library(p_kind text, p_query text, p_limit integer, p_offset integer)
 returns jsonb language sql stable security definer
 set search_path = pg_catalog, public
 as $$
@@ -69,7 +69,7 @@ as $$
   )
 $$;
 
-create or replace function agmath_agent_question(p_question text)
+create or replace function mathpilot_agent_question(p_question text)
 returns jsonb language sql stable security definer
 set search_path = pg_catalog, public
 as $$
@@ -89,7 +89,7 @@ as $$
   ), '{}'::jsonb)
 $$;
 
-create or replace function agmath_agent_student_context(p_student text)
+create or replace function mathpilot_agent_student_context(p_student text)
 returns jsonb language sql stable security definer
 set search_path = pg_catalog, public
 as $$
@@ -111,7 +111,7 @@ as $$
   ) else '{}'::jsonb end
 $$;
 
-create or replace function agmath_agent_session_context(p_session text)
+create or replace function mathpilot_agent_session_context(p_session text)
 returns jsonb language sql stable security definer
 set search_path = pg_catalog, public
 as $$
@@ -136,10 +136,10 @@ as $$
   ), '{}'::jsonb)
 $$;
 
-revoke all on function agmath_agent_library(text,text,integer,integer) from public;
-revoke all on function agmath_agent_question(text) from public;
-revoke all on function agmath_agent_student_context(text) from public;
-revoke all on function agmath_agent_session_context(text) from public;
+revoke all on function mathpilot_agent_library(text,text,integer,integer) from public;
+revoke all on function mathpilot_agent_question(text) from public;
+revoke all on function mathpilot_agent_student_context(text) from public;
+revoke all on function mathpilot_agent_session_context(text) from public;
 
 insert into infra_schema_migration(version) values ('0014_agent_shell_continuity');
 commit;

@@ -1,5 +1,5 @@
 {
-  "schema": "agmath.task-policy-manifest/v1",
+  "schema": "mathpilot.task-policy-manifest/v1",
   "tasks": {
     "teach_grade": {
       "file": "tasks/teach-grade.md",

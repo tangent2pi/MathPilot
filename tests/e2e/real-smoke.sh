@@ -10,8 +10,8 @@ TEACHER_EMAIL=${BETTER_AUTH_TEACHER_EMAIL:-teacher@mathpilot.local}
 TEACHER_PASSWORD=${BETTER_AUTH_TEACHER_PASSWORD:-MathPilotTeacher123!}
 [ -f "$SOURCE" ] || { echo "Source not found: $SOURCE" >&2; exit 1; }
 
-COOKIE=$(mktemp /tmp/agmath-real-cookie.XXXXXX)
-BODY=$(mktemp /tmp/agmath-real-body.XXXXXX)
+COOKIE=$(mktemp /tmp/mathpilot-real-cookie.XXXXXX)
+BODY=$(mktemp /tmp/mathpilot-real-body.XXXXXX)
 trap 'rm -f "$COOKIE" "$BODY"' EXIT
 
 curl -fsS --retry 3 -c "$COOKIE" -H 'origin: http://localhost:8080' \

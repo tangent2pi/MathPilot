@@ -59,7 +59,7 @@ packages/providers/model  客户端瘦身为一次 POST /runtime/tasks
 | **pyBKT `models.Roster`** | 逐学生×逐技能掌握度跟踪：`update_state` / `get_mastery_prob`，默认阈值 0.95 | **Dream/画像更新的成品替代**（用户点名的"dream 成品案例"）：Python 侧车（ADR-001），薄 CLI 包装（JSON-lines in → JSON out） |
 | **pyBKT `Model`** | `fit` / `partial_fit`（multigs/multilearn/forgets/multiprior 变体）+ `predict`（P(mastery)） | BKT 参数校准与批量画像重算（阶段 C：`calibration_status=prior_only` → `calibrated`） |
 | **OATutor `BKT-brain.js`** | 20 行标准贝叶斯后验更新，数学与 pyBKT 一致；`MASTERY_THRESHOLD=0.95`；`defaultBKTParams.json` 参数 schema；`defaultHeuristic` 选题 | 掌握内核的 TS 侧实时引擎 + 阈值/参数 schema 与选题启发式（零侧车延迟）；`mastery` 包重写为移植 + pyBKT 对拍 |
-| **Qwen-MM-Plugins** | Core=本地媒体/文档查看；Search=网页、内容与反向图片搜索；Edu Agent=Hyperframes 教学媒体 Skill | 本地固定提交安装 Core/Search MCP，并同步三项官方 Skill 到唯一 `/opt/agmath-skills`；Edu 使用本地 Chromium/ffmpeg/Hyperframes。Qwen `api` 不注册，主模型图像直接进入 SCNET，PaddleOCR-VL 单独承担高精度文字与版面提取 |
+| **Qwen-MM-Plugins** | Core=本地媒体/文档查看；Search=网页、内容与反向图片搜索；Edu Agent=Hyperframes 教学媒体 Skill | 本地固定提交安装 Core/Search MCP，并同步三项官方 Skill 到唯一 `/opt/mathpilot-skills`；Edu 使用本地 Chromium/ffmpeg/Hyperframes。Qwen `api` 不注册，主模型图像直接进入 SCNET，PaddleOCR-VL 单独承担高精度文字与版面提取 |
 | **teammate-models TEACHER** | OCR→题干/答案/解析+图片关联管线；Excel 知识库 schema（难度/掌握标准/补弱建议/前置知识点ID） | content 管线参考（§7.1 题图入库、知识点库结构）；错因库与前置关系进知识图谱与复习调度 |
 | **deepseek-harness** | 工具注册/执行管线、MCP client、schedule（session 锚定提醒） | 宿主侧工具目录与复习提醒的架构参考（不依赖） |
 | **艾宾浩斯保持率 + 复习调度** | 所有 repo 均无现成时间衰减/复习调度（OATutor 无 decay、pyBKT forgets 非时间衰减） | **必须自建**（v3.3 §9.6 保持率网格 + I90 后验），deepseek-harness schedule 作架构参考 |

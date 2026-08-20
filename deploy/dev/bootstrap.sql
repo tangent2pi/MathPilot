@@ -3,54 +3,51 @@
 -- 某次赛题可由 5 份 PDF 初始化，但文件数量和格式不是内容工坊的产品限制。
 begin;
 
-do $$
-begin
-  if not exists (select from pg_roles where rolname = 'agmath_app') then
-    create role agmath_app login password 'agmath-app-dev-only';
-  end if;
-end $$;
+select format('create role %I login password %L','mathpilot_app', :'app_password')
+ where not exists (select from pg_roles where rolname='mathpilot_app') \gexec
+alter role mathpilot_app password :'app_password';
 
 -- 每个身份使用由部署密钥派生的独立密码；当前身份泄漏时不能切换为其他学生或内容身份。
-select format('create role %I login password %L','agmath_agent_content_tnt_dev00001', :'content_password')
- where not exists (select from pg_roles where rolname='agmath_agent_content_tnt_dev00001') \gexec
-select format('create role %I login password %L','agmath_agent_tnt_dev00001_usr_student01', :'student01_password')
- where not exists (select from pg_roles where rolname='agmath_agent_tnt_dev00001_usr_student01') \gexec
-select format('create role %I login password %L','agmath_agent_tnt_dev00001_usr_student02', :'student02_password')
- where not exists (select from pg_roles where rolname='agmath_agent_tnt_dev00001_usr_student02') \gexec
-select format('create role %I login password %L','agmath_agent_tnt_dev00001_usr_student03', :'student03_password')
- where not exists (select from pg_roles where rolname='agmath_agent_tnt_dev00001_usr_student03') \gexec
-alter role agmath_agent_content_tnt_dev00001 password :'content_password';
-alter role agmath_agent_tnt_dev00001_usr_student01 password :'student01_password';
-alter role agmath_agent_tnt_dev00001_usr_student02 password :'student02_password';
-alter role agmath_agent_tnt_dev00001_usr_student03 password :'student03_password';
+select format('create role %I login password %L','mathpilot_agent_content_tnt_dev00001', :'content_password')
+ where not exists (select from pg_roles where rolname='mathpilot_agent_content_tnt_dev00001') \gexec
+select format('create role %I login password %L','mathpilot_agent_tnt_dev00001_usr_student01', :'student01_password')
+ where not exists (select from pg_roles where rolname='mathpilot_agent_tnt_dev00001_usr_student01') \gexec
+select format('create role %I login password %L','mathpilot_agent_tnt_dev00001_usr_student02', :'student02_password')
+ where not exists (select from pg_roles where rolname='mathpilot_agent_tnt_dev00001_usr_student02') \gexec
+select format('create role %I login password %L','mathpilot_agent_tnt_dev00001_usr_student03', :'student03_password')
+ where not exists (select from pg_roles where rolname='mathpilot_agent_tnt_dev00001_usr_student03') \gexec
+alter role mathpilot_agent_content_tnt_dev00001 password :'content_password';
+alter role mathpilot_agent_tnt_dev00001_usr_student01 password :'student01_password';
+alter role mathpilot_agent_tnt_dev00001_usr_student02 password :'student02_password';
+alter role mathpilot_agent_tnt_dev00001_usr_student03 password :'student03_password';
 
-grant usage on schema public to agmath_app;
-grant select, insert, update, delete on all tables in schema public to agmath_app;
-grant usage, select, update on all sequences in schema public to agmath_app;
-grant execute on function agmath_pending_content_pipelines() to agmath_app;
-grant execute on function agmath_provision_agent_identity(text,text,text,text) to agmath_app;
+grant usage on schema public to mathpilot_app;
+grant select, insert, update, delete on all tables in schema public to mathpilot_app;
+grant usage, select, update on all sequences in schema public to mathpilot_app;
+grant execute on function mathpilot_pending_content_pipelines() to mathpilot_app;
+grant execute on function mathpilot_provision_agent_identity(text,text,text,text) to mathpilot_app;
 
 insert into identity_tenant(tenant_id, name)
 values ('tnt_dev00001', 'Dev Tenant')
 on conflict (tenant_id) do nothing;
 
 insert into infra_agent_db_identity(db_role,tenant_id,scope_kind,subject_id) values
-  ('agmath_agent_content_tnt_dev00001','tnt_dev00001','content',null),
-  ('agmath_agent_tnt_dev00001_usr_student01','tnt_dev00001','teaching','usr_student01'),
-  ('agmath_agent_tnt_dev00001_usr_student02','tnt_dev00001','teaching','usr_student02'),
-  ('agmath_agent_tnt_dev00001_usr_student03','tnt_dev00001','teaching','usr_student03')
+  ('mathpilot_agent_content_tnt_dev00001','tnt_dev00001','content',null),
+  ('mathpilot_agent_tnt_dev00001_usr_student01','tnt_dev00001','teaching','usr_student01'),
+  ('mathpilot_agent_tnt_dev00001_usr_student02','tnt_dev00001','teaching','usr_student02'),
+  ('mathpilot_agent_tnt_dev00001_usr_student03','tnt_dev00001','teaching','usr_student03')
 on conflict (db_role) do update set tenant_id=excluded.tenant_id,scope_kind=excluded.scope_kind,subject_id=excluded.subject_id;
 
 do $$
 declare r name;
 begin
-  foreach r in array array['agmath_agent_content_tnt_dev00001','agmath_agent_tnt_dev00001_usr_student01','agmath_agent_tnt_dev00001_usr_student02','agmath_agent_tnt_dev00001_usr_student03']::name[] loop
+  foreach r in array array['mathpilot_agent_content_tnt_dev00001','mathpilot_agent_tnt_dev00001_usr_student01','mathpilot_agent_tnt_dev00001_usr_student02','mathpilot_agent_tnt_dev00001_usr_student03']::name[] loop
     execute format('revoke all on all tables in schema public from %I',r);
     execute format('grant usage on schema public to %I',r);
-    execute format('grant execute on function agmath_agent_library(text,text,integer,integer) to %I',r);
-    execute format('grant execute on function agmath_agent_question(text) to %I',r);
-    execute format('grant execute on function agmath_agent_student_context(text) to %I',r);
-    execute format('grant execute on function agmath_agent_session_context(text) to %I',r);
+    execute format('grant execute on function mathpilot_agent_library(text,text,integer,integer) to %I',r);
+    execute format('grant execute on function mathpilot_agent_question(text) to %I',r);
+    execute format('grant execute on function mathpilot_agent_student_context(text) to %I',r);
+    execute format('grant execute on function mathpilot_agent_session_context(text) to %I',r);
   end loop;
 end $$;
 

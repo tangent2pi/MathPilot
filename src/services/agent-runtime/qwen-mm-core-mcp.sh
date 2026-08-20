@@ -5,7 +5,7 @@ set -eu
 # Bubblewrap：只能看到当前工作区，输入只读，output/tmp 可写，无网络。
 workspace_input=${1:-}
 workspace_root=$(realpath -e "$workspace_input")
-configured_root=$(realpath -e "${WORKSPACE_ROOT:-/var/lib/agmath/workspaces}")
+configured_root=$(realpath -e "${WORKSPACE_ROOT:-/var/lib/mathpilot/workspaces}")
 case "$workspace_root/" in
   "$configured_root"/*/) ;;
   *) echo "workspace escapes configured root" >&2; exit 64 ;;

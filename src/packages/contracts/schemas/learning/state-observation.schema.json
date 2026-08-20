@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/learning/state-observation/v1",
+  "$id": "https://schemas.mathpilot.dev/learning/state-observation/v1",
   "title": "StateObservation",
   "$description": "算法内核可接受的观测。written-by: learning-service（判答校验后）；read-by: 程序评价器、Dream、review-service。仅 success/failure 且满足 evidence_rule 的观测进入掌握内核；unresolved 留待复核/复测。对齐设计文档 §8.2。",
   "type": "object",
@@ -11,12 +11,12 @@
     "rule_version", "created_at"
   ],
   "properties": {
-    "observation_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ObservationId" },
-    "tenant_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/TenantId" },
-    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
-    "dimension_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
-    "question_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/QuestionId" },
-    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+    "observation_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ObservationId" },
+    "tenant_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/TenantId" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/StudentId" },
+    "dimension_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/DimensionId" },
+    "question_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/QuestionId" },
+    "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
     "judgment_id": { "type": "string" },
     "outcome": {
       "type": "string",
@@ -31,7 +31,7 @@
     "evidence_refs": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/EvidenceRef" }
+      "items": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/EvidenceRef" }
     },
     "model_version": { "type": "string" },
     "rule_version": { "type": "string" },
@@ -40,7 +40,7 @@
       "description": "被本观测取代的旧 observation_id；用于教师纠正重放"
     },
     "superseded_by": { "type": ["string", "null"] },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false
 }

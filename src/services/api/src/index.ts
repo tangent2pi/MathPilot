@@ -17,7 +17,7 @@ const CONTENT_URL = process.env.CONTENT_URL ?? "http://localhost:3006";
 const REVIEW_URL = process.env.REVIEW_URL ?? "http://localhost:3008";
 const AGENT_RUNTIME_URL = process.env.AGENT_RUNTIME_URL ?? "http://localhost:3005";
 
-const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
+const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
 
 const CLASS_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function newClassCode(length = 8): string {
@@ -835,7 +835,7 @@ startService({
                     where u.roles @> array['student']::text[] and ($2::boolean or exists(select 1 from identity_teacher_student_binding b where b.teacher_id=$1 and b.student_id=u.user_id and b.status='active')) order by u.user_id`,[p.userId,admin]);
         const lineage = await c.query(`select distinct l.entity_type,l.entity_id,l.field_path,l.provenance_status,l.derivation_type,l.source_fragment_id,l.agent_run_id,l.prompt_version,l.model_id,l.reviewer_id,l.review_decision,l.confidence,l.created_at from content_field_lineage l join content_entity_scope s on s.tenant_id=l.tenant_id and s.entity_type=l.entity_type and s.entity_id=l.entity_id where $2::boolean or s.visibility='public' or s.owner_teacher_id=$1 order by l.created_at`,[p.userId,admin]);
         const packages = await c.query(`select distinct on(p.package_id) p.payload from content_chapter_package p join content_entity_scope s on s.tenant_id=p.tenant_id and s.entity_type='chapter_package' and s.entity_id=p.package_id where $2::boolean or s.visibility='public' or s.owner_teacher_id=$1 order by p.package_id,p.published_at`,[p.userId,admin]);
-        return { schema: "agmath.content-export/v1", exported_at: new Date().toISOString(), tenant_id: p.tenantId,
+        return { schema: "mathpilot.content-export/v1", exported_at: new Date().toISOString(), tenant_id: p.tenantId,
           knowledge_points: knowledge.rows, question_types: questionTypes.rows, error_causes: errorCauses.rows,
           questions: questions.rows.map((r) => r.payload), diagnosis_rules: diagnosisRules.rows,
           student_cases: studentCases.rows, field_lineage: lineage.rows,
@@ -854,7 +854,7 @@ startService({
         reply.header("content-disposition", `attachment; filename=${dataset}.csv`);
         return csvDocument(rows as Record<string, unknown>[]);
       }
-      reply.header("content-disposition", `attachment; filename=agmath-${p.tenantId}.json`);
+      reply.header("content-disposition", `attachment; filename=mathpilot-${p.tenantId}.json`);
       return data;
     });
   },

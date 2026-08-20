@@ -17,7 +17,7 @@
         in
         {
           default = pkgs.mkShell {
-            name = "agmath-dev";
+            name = "mathpilot-dev";
 
             # 基础工具。需要新工具或库时，可以自行在此按需添加，
             # 例如 `pkgs.ripgrep`、`pkgs.python312`、`pkgs.nodejs`，

@@ -6,7 +6,7 @@ import test from "node:test";
 import { gunzipSync } from "node:zlib";
 
 test("Session Capsule audits evidence and compacts only the selected lifecycle", async () => {
-  const temporary = await mkdtemp(path.join(tmpdir(), "agmath-workspace-lifecycle-"));
+  const temporary = await mkdtemp(path.join(tmpdir(), "mathpilot-workspace-lifecycle-"));
   process.env.WORKSPACE_ROOT = path.join(temporary, "workspaces");
   process.env.CONTENT_ARTIFACT_ROOT = path.join(temporary, "content-artifacts");
   process.env.PI_SESSION_ROOT = path.join(temporary, "pi-sessions");

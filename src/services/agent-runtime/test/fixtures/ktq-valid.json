@@ -1,5 +1,5 @@
 {
-  "schema": "agmath.ktq-result/v1",
+  "schema": "mathpilot.ktq-result/v1",
   "questions": [{
     "source": {"path": "src/services/agent-runtime/test/fixtures/source.txt", "page": 1, "bbox": null},
     "stem_markdown": "已知三角形 ABC，求角 A。",

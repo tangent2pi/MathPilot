@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/review/teacher-correction/v1",
+  "$id": "https://schemas.mathpilot.dev/review/teacher-correction/v1",
   "title": "TeacherCorrection",
   "$description": "教师纠正事件（supersede/撤销），触发状态重放。written-by: review-service；read-by: profile-service（重放）、审计。禁止以追加高权重观测方式改判；旧对象保留但不再生效。对齐设计文档 §8.4。",
   "type": "object",
@@ -10,7 +10,7 @@
   ],
   "properties": {
     "correction_id": { "type": "string", "pattern": "^cor_[A-Za-z0-9]{8,}$" },
-    "tenant_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/TenantId" },
+    "tenant_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/TenantId" },
     "target_type": {
       "type": "string",
       "enum": ["state_observation", "answer_judgment", "diagnostic_claim", "content_field", "profile_update_decision"]
@@ -26,14 +26,14 @@
     },
     "replacement_value": {},
     "reason": { "type": "string", "minLength": 1 },
-    "reviewer_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/UserId" },
+    "reviewer_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/UserId" },
     "replay_status": {
       "type": "string",
       "enum": ["pending", "replaying", "replayed", "failed"],
       "default": "pending"
     },
     "replay_result_ref": { "type": "string" },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false
 }

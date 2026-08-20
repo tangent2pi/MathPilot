@@ -46,13 +46,13 @@ const PI_SESSION_ROOT = process.env.PI_SESSION_ROOT ?? path.resolve(".runtime/pi
 const BWRAP_BIN = process.env.BWRAP_BIN ?? "/usr/bin/bwrap";
 const SEARCH_MCP_COMMAND = process.env.SEARCH_MCP_COMMAND ?? "/usr/local/bin/qwen-mm-search-mcp";
 const CORE_MCP_COMMAND = process.env.CORE_MCP_COMMAND ?? "/usr/local/bin/qwen-mm-core-mcp";
-const PADDLEOCR_MCP_COMMAND = process.env.PADDLEOCR_MCP_COMMAND ?? "/usr/local/bin/agmath-paddleocr-mcp";
+const PADDLEOCR_MCP_COMMAND = process.env.PADDLEOCR_MCP_COMMAND ?? "/usr/local/bin/mathpilot-paddleocr-mcp";
 // Skill 的宿主路径、Bubblewrap 路径与 ResourceLoader 公布路径必须完全一致。
 // 不允许通过环境变量重新指向一个只在宿主可见的目录，否则模型会收到 Bash 无法访问的 <location>。
-const MATHPILOT_SKILL_ROOT = "/opt/agmath-skills";
+const MATHPILOT_SKILL_ROOT = "/opt/mathpilot-skills";
 const EDU_AGENT_SKILL_ROOT = path.join(MATHPILOT_SKILL_ROOT, "edu-agent");
 const AGENT_DB_MASTER_SECRET = process.env.AGENT_DB_MASTER_SECRET ?? "";
-const AGENT_DB_NAME = process.env.AGENT_DB_NAME ?? "agmath";
+const AGENT_DB_NAME = process.env.AGENT_DB_NAME ?? "mathpilot";
 const AGENT_DATABASE_URL = process.env.DATABASE_URL ?? "";
 const agentDatabasePool = AGENT_DATABASE_URL ? new pg.Pool({ connectionString: AGENT_DATABASE_URL, max: 2 }) : null;
 
@@ -276,11 +276,11 @@ function dbIdentity(taskType: TaskType, tenantId: string, scope: TaskRunOptions[
     scope: identityScope,
   });
   if (scope?.studentId) {
-    const user = `agmath_agent_${safe(tenantId)}_${safe(scope.studentId)}`;
+    const user = `mathpilot_agent_${safe(tenantId)}_${safe(scope.studentId)}`;
     return user.length <= 63 ? identity(user, `student:${scope.studentId}`) : null;
   }
   if (!scope?.actorId) return null;
-  const user = `agmath_agent_content_${safe(tenantId)}_${safe(scope.actorId)}`;
+  const user = `mathpilot_agent_content_${safe(tenantId)}_${safe(scope.actorId)}`;
   return user.length <= 63 ? identity(user, `content:${scope.actorId}:${taskType}`) : null;
 }
 
@@ -294,7 +294,7 @@ async function provisionDatabaseIdentity(
   if (!subject) throw new Error("database identity subject missing");
   const scopeKind = scope?.studentId ? "teaching" : "content";
   const result = await agentDatabasePool.query<{ role_name: string }>(
-    "select agmath_provision_agent_identity($1,$2,$3,$4)::text as role_name",
+    "select mathpilot_provision_agent_identity($1,$2,$3,$4)::text as role_name",
     [tenantId, scopeKind, subject, databaseIdentity.password],
   );
   if (result.rows[0]?.role_name !== databaseIdentity.user) {
@@ -342,12 +342,12 @@ function sandboxedBashCommand(
     if (existsSync(readable)) args.push("--ro-bind", readable, readable);
   }
   if (existsSync(MATHPILOT_SKILL_ROOT)) {
-    args.push("--ro-bind", MATHPILOT_SKILL_ROOT, "/opt/agmath-skills");
-    args.push("--setenv", "MATHPILOT_SKILL_ROOT", "/opt/agmath-skills");
+    args.push("--ro-bind", MATHPILOT_SKILL_ROOT, "/opt/mathpilot-skills");
+    args.push("--setenv", "MATHPILOT_SKILL_ROOT", "/opt/mathpilot-skills");
   }
-  if (databaseIdentity && existsSync("/var/run/agmath-db/.s.PGSQL.5432")) {
-    args.push("--ro-bind", "/var/run/agmath-db", "/var/run/agmath-db");
-    args.push("--setenv", "PGHOST", "/var/run/agmath-db");
+  if (databaseIdentity && existsSync("/var/run/mathpilot-db/.s.PGSQL.5432")) {
+    args.push("--ro-bind", "/var/run/mathpilot-db", "/var/run/mathpilot-db");
+    args.push("--setenv", "PGHOST", "/var/run/mathpilot-db");
     args.push("--setenv", "PGPORT", "5432");
     args.push("--setenv", "PGDATABASE", AGENT_DB_NAME);
     args.push("--setenv", "PGUSER", databaseIdentity.user);
@@ -432,7 +432,7 @@ export async function recoverLegacyKtqResult(tenantId: string, sessionRef: strin
   const workspaceRoot = workspacePath(tenantId, sessionRef);
   const source = resolveWorkspaceFile(workspaceRoot, sourceFile, "source_file");
   const raw = JSON.parse(await readFile(source, "utf8")) as Record<string, unknown>;
-  const result = { schema: "agmath.ktq-result/v1", ...raw };
+  const result = { schema: "mathpilot.ktq-result/v1", ...raw };
   const resultFile = path.join(workspaceRoot, "output", "ktq-result.recovered.json");
   const receiptFile = path.join(workspaceRoot, "output", "ktq-result.recovered.validation.json");
   await writeFile(resultFile, `${JSON.stringify(result, null, 2)}\n`, "utf8");
@@ -627,7 +627,7 @@ export async function runTask(
     const transcriptReferences = workspaceLifecycle === "terminal"
       ? await archivePiSessionTranscripts(opts.tenantId, opts.sessionRef, ws.root)
       : [];
-    // API/领域服务只获得不透明引用，绝不泄露 /var/lib/agmath 等宿主路径。
+    // API/领域服务只获得不透明引用，绝不泄露 /var/lib/mathpilot 等宿主路径。
     const retainedSessionFile = workspaceLifecycle === "terminal"
       ? transcriptReferences.at(-1)
       : (sessionFile ? `pi://session/${opts.sessionRef}` : undefined);

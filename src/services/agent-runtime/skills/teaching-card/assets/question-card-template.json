@@ -1,5 +1,5 @@
 {
-  "schema": "agmath.question-card/v1",
+  "schema": "mathpilot.question-card/v1",
   "card_id": "card_example",
   "prompt_markdown": "",
   "response_type": "free_text",

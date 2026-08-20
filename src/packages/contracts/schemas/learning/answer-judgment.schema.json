@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/learning/answer-judgment/v1",
+  "$id": "https://schemas.mathpilot.dev/learning/answer-judgment/v1",
   "title": "AnswerJudgment",
   "$description": "模型主判答结果。written-by: Teaching Agent（GRADE 状态）；read-by: learning-service、程序评价器、review-service、Dream。程序校验工具结果只作为 check_results 输入；模型必须解释采纳/不采纳。对齐设计文档 §12.1。",
   "type": "object",
@@ -11,8 +11,8 @@
   ],
   "properties": {
     "judgment_id": { "type": "string", "pattern": "^jud_[A-Za-z0-9]{8,}$" },
-    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
-    "attempt_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/AttemptId" },
+    "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
+    "attempt_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/AttemptId" },
     "verdict": {
       "type": "string",
       "enum": ["correct", "partially_correct", "incorrect", "unresolved"]
@@ -27,7 +27,7 @@
           "status": { "type": "string", "enum": ["met", "not_met", "unclear"] },
           "evidence_refs": {
             "type": "array",
-            "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/EvidenceRef" }
+            "items": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/EvidenceRef" }
           }
         },
         "additionalProperties": false
@@ -72,7 +72,7 @@
     "model_id": { "type": "string" },
     "prompt_version": { "type": "string" },
     "skill_version": { "type": "string" },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false
 }

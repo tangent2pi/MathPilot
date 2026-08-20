@@ -18,7 +18,7 @@ Use this Skill whenever an image, scan, PDF, Office document, photographed works
 If OCR is used, copy `assets/evidence-template.json` to `/workspace/output/ocr-evidence.json`, record the original and every retained derived file below `output/ocr-evidence/`, then run:
 
 ```sh
-python3 /opt/agmath-skills/ocr-routing/scripts/validate_evidence.py /workspace/output/ocr-evidence.json --workspace /workspace
+python3 /opt/mathpilot-skills/ocr-routing/scripts/validate_evidence.py /workspace/output/ocr-evidence.json --workspace /workspace
 ```
 
 External API use may incur cost. Use the smallest necessary file/region and report when OCR was actually invoked.

@@ -2,7 +2,7 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY . .
-RUN --mount=type=cache,id=agmath-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \
+RUN --mount=type=cache,id=mathpilot-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \
     corepack enable && corepack pnpm install --frozen-lockfile --ignore-scripts && \
     corepack pnpm rebuild esbuild && corepack pnpm --filter @mathpilot/web build
 

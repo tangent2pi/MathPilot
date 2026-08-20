@@ -8,9 +8,9 @@ import pg from "pg";
 import type { IncomingHttpHeaders } from "node:http";
 import { withTenant, newId } from "./lib.ts";
 
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath";
+const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot";
 const AUTH_BASE_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:8080";
-const AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "agmath-dev-secret-change-me-at-least-32-characters";
+const AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "mathpilot-dev-secret-change-me-at-least-32-characters";
 const DEV_TENANT = process.env.DEV_TENANT_ID ?? "tnt_dev00001";
 const trustedOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? AUTH_BASE_URL)
   .split(",").map((s) => s.trim()).filter(Boolean);
@@ -57,7 +57,7 @@ export const auth = betterAuth({
     cookieCache: { enabled: true, maxAge: 5 * 60 },
   },
   advanced: {
-    cookiePrefix: "agmath",
+    cookiePrefix: "mathpilot",
     useSecureCookies: (process.env.BETTER_AUTH_SECURE_COOKIES ?? (process.env.NODE_ENV === "production" ? "true" : "false")) === "true",
     // 只读取由同源反向代理覆盖写入的地址头。生产部署不得把 API 端口直接暴露给终端用户。
     ipAddress: { ipAddressHeaders },

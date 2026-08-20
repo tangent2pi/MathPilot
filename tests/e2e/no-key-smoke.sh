@@ -10,7 +10,7 @@ set -eu
 API="${API:-http://localhost:8080/api}"
 TENANT="tnt_dev00001"
 FAIL=0
-COOKIE_DIR=$(mktemp -d /tmp/agmath-no-key.XXXXXX)
+COOKIE_DIR=$(mktemp -d /tmp/mathpilot-no-key.XXXXXX)
 trap 'rm -rf -- "$COOKIE_DIR"' EXIT
 STUDENT_COOKIE="$COOKIE_DIR/student.cookie"
 TEACHER_COOKIE="$COOKIE_DIR/teacher.cookie"

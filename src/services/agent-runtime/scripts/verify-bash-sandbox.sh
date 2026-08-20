@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-smoke_root=$(mktemp -d /tmp/agmath-sandbox-smoke.XXXXXX)
+smoke_root=$(mktemp -d /tmp/mathpilot-sandbox-smoke.XXXXXX)
 trap 'rm -rf "$smoke_root"' EXIT INT TERM
 chmod 0711 "$smoke_root"
 
@@ -34,7 +34,7 @@ setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs \
     test "$(env | wc -l)" -eq 4
     env | awk -F= "\$1 != \"HOME\" && \$1 != \"LANG\" && \$1 != \"PATH\" && \$1 != \"PWD\" { exit 1 }"
     test ! -e /app
-    test ! -e /var/lib/agmath
+    test ! -e /var/lib/mathpilot
     rg -q needle /workspace/input/data.txt
     ! touch /workspace/input/denied 2>/dev/null
     printf ok > /workspace/output/result.txt

@@ -18,7 +18,7 @@ This Skill owns E/R only. The frozen KTQ result in `/workspace/input/frozen/` is
 5. Validate the exact result:
 
    ```sh
-   python3 /opt/agmath-skills/er-research/scripts/validate.py \
+   python3 /opt/mathpilot-skills/er-research/scripts/validate.py \
      /workspace/output/er-result.json \
      --frozen /workspace/input/frozen/ktq.json \
      --receipt /workspace/output/er-result.validation.json

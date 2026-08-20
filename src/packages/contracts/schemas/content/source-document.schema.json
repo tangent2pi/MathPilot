@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/content/source-document/v1",
+  "$id": "https://schemas.mathpilot.dev/content/source-document/v1",
   "title": "SourceDocument & SourceFragment",
   "$description": "教师上传原件及其可引用最小片段。written-by: content-service；read-by: content-service、OCR provider、KTQ/ER session、血缘导出。原件字节在对象存储，元数据与哈希在 PostgreSQL。",
   "type": "object",
   "required": ["document_id", "tenant_id", "kind", "original_hash", "storage_ref", "uploaded_by", "uploaded_at"],
   "properties": {
     "document_id": { "type": "string", "pattern": "^doc_[A-Za-z0-9]{8,}$" },
-    "tenant_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/TenantId" },
+    "tenant_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/TenantId" },
     "kind": {
       "type": "string",
       "enum": ["pdf", "handout", "exercise_set", "error_summary", "web_page"]
@@ -19,14 +19,14 @@
     },
     "mime_type": { "type": "string" },
     "byte_size": { "type": "integer", "minimum": 1 },
-    "uploaded_by": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/UserId" },
-    "uploaded_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
+    "uploaded_by": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/UserId" },
+    "uploaded_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" },
     "ocr_status": {
       "type": "string",
       "enum": ["pending", "parsed", "failed"],
       "default": "pending"
     },
-    "ocr_provider_trace": { "$ref": "https://schemas.agmath.dev/providers/provider-trace/v1" },
+    "ocr_provider_trace": { "$ref": "https://schemas.mathpilot.dev/providers/provider-trace/v1" },
     "fragments": {
       "type": "array",
       "items": { "$ref": "#/$defs/SourceFragment" }

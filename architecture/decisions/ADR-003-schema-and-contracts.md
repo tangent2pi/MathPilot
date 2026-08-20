@@ -12,7 +12,7 @@
 
 1. **JSON Schema (draft 2020-12) 是唯一契约源**：
    - 目录 `packages/contracts/schemas/<group>/<name>.schema.json`；
-   - `$id` 必须是合法 URI，形如 `https://schemas.agmath.dev/<group>/<name>/v<major>`（跨 schema `$ref` 依赖 URI 解析；裸标识符无法被 referencing/Ajv 解析）；
+   - `$id` 必须是合法 URI，形如 `https://schemas.mathpilot.dev/<group>/<name>/v<major>`（跨 schema `$ref` 依赖 URI 解析；裸标识符无法被 referencing/Ajv 解析）；
    - 校验使用本 schema 文件（禁止复制式漂移）；
    - 每个 schema 必须配 `*.examples.json`：`valid`、`missing_field`、`invalid_source` 三类样例；
    - 每个 schema 的 `$description` 内注明生产者与消费者，written-by 与 read-by 清单不得只存在于 ADR。

@@ -1,6 +1,6 @@
 {
   "valid": {
-    "schema": "agmath.learning-artifact/v1",
+    "schema": "mathpilot.learning-artifact/v1",
     "artifact_id": "art_a1s2d3f4",
     "session_id": "s_m3n4b5v6",
     "kind": "question_card",
@@ -15,12 +15,12 @@
     "generator": { "provider": "teaching_agent", "model_id": "qwen3.8-max-preview", "prompt_version": "teach@2026-08-17" }
   },
   "missing_field": {
-    "schema": "agmath.learning-artifact/v1",
+    "schema": "mathpilot.learning-artifact/v1",
     "artifact_id": "art_a1s2d3f4",
     "kind": "question_card"
   },
   "invalid_source": {
-    "schema": "agmath.learning-artifact/v1",
+    "schema": "mathpilot.learning-artifact/v1",
     "artifact_id": "art_a1s2d3f4",
     "session_id": "s_m3n4b5v6",
     "kind": "knowledge_visualization",

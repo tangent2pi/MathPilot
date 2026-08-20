@@ -1,4 +1,4 @@
-name: mathpilot-dev
+name: ${COMPOSE_PROJECT_NAME:-mathpilot}
 
 services:
   postgres:
@@ -39,16 +39,18 @@ services:
       - ./bootstrap.sql:/seed.sql:ro
     environment:
       AGENT_DB_MASTER_SECRET: ${AGENT_DB_MASTER_SECRET:-mathpilot-agent-dev-master-change-me}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-mathpilot-app-dev-only}
     command:
       - sh
       - -ce
       - |
-        content_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:agmath_agent_content_tnt_dev00001" | sha256sum | cut -d' ' -f1)
-        student01_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:agmath_agent_tnt_dev00001_usr_student01" | sha256sum | cut -d' ' -f1)
-        student02_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:agmath_agent_tnt_dev00001_usr_student02" | sha256sum | cut -d' ' -f1)
-        student03_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:agmath_agent_tnt_dev00001_usr_student03" | sha256sum | cut -d' ' -f1)
+        content_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:mathpilot_agent_content_tnt_dev00001" | sha256sum | cut -d' ' -f1)
+        student01_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:mathpilot_agent_tnt_dev00001_usr_student01" | sha256sum | cut -d' ' -f1)
+        student02_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:mathpilot_agent_tnt_dev00001_usr_student02" | sha256sum | cut -d' ' -f1)
+        student03_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:mathpilot_agent_tnt_dev00001_usr_student03" | sha256sum | cut -d' ' -f1)
         psql "host=postgres user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}" \
           -v ON_ERROR_STOP=1 -q \
+          -v app_password="$${APP_DB_PASSWORD}" \
           -v content_password="$$content_password" -v student01_password="$$student01_password" \
           -v student02_password="$$student02_password" -v student03_password="$$student03_password" \
           -f /seed.sql
@@ -76,7 +78,7 @@ services:
       dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: learning }
     environment:
-      DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
+      DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       AGENT_RUNTIME_URL: http://agent-runtime:3005
       CONTENT_URL: http://content:3006
       PROFILE_URL: http://profile:3003
@@ -97,7 +99,7 @@ services:
       dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: profile }
     environment:
-      DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
+      DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       AGENT_RUNTIME_URL: http://agent-runtime:3005
       REVIEW_URL: http://review:3008
       PYBKT_STATE_DIR: /app/sidecars/pybkt/state
@@ -126,7 +128,7 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETUID, SETGID]
     environment:
-      DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
+      DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       # 模型供应商凭据只进入本服务（Pi 宿主）；沙箱/前端不持有（设计 §4.4）
       MODEL_API_BASE: ${MODEL_API_BASE:-https://api.scnet.cn/api/llm/v1}
       MODEL_API_KEY: ${MODEL_API_KEY:-}
@@ -134,10 +136,10 @@ services:
       MODEL_ID_AUX: ${MODEL_ID_AUX:-DeepSeek-V4-Flash-0731}
       # 每个沙箱只拿租户/学生绑定的只读 PostgreSQL 身份，经 Unix socket 连接。
       AGENT_DB_MASTER_SECRET: ${AGENT_DB_MASTER_SECRET:-mathpilot-agent-dev-master-change-me}
-      AGENT_DB_NAME: agmath
-      WORKSPACE_ROOT: /var/lib/agmath/workspaces
-      PI_SESSION_ROOT: /var/lib/agmath/pi-sessions
-      CONTENT_ARTIFACT_ROOT: /var/lib/agmath/content-artifacts
+      AGENT_DB_NAME: mathpilot
+      WORKSPACE_ROOT: /var/lib/mathpilot/workspaces
+      PI_SESSION_ROOT: /var/lib/mathpilot/pi-sessions
+      CONTENT_ARTIFACT_ROOT: /var/lib/mathpilot/content-artifacts
       # Qwen-MM-Plugins/search：文本搜索按 Serper → Tavily → Exa 自动选择。
       # 凭据只进入 agent-runtime 的宿主侧 MCP 子进程，Bash 沙箱不可见。
       SERPER_API_KEY: ${SERPER_API_KEY:-}
@@ -153,9 +155,9 @@ services:
       PADDLEOCR_MCP_AISTUDIO_POLL_TIMEOUT: "600"
       PORT: "3005"
     volumes:
-      - agent_workspaces:/var/lib/agmath/workspaces
-      - pi_sessions:/var/lib/agmath/pi-sessions
-      - content_artifacts:/var/lib/agmath/content-artifacts:ro
+      - agent_workspaces:/var/lib/mathpilot/workspaces
+      - pi_sessions:/var/lib/mathpilot/pi-sessions
+      - content_artifacts:/var/lib/mathpilot/content-artifacts:ro
     depends_on:
       db-seed:
         condition: service_completed_successfully
@@ -168,17 +170,17 @@ services:
       dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: content }
     environment:
-      DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
+      DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       REVIEW_URL: http://review:3008
       AGENT_RUNTIME_URL: http://agent-runtime:3005  # KTQ/ER 抽取经 Pi
       # OCR 供应商凭据由本服务（宿主侧）持有（providers/ocr 实现）
       OCR_API_BASE: ${OCR_API_BASE:-https://paddleocr.aistudio-app.com}
       OCR_API_TOKEN: ${OCR_API_TOKEN:-}
       OCR_MODEL: ${OCR_MODEL:-PaddleOCR-VL-1.6}
-      CONTENT_ARTIFACT_ROOT: /var/lib/agmath/content-artifacts
+      CONTENT_ARTIFACT_ROOT: /var/lib/mathpilot/content-artifacts
       PORT: "3006"
     volumes:
-      - content_artifacts:/var/lib/agmath/content-artifacts
+      - content_artifacts:/var/lib/mathpilot/content-artifacts
     depends_on:
       db-seed:
         condition: service_completed_successfully
@@ -193,7 +195,7 @@ services:
       dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: review }
     environment:
-      DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
+      DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
     depends_on:
       db-seed:
         condition: service_completed_successfully
@@ -205,7 +207,7 @@ services:
     depends_on:
       - api
     ports:
-      - "8080:80"
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:80"
 
   api:
     build:
@@ -218,7 +220,7 @@ services:
       CONTENT_URL: http://content:3006
       REVIEW_URL: http://review:3008
       AGENT_RUNTIME_URL: http://agent-runtime:3005
-      DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
+      DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8080}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-mathpilot-dev-secret-change-me-at-least-32-characters}
       BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}

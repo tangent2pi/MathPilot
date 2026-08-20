@@ -23,11 +23,11 @@ src/packages/contracts/
 
 ## 规则
 
-1. `$id` 使用合法 URI `https://schemas.agmath.dev/<group>/<name>/v<major>`；对每个 major 版本不可变。业务协议标识（如 `agmath.learning-artifact/v1`、`agmath.question-card/v1` 的 const 值）保持设计文档原命名，不是 `$id`。
+1. `$id` 使用合法 URI `https://schemas.mathpilot.dev/<group>/<name>/v<major>`；对每个 major 版本不可变。业务协议标识（如 `mathpilot.learning-artifact/v1`、`mathpilot.question-card/v1` 的 const 值）保持设计文档原命名，不是 `$id`。
 2. 每个 schema 必须：
    - `$description` 注明生产者（written-by）与消费者（read-by）；
    - 同目录 `*.examples.json` 含 `valid` / `missing_field` / `invalid_source` 三组样例；
-   - 需要跨模块引用时用 `$ref` 指向 `agmath.common/…`，禁止复制字段。
+   - 需要跨模块引用时用 `$ref` 指向 `mathpilot.common/…`，禁止复制字段。
 3. 所有样例与 schema 的校验测试位于 `src/packages/contracts/test/`，`pnpm contracts:validate` 必须全绿。
 4. OpenAPI / ui-sdk 生成类型（设计 §2.4 `packages/ui-sdk`）在阶段 B 从本目录生成，禁止手写生成物（ADR-003）。
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/profile/session-learning-record/v1",
+  "$id": "https://schemas.mathpilot.dev/profile/session-learning-record/v1",
   "title": "SessionLearningRecord (SLR)",
   "$description": "SER+TSS 成对封装，Dream 队列唯一入口。written-by: profile-service；read-by: Dream Context Compiler、审计。完整性约束：session_id 一致、互相引用存在；缺失任一项不得入队。对齐设计文档 §11.2。",
   "type": "object",
@@ -11,10 +11,10 @@
   ],
   "properties": {
     "record_id": { "type": "string", "pattern": "^slr_[A-Za-z0-9]{8,}$" },
-    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
-    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
-    "scientific_evaluation_report_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ReportId" },
-    "teaching_session_summary_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SummaryId" },
+    "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/StudentId" },
+    "scientific_evaluation_report_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ReportId" },
+    "teaching_session_summary_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SummaryId" },
     "integrity_check": {
       "type": "object",
       "required": ["session_id_match", "cross_refs_present", "provenance_complete", "passed"],
@@ -27,7 +27,7 @@
       "additionalProperties": false
     },
     "handoff_ref": { "type": "string", "description": "下一题短期 handoff 存储键" },
-    "dream_queued_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
+    "dream_queued_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" },
     "supersedes": {
       "type": ["string", "null"],
       "description": "教师纠正重放产生的修订记录指向被取代的旧 record_id；原始记录为 null"
@@ -36,7 +36,7 @@
       "type": "string",
       "description": "修订原因（如 teacher_correction:<correction_id>）；仅修订记录携带"
     },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false
 }

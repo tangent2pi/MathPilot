@@ -2,7 +2,7 @@
 -- 普通业务查询仍受 RLS 约束；跨租户扫描只通过此无参数、只读的服务函数开放。
 begin;
 
-create or replace function agmath_pending_content_pipelines()
+create or replace function mathpilot_pending_content_pipelines()
 returns table (
   run_id text,
   tenant_id text,
@@ -23,7 +23,7 @@ as $$
    order by p.created_at
 $$;
 
-revoke all on function agmath_pending_content_pipelines() from public;
+revoke all on function mathpilot_pending_content_pipelines() from public;
 
 insert into infra_schema_migration(version) values ('0016_content_pipeline_resume');
 commit;

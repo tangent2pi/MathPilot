@@ -29,7 +29,7 @@ export function createPool(connectionString: string): pg.Pool {
 
 /**
  * 在事务内激活 RLS 租户上下文后执行 fn。
- * 连接必须使用最小权限账号（agmath_app），RLS 才对非 owner 生效（设计 §16.1）。
+ * 连接必须使用最小权限账号（mathpilot_app），RLS 才对非 owner 生效（设计 §16.1）。
  */
 export async function withTenant<T>(
   pool: pg.Pool,

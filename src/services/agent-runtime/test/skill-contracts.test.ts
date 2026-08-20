@@ -38,7 +38,7 @@ test("every production skill has metadata, a template, and a validator", () => {
       }
     }
     const runtimeSkills = new Set(["core", "database", "edu-agent", "er-research", "ktq-extraction", "ocr-routing", "search", "teaching-artifact-adapter", "teaching-card"]);
-    for (const match of instructions.matchAll(/\/opt\/agmath-skills\/([^/\s]+)/g)) {
+    for (const match of instructions.matchAll(/\/opt\/mathpilot-skills\/([^/\s]+)/g)) {
       assert.ok(runtimeSkills.has(match[1]!), `${name} contains a stale runtime skill path: ${match[1]}`);
     }
   }
@@ -49,7 +49,7 @@ test("the staged runtime has one complete nine-skill tree", () => {
   const revision = spawnSync("git", ["-C", qwenUpstream, "rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
   assert.equal(revision.status, 0, revision.stderr);
   assert.equal(revision.stdout.trim(), expectedRevision, "local Qwen-MM-Plugins checkout does not match the pinned build input");
-  const temporary = mkdtempSync(path.join(tmpdir(), "agmath-staged-skills-"));
+  const temporary = mkdtempSync(path.join(tmpdir(), "mathpilot-staged-skills-"));
   const stage = spawnSync("sh", [path.join(root, "src/services/agent-runtime/scripts/stage-skills.sh"), temporary, qwenUpstream], {
     cwd: root, encoding: "utf8",
   });
@@ -76,7 +76,7 @@ test("the staged runtime has one complete nine-skill tree", () => {
 });
 
 test("skill validators accept valid fixtures and reject unsafe or malformed output", () => {
-  const temporary = mkdtempSync(path.join(tmpdir(), "agmath-skill-contracts-"));
+  const temporary = mkdtempSync(path.join(tmpdir(), "mathpilot-skill-contracts-"));
   python("database/scripts/validate_query.py", [path.join(skills, "database/assets/query-template.sql")]);
   python("ocr-routing/scripts/validate_evidence.py", [path.join(fixtures, "ocr-evidence-valid.json"), "--workspace", root]);
   python("teaching-card/scripts/validate_card.py", [path.join(fixtures, "card-valid.json")]);
@@ -90,8 +90,8 @@ test("skill validators accept valid fixtures and reject unsafe or malformed outp
     return file;
   };
   python("database/scripts/validate_query.py", [write("write.sql", "delete from content_question")], 1);
-  python("ocr-routing/scripts/validate_evidence.py", [write("ocr.json", { schema: "agmath.ocr-evidence/v1", original: "missing", ocr_used: true, reason: "test", derived_files: [], verified_against_original: false }), "--workspace", temporary], 1);
-  python("teaching-card/scripts/validate_card.py", [write("card.json", { schema: "agmath.question-card/v1", card_id: "bad", prompt_markdown: "?", response_type: "free_text", allow_skip: true, allow_free_text: true, score: 1 })], 1);
+  python("ocr-routing/scripts/validate_evidence.py", [write("ocr.json", { schema: "mathpilot.ocr-evidence/v1", original: "missing", ocr_used: true, reason: "test", derived_files: [], verified_against_original: false }), "--workspace", temporary], 1);
+  python("teaching-card/scripts/validate_card.py", [write("card.json", { schema: "mathpilot.question-card/v1", card_id: "bad", prompt_markdown: "?", response_type: "free_text", allow_skip: true, allow_free_text: true, score: 1 })], 1);
   python("teaching-artifact-adapter/scripts/validate_artifact.py", [write("not-a-directory.json", {})], 1);
   python("ktq-extraction/scripts/validate.py", [write("ktq.json", { schema: "wrong", questions: [] }), "--workspace", temporary, "--receipt", path.join(temporary, "bad-ktq.receipt")], 1);
   python("er-research/scripts/validate.py", [write("er.json", { schema: "wrong", error_causes: [], diagnosis_rules: [] }), "--frozen", path.join(fixtures, "frozen-ktq.json"), "--receipt", path.join(temporary, "bad-er.receipt")], 1);

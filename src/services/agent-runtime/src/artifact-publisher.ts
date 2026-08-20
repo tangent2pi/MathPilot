@@ -107,7 +107,7 @@ function validateResponsePolicy(policy: ArtifactManifest["response_policy"]): vo
 
 function validateQuestionCard(raw: string, artifactId: string): void {
   const card = JSON.parse(raw) as Record<string, unknown>;
-  if (card.schema !== "agmath.question-card/v1" || card.artifact_id !== artifactId) throw new Error("invalid question card identity");
+  if (card.schema !== "mathpilot.question-card/v1" || card.artifact_id !== artifactId) throw new Error("invalid question card identity");
   if (typeof card.card_id !== "string" || !/^card_[A-Za-z0-9]+$/.test(card.card_id)) throw new Error("invalid question card id");
   if (!["single_choice", "multiple_choice", "fill_blank", "true_false"].includes(String(card.type))) throw new Error("invalid question card type");
   if (typeof card.prompt !== "string" || !card.prompt.trim()) throw new Error("question card prompt required");
@@ -145,7 +145,7 @@ export async function publishWorkspaceArtifacts(workspaceRoot: string, sessionRe
     if (!sourceReal.startsWith(`${candidatesReal}${path.sep}`)) throw new Error("artifact directory escapes output root");
     const rawManifest = await readFile(path.join(source, "manifest.json"), "utf8");
     const manifest = JSON.parse(rawManifest) as ArtifactManifest;
-    if (manifest.schema !== "agmath.learning-artifact/v1" || manifest.artifact_id !== entry.name || manifest.session_id !== sessionRef) throw new Error(`invalid artifact manifest identity: ${entry.name}`);
+    if (manifest.schema !== "mathpilot.learning-artifact/v1" || manifest.artifact_id !== entry.name || manifest.session_id !== sessionRef) throw new Error(`invalid artifact manifest identity: ${entry.name}`);
     if (!manifest.kind || !ALLOWED_KINDS.has(manifest.kind)) throw new Error(`invalid artifact kind: ${entry.name}`);
     if (!manifest.renderer || !ALLOWED_RENDERERS.has(manifest.renderer)) throw new Error(`invalid artifact renderer: ${entry.name}`);
     if (!manifest.title || manifest.title.length > 160) throw new Error(`invalid artifact title: ${entry.name}`);

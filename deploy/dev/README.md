@@ -10,9 +10,12 @@ cp .env.example .env        # 按需修改
 docker compose up -d
 ```
 
+默认 Web 只监听 `127.0.0.1:8080`。远端部署时在 `.env` 中把
+`WEB_BIND_ADDRESS` 设置为反向代理可达的专用地址；数据库和内部服务仍不对外暴露。
+
 `references/qwen-mm-plugins` 是构建输入，不在镜像构建时联网下载另一份源码。Agent Runtime
 从该固定提交安装 Core/Search，并把上游 Core、Search、Edu Agent 与数学智元的六个产品
-Skill 装配为唯一的 `/opt/agmath-skills`。本地克隆提交与固定 revision 不一致时，装配测试会失败。
+Skill 装配为唯一的 `/opt/mathpilot-skills`。本地克隆提交与固定 revision 不一致时，装配测试会失败。
 
 ## 当前覆盖
 

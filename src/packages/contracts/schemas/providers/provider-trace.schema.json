@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/providers/provider-trace/v1",
+  "$id": "https://schemas.mathpilot.dev/providers/provider-trace/v1",
   "title": "ProviderTrace",
   "$description": "所有 Provider 调用的统一追踪记录（任何 Provider 实现都必须产生同构字段）。written-by: agent-runtime（Pi 宿主）及各 Provider 实现；read-by: 审计、成本核算、评测。对齐实施规划 §4：回退必须显式记录实际实现，禁止静默改变结论来源。",
   "type": "object",
@@ -10,8 +10,8 @@
   ],
   "properties": {
     "trace_id": { "type": "string", "pattern": "^ptr_[A-Za-z0-9]{8,}$" },
-    "correlation_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/CorrelationId" },
-    "causation_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/CausationId" },
+    "correlation_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/CorrelationId" },
+    "causation_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/CausationId" },
     "provider_kind": {
       "type": "string",
       "enum": ["model", "ocr", "search", "media", "explanation", "artifact", "sandbox", "auth"]
@@ -51,7 +51,7 @@
     },
     "request_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "response_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false
 }

@@ -1,6 +1,6 @@
 /**
  * ExplanationRenderer：普通/交互 HTML、视频讲解渲染（设计 §4.2、§13）。
- * edu-agent 是候选实现；输出遵循 agmath.learning-artifact/v1，由 ArtifactPublisher 发布。
+ * edu-agent 是候选实现；输出遵循 mathpilot.learning-artifact/v1，由 ArtifactPublisher 发布。
  */
 import type { ProviderRequestBase, ProviderResult } from "../errors.js";
 

@@ -24,7 +24,7 @@ import {
   type PudPayload,
 } from "./validator.ts";
 
-const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
+const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
 /** 模型调用统一经 agent-runtime（Pi 宿主）；本服务不直连任何模型供应商 */
 const AGENT_RUNTIME_URL = process.env.AGENT_RUNTIME_URL ?? "http://localhost:3005";
 const REVIEW_URL = process.env.REVIEW_URL ?? "http://localhost:3008";

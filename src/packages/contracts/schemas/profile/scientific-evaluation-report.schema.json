@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/profile/scientific-evaluation-report/v1",
+  "$id": "https://schemas.mathpilot.dev/profile/scientific-evaluation-report/v1",
   "title": "ScientificEvaluationReport (SER)",
   "$description": "教学阶段传统程序评价基准。written-by: 确定性程序评价器（packages/mastery）；read-by: Teaching Agent（追问/总结参考）、Dream、review-service。禁止写 StudentSnapshot，禁止产出最终掌握结论。对齐设计文档 §9.2。",
   "type": "object",
@@ -11,11 +11,11 @@
     "calculation_trace_ref", "created_at"
   ],
   "properties": {
-    "report_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ReportId" },
-    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
-    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
-    "prior_snapshot_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SnapshotId" },
-    "dimension_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
+    "report_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ReportId" },
+    "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/StudentId" },
+    "prior_snapshot_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SnapshotId" },
+    "dimension_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/DimensionId" },
     "p_bkt_baseline": { "type": "number", "minimum": 0, "maximum": 1 },
     "retention_estimate": {
       "type": "object",
@@ -42,7 +42,7 @@
         "type": "object",
         "required": ["error_cause_id", "state"],
         "properties": {
-          "error_cause_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
+          "error_cause_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/DimensionId" },
           "state": { "type": "string", "enum": ["suspected", "confirmed", "improving", "resolved", "superseded"] }
         },
         "additionalProperties": false
@@ -62,7 +62,7 @@
     },
     "calculation_trace_ref": { "type": "string" },
     "kernel_version": { "type": "string" },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false
 }

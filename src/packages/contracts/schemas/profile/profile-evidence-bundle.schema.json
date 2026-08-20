@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/profile/profile-evidence-bundle/v1",
+  "$id": "https://schemas.mathpilot.dev/profile/profile-evidence-bundle/v1",
   "title": "ProfileEvidenceBundle",
   "$description": "Dream Context Compiler 输出。written-by: profile-service；read-by: Dream/Profile Update Agent。不得包含 Teaching Agent 隐藏推理或模型历史；原始 Session 内容只以授权索引形式提供，按需展开。对齐设计文档 §11.3、实施规划 §7.3。",
   "type": "object",
@@ -10,13 +10,13 @@
   ],
   "properties": {
     "bundle_id": { "type": "string", "pattern": "^peb_[A-Za-z0-9]{8,}$" },
-    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/StudentId" },
     "window": {
       "type": "object",
       "required": ["from", "to", "trigger"],
       "properties": {
-        "from": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
-        "to": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
+        "from": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" },
+        "to": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" },
         "trigger": {
           "type": "string",
           "enum": ["end_of_day", "session_count_threshold", "contradiction_detected", "teacher_request", "summary_overflow"]
@@ -26,7 +26,7 @@
     },
     "prior_snapshot_id": {
       "anyOf": [
-        { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SnapshotId" },
+        { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SnapshotId" },
         { "type": "null" }
       ],
       "description": "首次画像更新前无快照，显式 null"
@@ -39,9 +39,9 @@
         "required": ["record_id", "session_id", "ser_id", "tss_id"],
         "properties": {
           "record_id": { "type": "string" },
-          "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
-          "ser_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ReportId" },
-          "tss_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SummaryId" }
+          "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
+          "ser_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ReportId" },
+          "tss_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SummaryId" }
         },
         "additionalProperties": false
       }
@@ -54,7 +54,7 @@
         "properties": {
           "ref": { "type": "string" },
           "kind": { "type": "string", "enum": ["question", "answer", "chat_turn", "draft_segment", "artifact_interaction", "judgment", "observation", "teacher_correction"] },
-          "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+          "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
           "expandable": { "type": "boolean", "description": "true 时 Dream 可按需拉取过滤后投影" }
         },
         "additionalProperties": false
@@ -69,13 +69,13 @@
       "type": "object",
       "required": ["tenant_id", "redactions"],
       "properties": {
-        "tenant_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/TenantId" },
+        "tenant_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/TenantId" },
         "redactions": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },
     "truncation_notes": { "type": "array", "items": { "type": "string" } },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false
 }

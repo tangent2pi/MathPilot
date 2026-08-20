@@ -1,5 +1,5 @@
 {
-  "schema": "agmath.learning-artifact/v1",
+  "schema": "mathpilot.learning-artifact/v1",
   "artifact_id": "art_example",
   "session_id": "session_example",
   "kind": "knowledge_visualization",

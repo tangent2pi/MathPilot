@@ -34,22 +34,22 @@ RUN if [ "$SERVICE_NAME" = "profile" ]; then \
 
 WORKDIR /app
 COPY . .
-RUN --mount=type=cache,id=agmath-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \
+RUN --mount=type=cache,id=mathpilot-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \
     corepack enable && \
     corepack pnpm install --frozen-lockfile --ignore-scripts && \
     corepack pnpm rebuild esbuild
 
 # pyBKT 侧车 venv（sidecars/pybkt/setup.sh：numpy<2 + scikit-learn<1.6 钉版 + EM_fit 补丁）
 # .venv 由 .dockerignore 排除（宿主 venv 与容器不兼容）；容器内新建并钉版安装。
-# Agent runtime 在 COPY 后把上游与产品 Skill 装配成唯一的 /opt/agmath-skills 树。
+# Agent runtime 在 COPY 后把上游与产品 Skill 装配成唯一的 /opt/mathpilot-skills 树。
 RUN if [ "$SERVICE_NAME" = "profile" ]; then \
       rm -rf sidecars/pybkt/.venv && \
       bash sidecars/pybkt/setup.sh; \
     elif [ "$SERVICE_NAME" = "agent-runtime" ]; then \
-      sh src/services/agent-runtime/scripts/stage-skills.sh /opt/agmath-skills /opt/qwen-mm-plugins-src && \
+      sh src/services/agent-runtime/scripts/stage-skills.sh /opt/mathpilot-skills /opt/qwen-mm-plugins-src && \
       install -m 0755 src/services/agent-runtime/qwen-mm-search-mcp.sh /usr/local/bin/qwen-mm-search-mcp && \
       install -m 0755 src/services/agent-runtime/qwen-mm-core-mcp.sh /usr/local/bin/qwen-mm-core-mcp && \
-      install -m 0755 src/services/agent-runtime/paddleocr-mcp.sh /usr/local/bin/agmath-paddleocr-mcp && \
-      install -m 0755 src/services/agent-runtime/agent-runtime-entrypoint.sh /usr/local/bin/agmath-agent-runtime-entrypoint; \
+      install -m 0755 src/services/agent-runtime/paddleocr-mcp.sh /usr/local/bin/mathpilot-paddleocr-mcp && \
+      install -m 0755 src/services/agent-runtime/agent-runtime-entrypoint.sh /usr/local/bin/mathpilot-agent-runtime-entrypoint; \
     fi
-CMD if [ "$SERVICE_NAME" = "agent-runtime" ]; then exec /usr/local/bin/agmath-agent-runtime-entrypoint; else exec corepack pnpm --filter @mathpilot/${SERVICE_NAME} run start; fi
+CMD if [ "$SERVICE_NAME" = "agent-runtime" ]; then exec /usr/local/bin/mathpilot-agent-runtime-entrypoint; else exec corepack pnpm --filter @mathpilot/${SERVICE_NAME} run start; fi

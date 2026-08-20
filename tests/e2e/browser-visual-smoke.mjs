@@ -21,7 +21,7 @@ const chrome = spawn("chromium", [
   // 容器内仍以产品配置的 localhost Origin 访问，由 Chromium 解析到宿主网关。
   "--host-resolver-rules=MAP localhost host.docker.internal",
   `--remote-debugging-port=${port}`, "--remote-debugging-address=127.0.0.1",
-  `--user-data-dir=/tmp/agmath-chromium-${process.pid}`,
+  `--user-data-dir=/tmp/mathpilot-chromium-${process.pid}`,
   `${origin}/login.html`,
 ], { stdio: ["ignore", "ignore", "pipe"] });
 
@@ -151,7 +151,7 @@ async function main() {
     const shot = await client.send("Page.captureScreenshot", {
       format: "png", captureBeyondViewport: true, fromSurface: true,
     });
-    await writeFile(`/tmp/agmath-${name}.png`, Buffer.from(shot.data, "base64"));
+    await writeFile(`/tmp/mathpilot-${name}.png`, Buffer.from(shot.data, "base64"));
     console.log(JSON.stringify({ name, ...metrics }));
   }
 
@@ -201,7 +201,7 @@ async function main() {
     throw new Error(`review content did not render: ${JSON.stringify(reviewDialog)}`);
   }
   const reviewShot = await client.send("Page.captureScreenshot", { format:"png", captureBeyondViewport:true, fromSurface:true });
-  await writeFile("/tmp/agmath-review-dialog-desktop.png", Buffer.from(reviewShot.data,"base64"));
+  await writeFile("/tmp/mathpilot-review-dialog-desktop.png", Buffer.from(reviewShot.data,"base64"));
   console.log(JSON.stringify({name:"review-dialog-desktop",images:reviewDialog.images.length,math:reviewDialog.math}));
   await evaluate(`document.querySelector('#reviewDialog .icon-button')?.click()`);
   await navigate("/content.html", 1440, 900, "content-desktop");

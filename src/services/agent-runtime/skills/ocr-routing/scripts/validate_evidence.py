@@ -3,7 +3,7 @@ import argparse,json
 from pathlib import Path
 ap=argparse.ArgumentParser(); ap.add_argument("evidence"); ap.add_argument("--workspace",default="/workspace"); a=ap.parse_args()
 w=Path(a.workspace).resolve(); d=json.loads(Path(a.evidence).read_text(encoding="utf-8")); errors=[]
-if d.get("schema")!="agmath.ocr-evidence/v1": errors.append("invalid schema")
+if d.get("schema")!="mathpilot.ocr-evidence/v1": errors.append("invalid schema")
 for field in ("original",):
     p=(w/d.get(field,"")).resolve()
     if w not in p.parents or not p.is_file(): errors.append(f"{field} missing or unsafe")

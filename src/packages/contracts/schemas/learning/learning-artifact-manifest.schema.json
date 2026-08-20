@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/learning/learning-artifact-manifest/v1",
-  "title": "LearningArtifact Manifest (agmath.learning-artifact/v1)",
+  "$id": "https://schemas.mathpilot.dev/learning/learning-artifact-manifest/v1",
+  "title": "LearningArtifact Manifest (mathpilot.learning-artifact/v1)",
   "$description": "ArtifactPublisher 发布前的 manifest 校验契约。written-by: Teaching Agent / edu-agent（写入 /workspace/output/artifacts/<id>/manifest.json）；read-by: artifact-service、前端。发布失败（越界路径/符号链接逃逸/危险 MIME/缺 manifest）必须拒绝。对齐设计文档 §5.4。",
   "type": "object",
   "required": ["schema", "artifact_id", "session_id", "kind", "renderer", "title", "entry", "files", "response_policy"],
   "properties": {
-    "schema": { "const": "agmath.learning-artifact/v1" },
-    "artifact_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ArtifactId" },
-    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+    "schema": { "const": "mathpilot.learning-artifact/v1" },
+    "artifact_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ArtifactId" },
+    "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
     "kind": {
       "type": "string",
       "enum": ["knowledge_visualization", "question_card", "mixed_lesson"]

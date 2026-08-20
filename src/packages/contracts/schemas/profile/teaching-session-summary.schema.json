@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/profile/teaching-session-summary/v1",
+  "$id": "https://schemas.mathpilot.dev/profile/teaching-session-summary/v1",
   "title": "TeachingSessionSummary (TSS)",
   "$description": "Teaching Agent 关闭 Session 时的简要总结。written-by: Teaching Agent；read-by: profile-service（封装 SLR）、Dream、review-service。禁止写长期画像字段（无 p_final/state_final）。对齐设计文档 §9.2。",
   "type": "object",
@@ -10,9 +10,9 @@
     "model_id", "prompt_version", "created_at"
   ],
   "properties": {
-    "summary_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SummaryId" },
-    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
-    "scientific_evaluation_ref": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ReportId" },
+    "summary_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SummaryId" },
+    "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
+    "scientific_evaluation_ref": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ReportId" },
     "summary": { "type": "string", "maxLength": 2000 },
     "method_observations": {
       "type": "array",
@@ -21,7 +21,7 @@
         "required": ["observation", "evidence_refs"],
         "properties": {
           "observation": { "type": "string" },
-          "evidence_refs": { "type": "array", "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/EvidenceRef" } }
+          "evidence_refs": { "type": "array", "items": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/EvidenceRef" } }
         },
         "additionalProperties": false
       }
@@ -32,9 +32,9 @@
         "type": "object",
         "required": ["error_cause_id", "supporting_refs"],
         "properties": {
-          "error_cause_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/DimensionId" },
-          "supporting_refs": { "type": "array", "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/EvidenceRef" } },
-          "counter_refs": { "type": "array", "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/EvidenceRef" } }
+          "error_cause_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/DimensionId" },
+          "supporting_refs": { "type": "array", "items": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/EvidenceRef" } },
+          "counter_refs": { "type": "array", "items": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/EvidenceRef" } }
         },
         "additionalProperties": false
       }
@@ -44,12 +44,12 @@
     "evidence_refs": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/EvidenceRef" }
+      "items": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/EvidenceRef" }
     },
     "model_id": { "type": "string" },
     "prompt_version": { "type": "string" },
     "skill_version": { "type": "string" },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false
 }

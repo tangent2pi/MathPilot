@@ -161,7 +161,7 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
   const [transitionMessages, setTransitionMessages] = useState<ChatMessage[]>([]);
   const [advanceStatus, setAdvanceStatus] = useState("");
   const [loadedDraftKey, setLoadedDraftKey] = useState("");
-  const draftKey = qid ? `agmath:practice-draft:${principal.user_id}:${assessmentRunId || "standalone"}:${qid}` : "";
+  const draftKey = qid ? `mathpilot:practice-draft:${principal.user_id}:${assessmentRunId || "standalone"}:${qid}` : "";
   const stillOnThisRoute = () => mounted.current && window.location.pathname === (askMode ? "/ask" : "/solve");
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const question = useQuery({ queryKey: ["question", qid], queryFn: () => apiFetch<Question>(`/api/questions/${encodeURIComponent(qid)}`), enabled: Boolean(qid), retry: false });

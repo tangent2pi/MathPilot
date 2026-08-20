@@ -1,6 +1,6 @@
 {
   "valid": {
-    "schema": "agmath.question-card/v1",
+    "schema": "mathpilot.question-card/v1",
     "artifact_id": "art_a1s2d3f4",
     "card_id": "card_1",
     "type": "true_false",
@@ -10,12 +10,12 @@
     "source_refs": ["question://Q_TRI_012", "chat://s_m3n4b5v6/turn/8"]
   },
   "missing_field": {
-    "schema": "agmath.question-card/v1",
+    "schema": "mathpilot.question-card/v1",
     "card_id": "card_1",
     "type": "single_choice"
   },
   "invalid_source": {
-    "schema": "agmath.question-card/v1",
+    "schema": "mathpilot.question-card/v1",
     "artifact_id": "art_a1s2d3f4",
     "card_id": "card_1",
     "type": "single_choice",

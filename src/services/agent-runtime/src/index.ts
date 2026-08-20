@@ -73,7 +73,7 @@ startService({
         webSearchImplementation: "Qwen-MM-Plugins/search via pi-mcp-adapter@2.26.1",
       },
       teachingSkill: "Qwen-MM-Plugins/edu-agent full local asset tree + MathPilot teaching-artifact-adapter; Hyperframes 0.8.3 + system Chromium/ffmpeg; Qwen API/TTS disabled",
-      artifacts: "agmath.learning-artifact/v1 validated immutable copy; authenticated sandboxed rendering",
+      artifacts: "mathpilot.learning-artifact/v1 validated immutable copy; authenticated sandboxed rendering",
       bashSandbox: "Bubblewrap: current workspace only; read-only root; output/tmp writable; PID/network isolated",
       sessionPersistence: "Pi JSONL + audited Session Capsule; completed terminal workspaces retain results/events/published artifacts and release input/tmp copies",
     }));

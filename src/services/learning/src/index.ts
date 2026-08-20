@@ -27,7 +27,7 @@ import { bktReplay, BKT_PRIOR_V1 } from "@mathpilot/mastery";
 import { initialI90Prior, updateI90Posterior, nextReviewDue } from "@mathpilot/mastery/retention";
 import { selectNext, type QuestionCandidate, type SelectorContext, type SelectionGoal } from "@mathpilot/selector";
 
-const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
+const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
 /** 模型调用统一经 agent-runtime（Pi 宿主）；本服务不直连任何模型供应商 */
 const AGENT_RUNTIME_URL = process.env.AGENT_RUNTIME_URL ?? "http://localhost:3005";
 const CONTENT_URL = process.env.CONTENT_URL ?? "http://localhost:3006";
@@ -409,7 +409,7 @@ async function runInteraction(args: {
  * 卡片只承载交互意图（提交/跳过/直接回复），不自行判答；跳过/直接回复不产生失败观测。
  */
 interface QuestionCard {
-  schema: "agmath.question-card/v1";
+  schema: "mathpilot.question-card/v1";
   artifact_id: string;
   card_id: string;
   type: "single_choice" | "multiple_choice" | "fill_blank" | "true_false";
@@ -422,7 +422,7 @@ interface QuestionCard {
 
 function buildProbeCard(sessionId: string, artifactId: string, probe: { question: string }): QuestionCard {
   return {
-    schema: "agmath.question-card/v1",
+    schema: "mathpilot.question-card/v1",
     artifact_id: artifactId,
     card_id: `card_${artifactId.replace(/^art_/, "").slice(0, 8)}`,
     type: "fill_blank",
@@ -1499,7 +1499,7 @@ startService({
             `insert into runtime_artifact_version (artifact_version_id, tenant_id, artifact_id, manifest, files_hash, storage_prefix)
              values ($1,$2,$3,$4,$5,$6)`,
             [newId("av"), tenantId, artifact.artifact_id,
-             JSON.stringify(artifact.manifest ?? { schema: "agmath.learning-artifact/v1", artifact_id: artifact.artifact_id, session_id: id, kind: artifact.artifact_kind, renderer: artifact.renderer, title: artifact.title, entry: artifact.entrypoint }),
+             JSON.stringify(artifact.manifest ?? { schema: "mathpilot.learning-artifact/v1", artifact_id: artifact.artifact_id, session_id: id, kind: artifact.artifact_kind, renderer: artifact.renderer, title: artifact.title, entry: artifact.entrypoint }),
              artifact.manifest_hash, `workspace://${id}/.agent/published/${artifact.artifact_id}`],
           );
         }

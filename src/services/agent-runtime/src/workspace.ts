@@ -58,7 +58,7 @@ interface InventoryEntry {
   retention: "audit" | "published" | "result" | "source_copy" | "temporary" | "candidate";
 }
 
-const WORKSPACE_MAP = `重要：Bash 沙箱中唯一有效的工作区根目录是 /workspace。即使 Session 元数据或 transcript 显示 /var/lib/agmath 等宿主路径，也绝不能在 Bash 中使用；一律写成 /workspace/... 或 ./...。
+const WORKSPACE_MAP = `重要：Bash 沙箱中唯一有效的工作区根目录是 /workspace。即使 Session 元数据或 transcript 显示 /var/lib/mathpilot 等宿主路径，也绝不能在 Bash 中使用；一律写成 /workspace/... 或 ./...。
 
 当前目录就是本 Session 的 /workspace：
 - ./AGENTS.md：任务纪律、工作区地图、输出契约
@@ -67,7 +67,7 @@ const WORKSPACE_MAP = `重要：Bash 沙箱中唯一有效的工作区根目录�
 - ./input/question|student|session/：按任务固化的题目、学生事实与会话引用，只读语义
 - PostgreSQL：按 database Skill 使用 psql/Python；PG* 已绑定本租户/学生的只读身份
 - ./task/runs/：本 Session 各轮任务上下文
-- /opt/agmath-skills/：全部标准能力 Skill；按任务目标自主读取 SKILL.md、模板与验证脚本
+- /opt/mathpilot-skills/：全部标准能力 Skill；按任务目标自主读取 SKILL.md、模板与验证脚本
 - ./output/：输出区（KTQ/ER 必须先写文件、运行 Skill 验证器，再由 respond 引用文件）
 - ./tmp/：临时区`;
 
@@ -117,7 +117,7 @@ export async function createWorkspace(
   for (const evidence of sessionEvidence) await materializeSessionEvidence(safeTenant, safeTask, root, evidence);
   await mkdir(path.join(root, ".agent", "capsule", "runs"), { recursive: true });
   const inputProvenance = {
-    schema: "agmath.workspace-inputs/v1",
+    schema: "mathpilot.workspace-inputs/v1",
     recorded_at: new Date().toISOString(),
     task_run: runName,
     artifacts: inputs.map((item) => ({ artifact_ref: item.artifactRef, workspace_path: `input/${item.workspacePath}` })),
@@ -280,7 +280,7 @@ export async function archivePiSessionTranscripts(
       throw err;
     }
     const record = {
-      schema: "agmath.pi-transcript-archive/v1",
+      schema: "mathpilot.pi-transcript-archive/v1",
       source_name: path.basename(source),
       archive: `.agent/capsule/transcripts/${archiveName}`,
       raw_byte_size: sourceInfo.size,
@@ -348,7 +348,7 @@ export async function finalizeWorkspaceRun(
   const runId = `${now.toISOString().replaceAll(":", "-")}-${crypto.randomUUID().slice(0, 8)}`;
   const manifestRelative = `.agent/capsule/runs/${runId}.json`;
   const manifest = {
-    schema: "agmath.session-capsule/v1",
+    schema: "mathpilot.session-capsule/v1",
     tenant_id: tenantId,
     session_ref: sessionRef,
     task_type: options.taskType,
@@ -370,7 +370,7 @@ export async function finalizeWorkspaceRun(
   }
   const retained = await inventoryFiles(rootReal);
   const state = {
-    schema: "agmath.session-capsule-state/v1",
+    schema: "mathpilot.session-capsule-state/v1",
     session_ref: sessionRef,
     status: options.status,
     lifecycle: options.lifecycle,

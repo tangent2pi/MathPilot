@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/common/identity/v1",
+  "$id": "https://schemas.mathpilot.dev/common/identity/v1",
   "title": "Identity & Correlation",
   "$description": "通用身份、租户、事件与追踪标识定义。written-by: 所有服务；read-by: 所有服务。仅作为 $defs 供其他 schema $ref 引用，不单独实例化。",
   "type": "object",

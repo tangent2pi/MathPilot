@@ -11,7 +11,7 @@
 import { startService, createPool, withTenant, newId } from "./lib.ts";
 import { bktReplay, BKT_PRIOR_V1 } from "@mathpilot/mastery";
 
-const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
+const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
 
 function tenantOf(req: { headers: Record<string, unknown> }): string | null {
   const t = req.headers["x-tenant-id"];

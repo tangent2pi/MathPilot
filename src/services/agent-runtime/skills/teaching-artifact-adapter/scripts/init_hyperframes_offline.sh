@@ -7,7 +7,7 @@ case "$target/" in
   *) echo "target must be below /workspace/tmp or /workspace/output" >&2; exit 64 ;;
 esac
 
-skill_root=${EDU_SKILL_ROOT:-/opt/agmath-skills/edu-agent}
+skill_root=${EDU_SKILL_ROOT:-/opt/mathpilot-skills/edu-agent}
 test -f "$skill_root/assets/gsap/gsap.min.js"
 test -f "$skill_root/assets/katex/katex.min.js"
 

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/learning/question-card/v1",
-  "title": "QuestionCard (agmath.question-card/v1)",
+  "$id": "https://schemas.mathpilot.dev/learning/question-card/v1",
+  "title": "QuestionCard (mathpilot.question-card/v1)",
   "$description": "原生/ HTML 卡片统一语义。written-by: Teaching Agent / edu-agent；read-by: artifact-service、前端渲染器。HTML 卡片只能提交交互意图，不能自行判答。对齐设计文档 §5.4。",
   "type": "object",
   "required": ["schema", "artifact_id", "card_id", "type", "prompt", "response_policy", "evidence_policy"],
   "properties": {
-    "schema": { "const": "agmath.question-card/v1" },
-    "artifact_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ArtifactId" },
+    "schema": { "const": "mathpilot.question-card/v1" },
+    "artifact_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ArtifactId" },
     "card_id": { "type": "string", "pattern": "^card_[A-Za-z0-9]+$" },
     "type": {
       "type": "string",

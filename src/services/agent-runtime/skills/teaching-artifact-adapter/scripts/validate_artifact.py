@@ -5,7 +5,7 @@ if len(sys.argv)!=2: raise SystemExit("usage: validate_artifact.py ARTIFACT_DIR"
 root=Path(sys.argv[1]).resolve(); manifest=root/"manifest.json"; errors=[]
 try: d=json.loads(manifest.read_text(encoding="utf-8"))
 except Exception as exc: print(exc); raise SystemExit(1)
-if d.get("schema")!="agmath.learning-artifact/v1": errors.append("invalid schema")
+if d.get("schema")!="mathpilot.learning-artifact/v1": errors.append("invalid schema")
 if d.get("renderer") not in {"sandboxed_html","native_card","media"}: errors.append("invalid renderer")
 entry=d.get("entry",""); ep=(root/entry).resolve()
 if root not in ep.parents or not ep.is_file(): errors.append("entry missing or unsafe")

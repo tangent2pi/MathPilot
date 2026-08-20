@@ -20,7 +20,7 @@ import { startService, createPool, withTenant, newId } from "./lib.ts";
 import { createAgentRuntimeClient, type TaskResult } from "@mathpilot/providers-model";
 import { createAistudioOcrClient } from "@mathpilot/providers-ocr";
 
-const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
+const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
 const REVIEW_URL = process.env.REVIEW_URL ?? "http://localhost:3008";
 const AGENT_RUNTIME_URL = process.env.AGENT_RUNTIME_URL ?? "http://localhost:3005";
 const CONTENT_ARTIFACT_ROOT = process.env.CONTENT_ARTIFACT_ROOT ?? path.resolve(".runtime/content-artifacts");
@@ -499,7 +499,7 @@ async function ktqRunModel(
         : "只有原始资料；不要要求预先 OCR。先用 Core 查看，是否调用 PaddleOCR 由你按 ocr-routing Skill 决定。",
     },
     inputArtifacts,
-    promptText: "读取 /opt/agmath-skills/ktq-extraction/SKILL.md 后执行。先检查全部原件；OCR 由你决定。查询既有库、跨文档去重，写文件、验证，再用 respond 引用文件。",
+    promptText: "读取 /opt/mathpilot-skills/ktq-extraction/SKILL.md 后执行。先检查全部原件；OCR 由你决定。查询既有库、跨文档去重，写文件、验证，再用 respond 引用文件。",
     databaseScope: { actorId: actor },
     workspaceLifecycle: "terminal",
   });
@@ -881,7 +881,7 @@ async function erRunModel(
       sourcePath: "output",
       workspacePath: "ktq-evidence",
     }] } : {}),
-    promptText: "读取 /opt/agmath-skills/er-research/SKILL.md 后执行。检查冻结 KTQ、查询既有 E/R；需要时检索外部依据，写文件、验证，再用 respond 引用文件。",
+    promptText: "读取 /opt/mathpilot-skills/er-research/SKILL.md 后执行。检查冻结 KTQ、查询既有 E/R；需要时检索外部依据，写文件、验证，再用 respond 引用文件。",
     databaseScope: { actorId: actor },
     workspaceLifecycle: "terminal",
   });
@@ -1153,7 +1153,7 @@ startService({
   port: Number(process.env.PORT ?? 3006),
   register(app) {
     app.addHook("onReady", async () => {
-      const rows = await pool.query("select * from agmath_pending_content_pipelines()");
+      const rows = await pool.query("select * from mathpilot_pending_content_pipelines()");
       for (const row of rows.rows) setImmediate(() => void executePipeline({ ...row, document_ids: row.document_ids as string[] }));
     });
 

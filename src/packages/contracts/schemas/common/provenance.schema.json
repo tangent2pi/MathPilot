@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/common/provenance/v1",
+  "$id": "https://schemas.mathpilot.dev/common/provenance/v1",
   "title": "Field Lineage & Provenance",
   "$description": "字段级血缘与来源声明。written-by: 所有产生正式语义字段的服务（content/learning/profile/review）；read-by: provenance 校验器、教师复核、发布校验。任何正式语义字段必须携带本对象；缺失者只能留在候选区（draft_only）。",
   "type": "object",
@@ -42,7 +42,7 @@
     "model_id": { "type": "string" },
     "tool_call_ids": { "type": "array", "items": { "type": "string" } },
     "reviewer_id": {
-      "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/UserId",
+      "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/UserId",
       "description": "审核者为具有 teacher/content_reviewer 角色的领域用户（身份统一为 identity_user）"
     },
     "review_decision": {
@@ -50,7 +50,7 @@
       "enum": ["confirmed", "modified", "rejected", "merged", "pending"]
     },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false
 }

@@ -5,7 +5,7 @@ set -eu
 # 与 Bash/Core 不同，这里保留容器网络；文件系统、PID、用户与环境仍隔离。
 workspace_input=${1:-}
 workspace_root=$(realpath -e "$workspace_input")
-configured_root=$(realpath -e "${WORKSPACE_ROOT:-/var/lib/agmath/workspaces}")
+configured_root=$(realpath -e "${WORKSPACE_ROOT:-/var/lib/mathpilot/workspaces}")
 case "$workspace_root/" in
   "$configured_root"/*/) ;;
   *) echo "workspace escapes configured root" >&2; exit 64 ;;

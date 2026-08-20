@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/learning/question-session/v1",
+  "$id": "https://schemas.mathpilot.dev/learning/question-session/v1",
   "title": "QuestionSession",
   "$description": "一题一会话及其状态机。written-by: learning-service orchestrator；read-by: learning-service、profile-service、review-service、前端。状态转换只允许沿 state_history 追加，禁止重写历史。",
   "type": "object",
@@ -10,11 +10,11 @@
     "state_history", "started_at"
   ],
   "properties": {
-    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
-    "tenant_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/TenantId" },
-    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
+    "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
+    "tenant_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/TenantId" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/StudentId" },
     "assessment_run_id": { "type": "string" },
-    "question_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/QuestionId" },
+    "question_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/QuestionId" },
     "chapter_package_version": { "type": "string" },
     "mode": {
       "type": "string",
@@ -43,7 +43,7 @@
         "required": ["state", "entered_at"],
         "properties": {
           "state": { "type": "string" },
-          "entered_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
+          "entered_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" },
           "actor": { "type": "string", "enum": ["orchestrator", "teaching_agent", "student", "system"] }
         },
         "additionalProperties": false
@@ -59,8 +59,8 @@
         "needs_delayed_retest", "error"
       ]
     },
-    "started_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
-    "closed_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" },
+    "started_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" },
+    "closed_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" },
     "session_result_ref": {
       "type": "string",
       "description": "关闭后 session-result.json 的对象存储键"

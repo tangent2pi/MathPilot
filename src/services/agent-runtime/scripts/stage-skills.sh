@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-target=${1:-/opt/agmath-skills}
+target=${1:-/opt/mathpilot-skills}
 upstream=${2:-/opt/qwen-mm-plugins-src}
 service_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 
@@ -42,7 +42,7 @@ if test -d "$upstream/.git"; then
     exit 65
   fi
 fi
-printf '{"schema":"agmath.skill-bundle/v1","qwen_mm_plugins_revision":"%s","root":"/opt/agmath-skills"}\n' "$revision" \
+printf '{"schema":"mathpilot.skill-bundle/v1","qwen_mm_plugins_revision":"%s","root":"/opt/mathpilot-skills"}\n' "$revision" \
   > "$target/.provenance.json"
 
 find "$target" -type f -path '*/scripts/*' \( -name '*.sh' -o -name '*.py' \) -exec chmod 0755 {} +

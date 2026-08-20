@@ -1,7 +1,7 @@
 -- 0020: Agent 只读投影用 EXISTS 计算授权，避免一个实体有多条范围授权时重复或标量子查询报错。
 begin;
 
-create or replace function agmath_agent_library(p_kind text,p_query text,p_limit integer,p_offset integer)
+create or replace function mathpilot_agent_library(p_kind text,p_query text,p_limit integer,p_offset integer)
 returns jsonb language sql stable security definer
 set search_path=pg_catalog,public
 as $$
@@ -12,32 +12,32 @@ as $$
       from public.content_knowledge_component c join scope i on i.tenant_id=c.tenant_id
      where exists(select 1 from public.content_entity_scope s
        where s.tenant_id=c.tenant_id and s.entity_type='knowledge_component' and s.entity_id=c.dimension_id
-         and public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))
+         and public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))
     union all
     select 'question_types',c.dimension_id,jsonb_build_object('id',c.dimension_id,'name',c.name,'payload',c.payload)
       from public.content_question_type c join scope i on i.tenant_id=c.tenant_id
      where exists(select 1 from public.content_entity_scope s
        where s.tenant_id=c.tenant_id and s.entity_type='question_type' and s.entity_id=c.dimension_id
-         and public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))
+         and public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))
     union all
     select 'questions',c.question_id,jsonb_build_object('id',c.question_id,'chapter_id',c.chapter_id,'published',c.published,
       'stem_format',c.stem_format,'measurement_dims',c.measurement_dims,'payload',c.payload)
       from public.content_question c join scope i on i.tenant_id=c.tenant_id
      where (i.scope_kind='content' or c.published) and exists(select 1 from public.content_entity_scope s
        where s.tenant_id=c.tenant_id and s.entity_type='question' and s.entity_id=c.question_id
-         and public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))
+         and public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))
     union all
     select 'error_causes',c.dimension_id,jsonb_build_object('id',c.dimension_id,'name',c.name,'payload',c.payload)
       from public.content_error_cause c join scope i on i.tenant_id=c.tenant_id
      where exists(select 1 from public.content_entity_scope s
        where s.tenant_id=c.tenant_id and s.entity_type='error_cause' and s.entity_id=c.dimension_id
-         and public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))
+         and public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))
     union all
     select 'diagnosis_rules',c.rule_id,jsonb_build_object('id',c.rule_id,'version',c.rule_version,'payload',c.payload)
       from public.content_diagnosis_rule c join scope i on i.tenant_id=c.tenant_id
      where exists(select 1 from public.content_entity_scope s
        where s.tenant_id=c.tenant_id and s.entity_type='diagnosis_rule' and s.entity_id=c.rule_id
-         and public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))
+         and public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))
   ), filtered as (
     select * from entities where kind=p_kind
       and (coalesce(p_query,'')='' or item::text ilike '%'||p_query||'%')
@@ -52,10 +52,10 @@ as $$
     'resource_version',coalesce((select max(p.manifest_hash) from public.content_chapter_package p join scope i on i.tenant_id=p.tenant_id
       where p.published_at is not null and exists(select 1 from public.content_entity_scope s
         where s.tenant_id=p.tenant_id and s.entity_type='chapter_package' and s.entity_id=p.package_id
-          and public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))),'unpublished'))
+          and public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))),'unpublished'))
 $$;
 
-create or replace function agmath_agent_question(p_question text)
+create or replace function mathpilot_agent_question(p_question text)
 returns jsonb language sql stable security definer
 set search_path=pg_catalog,public
 as $$
@@ -73,7 +73,7 @@ as $$
    where q.question_id=p_question and (i.scope_kind='content' or q.published)
      and exists(select 1 from public.content_entity_scope s
        where s.tenant_id=q.tenant_id and s.entity_type='question' and s.entity_id=q.question_id
-         and public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))), '{}'::jsonb)
+         and public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id))), '{}'::jsonb)
 $$;
 
 insert into infra_schema_migration(version) values ('0020_agent_content_scope_projection');

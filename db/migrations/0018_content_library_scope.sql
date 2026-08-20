@@ -73,8 +73,8 @@ alter table content_pipeline_run add constraint content_pipeline_scope_owner_che
   check ((library_visibility='public' and owner_teacher_id is null)
       or (library_visibility='teacher' and owner_teacher_id is not null));
 
-drop function agmath_pending_content_pipelines();
-create function agmath_pending_content_pipelines()
+drop function mathpilot_pending_content_pipelines();
+create function mathpilot_pending_content_pipelines()
 returns table (
   run_id text,tenant_id text,created_by text,chapter_id text,document_ids jsonb,
   ktq_session_ref text,er_session_ref text,stage text,
@@ -88,7 +88,7 @@ as $$
     from public.content_pipeline_run p
    where p.status in ('queued','running') order by p.created_at
 $$;
-revoke all on function agmath_pending_content_pipelines() from public;
+revoke all on function mathpilot_pending_content_pipelines() from public;
 
 -- 旧数据没有范围元数据：已发布内容按公共库迁移；未发布的流水线候选归创建教师。
 insert into content_entity_scope(tenant_id,entity_type,entity_id,visibility,owner_teacher_id,source_pipeline_id)
@@ -168,7 +168,7 @@ select distinct p.tenant_id,d.value::text,'teacher',p.created_by
 on conflict do nothing;
 
 -- 判断某个 Agent 身份是否可以读取实体范围。教学身份按学生当前有效绑定推导教师库。
-create or replace function agmath_agent_scope_visible(p_visibility text,p_owner text,p_scope_kind text,p_subject text,p_tenant text)
+create or replace function mathpilot_agent_scope_visible(p_visibility text,p_owner text,p_scope_kind text,p_subject text,p_tenant text)
 returns boolean language sql stable security definer
 set search_path=pg_catalog,public
 as $$
@@ -178,9 +178,9 @@ as $$
         select 1 from public.identity_teacher_student_binding b
          where b.tenant_id=p_tenant and b.student_id=p_subject and b.teacher_id=p_owner and b.status='active'))
 $$;
-revoke all on function agmath_agent_scope_visible(text,text,text,text,text) from public;
+revoke all on function mathpilot_agent_scope_visible(text,text,text,text,text) from public;
 
-create or replace function agmath_agent_library(p_kind text,p_query text,p_limit integer,p_offset integer)
+create or replace function mathpilot_agent_library(p_kind text,p_query text,p_limit integer,p_offset integer)
 returns jsonb language sql stable security definer
 set search_path=pg_catalog,public
 as $$
@@ -190,29 +190,29 @@ as $$
     select 'knowledge'::text kind,c.dimension_id id,jsonb_build_object('id',c.dimension_id,'name',c.name,'payload',c.payload) item
       from public.content_knowledge_component c join scope i on i.tenant_id=c.tenant_id
       join public.content_entity_scope s on s.tenant_id=c.tenant_id and s.entity_type='knowledge_component' and s.entity_id=c.dimension_id
-     where public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)
+     where public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)
     union all
     select 'question_types',c.dimension_id,jsonb_build_object('id',c.dimension_id,'name',c.name,'payload',c.payload)
       from public.content_question_type c join scope i on i.tenant_id=c.tenant_id
       join public.content_entity_scope s on s.tenant_id=c.tenant_id and s.entity_type='question_type' and s.entity_id=c.dimension_id
-     where public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)
+     where public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)
     union all
     select 'questions',c.question_id,jsonb_build_object('id',c.question_id,'chapter_id',c.chapter_id,'published',c.published,
       'stem_format',c.stem_format,'measurement_dims',c.measurement_dims,'payload',c.payload)
       from public.content_question c join scope i on i.tenant_id=c.tenant_id
       join public.content_entity_scope s on s.tenant_id=c.tenant_id and s.entity_type='question' and s.entity_id=c.question_id
      where (i.scope_kind='content' or c.published)
-       and public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)
+       and public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)
     union all
     select 'error_causes',c.dimension_id,jsonb_build_object('id',c.dimension_id,'name',c.name,'payload',c.payload)
       from public.content_error_cause c join scope i on i.tenant_id=c.tenant_id
       join public.content_entity_scope s on s.tenant_id=c.tenant_id and s.entity_type='error_cause' and s.entity_id=c.dimension_id
-     where public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)
+     where public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)
     union all
     select 'diagnosis_rules',c.rule_id,jsonb_build_object('id',c.rule_id,'version',c.rule_version,'payload',c.payload)
       from public.content_diagnosis_rule c join scope i on i.tenant_id=c.tenant_id
       join public.content_entity_scope s on s.tenant_id=c.tenant_id and s.entity_type='diagnosis_rule' and s.entity_id=c.rule_id
-     where public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)
+     where public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)
   ), filtered as (
     select * from entities where kind=p_kind
       and (coalesce(p_query,'')='' or item::text ilike '%'||p_query||'%')
@@ -226,10 +226,10 @@ as $$
     'scope',(select jsonb_build_object('tenant_id',tenant_id,'scope_kind',scope_kind,'subject_id',subject_id) from scope),
     'resource_version',coalesce((select max(p.manifest_hash) from public.content_chapter_package p
       join scope i on i.tenant_id=p.tenant_id join public.content_entity_scope s on s.tenant_id=p.tenant_id and s.entity_type='chapter_package' and s.entity_id=p.package_id
-      where p.published_at is not null and public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)),'unpublished'))
+      where p.published_at is not null and public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)),'unpublished'))
 $$;
 
-create or replace function agmath_agent_question(p_question text)
+create or replace function mathpilot_agent_question(p_question text)
 returns jsonb language sql stable security definer
 set search_path=pg_catalog,public
 as $$
@@ -246,11 +246,11 @@ as $$
   ) from public.content_question q join scope i on i.tenant_id=q.tenant_id
     join public.content_entity_scope s on s.tenant_id=q.tenant_id and s.entity_type='question' and s.entity_id=q.question_id
    where q.question_id=p_question and (i.scope_kind='content' or q.published)
-     and public.agmath_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)), '{}'::jsonb)
+     and public.mathpilot_agent_scope_visible(s.visibility,s.owner_teacher_id,i.scope_kind,i.subject_id,i.tenant_id)), '{}'::jsonb)
 $$;
 
 -- Runtime 只提交已经由部署主密钥派生的密码；函数按领域主体计算角色名并限制主体类型。
-create or replace function agmath_provision_agent_identity(p_tenant text,p_scope_kind text,p_subject text,p_password text)
+create or replace function mathpilot_provision_agent_identity(p_tenant text,p_scope_kind text,p_subject text,p_password text)
 returns name language plpgsql security definer
 set search_path=pg_catalog,public
 as $$
@@ -266,8 +266,8 @@ begin
   end if;
   if p_scope_kind not in ('content','teaching','profile') then raise exception 'invalid agent scope'; end if;
   v_role := case when p_scope_kind='content'
-    then ('agmath_agent_content_'||regexp_replace(p_tenant,'[^A-Za-z0-9_]','','g')||'_'||regexp_replace(p_subject,'[^A-Za-z0-9_]','','g'))::name
-    else ('agmath_agent_'||regexp_replace(p_tenant,'[^A-Za-z0-9_]','','g')||'_'||regexp_replace(p_subject,'[^A-Za-z0-9_]','','g'))::name end;
+    then ('mathpilot_agent_content_'||regexp_replace(p_tenant,'[^A-Za-z0-9_]','','g')||'_'||regexp_replace(p_subject,'[^A-Za-z0-9_]','','g'))::name
+    else ('mathpilot_agent_'||regexp_replace(p_tenant,'[^A-Za-z0-9_]','','g')||'_'||regexp_replace(p_subject,'[^A-Za-z0-9_]','','g'))::name end;
   if not exists(select 1 from pg_roles where rolname=v_role) then execute format('create role %I login password %L',v_role,p_password);
   else execute format('alter role %I password %L',v_role,p_password); end if;
   insert into public.infra_agent_db_identity(db_role,tenant_id,scope_kind,subject_id)
@@ -275,14 +275,14 @@ begin
     on conflict(db_role) do update set tenant_id=excluded.tenant_id,scope_kind=excluded.scope_kind,subject_id=excluded.subject_id;
   execute format('revoke all on all tables in schema public from %I',v_role);
   execute format('grant usage on schema public to %I',v_role);
-  execute format('grant execute on function public.agmath_agent_library(text,text,integer,integer) to %I',v_role);
-  execute format('grant execute on function public.agmath_agent_question(text) to %I',v_role);
-  execute format('grant execute on function public.agmath_agent_student_context(text) to %I',v_role);
-  execute format('grant execute on function public.agmath_agent_session_context(text) to %I',v_role);
+  execute format('grant execute on function public.mathpilot_agent_library(text,text,integer,integer) to %I',v_role);
+  execute format('grant execute on function public.mathpilot_agent_question(text) to %I',v_role);
+  execute format('grant execute on function public.mathpilot_agent_student_context(text) to %I',v_role);
+  execute format('grant execute on function public.mathpilot_agent_session_context(text) to %I',v_role);
   return v_role;
 end
 $$;
-revoke all on function agmath_provision_agent_identity(text,text,text,text) from public;
+revoke all on function mathpilot_provision_agent_identity(text,text,text,text) from public;
 
 insert into infra_schema_migration(version) values ('0018_content_library_scope');
 commit;

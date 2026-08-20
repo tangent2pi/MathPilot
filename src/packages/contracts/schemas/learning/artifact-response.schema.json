@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/learning/artifact-response/v1",
+  "$id": "https://schemas.mathpilot.dev/learning/artifact-response/v1",
   "title": "ArtifactResponse",
   "$description": "学生对卡片的交互事件。written-by: 前端（经受限 postMessage 桥或原生卡片）→ api → learning-service；read-by: learning-service、程序评价器。跳过/直接回复绝不生成失败观测。事件必须携带一次性 interaction_token。",
   "type": "object",
   "required": ["response_id", "session_id", "artifact_id", "card_id", "student_id", "response_type", "interaction_token", "created_at"],
   "properties": {
     "response_id": { "type": "string", "pattern": "^rsp_[A-Za-z0-9]{8,}$" },
-    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
-    "artifact_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ArtifactId" },
+    "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
+    "artifact_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ArtifactId" },
     "card_id": { "type": "string" },
-    "student_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/StudentId" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/StudentId" },
     "response_type": {
       "type": "string",
       "enum": ["submitted", "skipped", "bypassed_free_text"],
@@ -42,7 +42,7 @@
         "card.presented", "artifact.ready", "artifact.resize"
       ]
     },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false
 }

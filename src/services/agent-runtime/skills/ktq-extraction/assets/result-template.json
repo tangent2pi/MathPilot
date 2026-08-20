@@ -1,5 +1,5 @@
 {
-  "schema": "agmath.ktq-result/v1",
+  "schema": "mathpilot.ktq-result/v1",
   "questions": [
     {
       "source": {"path": "input/original/example.pdf", "page": 1, "bbox": null},

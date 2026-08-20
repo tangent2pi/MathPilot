@@ -24,19 +24,19 @@ The upstream voice step is optional in MathPilot. Prefer captioned interactive H
 3. Initialize or refresh the local build without downloading packages:
 
    ```sh
-   /opt/agmath-skills/teaching-artifact-adapter/scripts/init_hyperframes_offline.sh /workspace/tmp/dist
+   /opt/mathpilot-skills/teaching-artifact-adapter/scripts/init_hyperframes_offline.sh /workspace/tmp/dist
    ```
 
 4. Run the upstream checks until they pass:
 
    ```sh
-   python3 /opt/agmath-skills/edu-agent/scripts/precheck.py /workspace/tmp/dist
+   python3 /opt/mathpilot-skills/edu-agent/scripts/precheck.py /workspace/tmp/dist
    ```
 
 5. Copy only browser/runtime files into `/workspace/output/artifacts/<artifact_id>/`, create `manifest.json` from `assets/manifest-template.json`, then validate:
 
    ```sh
-   python3 /opt/agmath-skills/teaching-artifact-adapter/scripts/validate_artifact.py \
+   python3 /opt/mathpilot-skills/teaching-artifact-adapter/scripts/validate_artifact.py \
      /workspace/output/artifacts/<artifact_id>
    ```
 
@@ -44,7 +44,7 @@ The runtime publisher independently validates hashes, MIME types, paths, and ren
 
 ## Publication contract
 
-- Schema: `agmath.learning-artifact/v1`.
+- Schema: `mathpilot.learning-artifact/v1`.
 - Renderer: `sandboxed_html`, `native_card`, or `media`.
 - HTML is self-contained and offline. It cannot use forms, browser storage, cookies, network APIs, external URLs, or dynamic code loading.
 - Interactive HTML communicates only through `parent.postMessage` using `card.answer_submitted`, `card.skipped`, or `card.free_text_requested`, and echoes the one-time interaction token from the iframe URL.

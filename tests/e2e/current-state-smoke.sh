@@ -6,7 +6,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/../.." && pwd)"
 BASE="${BASE:-http://localhost:8080}"
 API="$BASE/api"
-temporary="$(mktemp -d /tmp/agmath-current-state.XXXXXX)"
+temporary="$(mktemp -d /tmp/mathpilot-current-state.XXXXXX)"
 trap 'rm -rf -- "$temporary"' EXIT
 student_cookie="$temporary/student.cookie"
 teacher_cookie="$temporary/teacher.cookie"

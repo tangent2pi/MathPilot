@@ -51,7 +51,7 @@ Web / Domain Service
 
 ### 2.1 运行时 Skill 标准
 
-运行时只有一棵 `/opt/agmath-skills`。其中 `core`、`search`、`edu-agent` 来自本地
+运行时只有一棵 `/opt/mathpilot-skills`。其中 `core`、`search`、`edu-agent` 来自本地
 `references/qwen-mm-plugins` 固定提交 `dd029da3bcadfe497de4b4ca8976b11177997cf0`；
 `database`、`ocr-routing`、`teaching-card`、`teaching-artifact-adapter`、`ktq-extraction`、
 `er-research` 是 MathPilot 适配与业务 Skill。Core/Search 的 Skill 与 MCP 必须配套，Edu Agent
@@ -91,7 +91,7 @@ PaddleOCR 官方 MCP 支持 `PaddleOCR-VL-1.6` 与 AI Studio source；异步 API
 ```text
 /workspace
   AGENTS.md                    # 通用纪律、能力索引、任务目标，不含秘密
-  # 完整 Skills 固定从 /opt/agmath-skills 读取，不在工作区复制第二份
+  # 完整 Skills 固定从 /opt/mathpilot-skills 读取，不在工作区复制第二份
   task/runs/*.json             # 每轮输入与业务目标
   input/original/              # 原始上传文件，只读
   input/ocr/                   # OCR Markdown/layout/bbox/images，只读
@@ -184,7 +184,7 @@ Agent 安全函数和学生选题共用同一范围事实。`content-scope-smoke
 2. 结束前为工作区文件生成路径、字节数、SHA-256 与保留类别清单；
 3. 成功的终结型 Session 保留任务、公开事件、验证结果、receipt 与已发布 Artifact，释放可从正式 Artifact 重建的 `input` 副本、`tmp` 和发布前候选副本；
 4. 所有真正终态的 Pi JSONL（KTQ、ER、Teaching 最终决策、Continuity、Dream、Plan）压缩进入 `.agent/capsule/transcripts/` 后删除散落原文件；领域 API 只返回 `capsule://` 不透明引用，前端继续读取公开事件投影；
-5. 失败现场连同原始 Pi JSONL 完整保留 72 小时。只有带 `agmath.session-capsule-state/v1` 标记且到期的失败工作区会由 GC 先归档 transcript，再释放输入副本、临时文件和发布前候选；现有旧 Session 和未标记目录不会自动清理；
+5. 失败现场连同原始 Pi JSONL 完整保留 72 小时。只有带 `mathpilot.session-capsule-state/v1` 标记且到期的失败工作区会由 GC 先归档 transcript，再释放输入副本、临时文件和发布前候选；现有旧 Session 和未标记目录不会自动清理；
 6. Teaching 的继续型 Session 在业务会话开放期间保留输入，回合结束释放 `tmp` 与发布前候选；`teach_summary` 是同一 Teaching Session 的继续回合，`session_decision` 才是本题终态。题目、程序画像、状态和历史在每轮重新按事实装配。
 
 Capsule 清单提供“运行时曾看见什么”的审计证据，但不把被释放的输入副本当成唯一数据源。原始上传资料继续由内容 Artifact 存储负责，正式业务结论继续由 PostgreSQL 负责。

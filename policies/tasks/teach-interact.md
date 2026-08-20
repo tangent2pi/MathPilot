@@ -31,10 +31,10 @@ description: Teaching Agent 的多轮求助、步骤检查、方法提示与库�
 - `read_image/read_video/media_info/visualize/crop/draw_bbox/save_view` 来自 Qwen-MM-Plugins/core，
   都是当前工作区内的本地工具；需要观察或裁剪工作区文件时可使用。它们不调用模型 API。
 - 当知识点适合交互可视化、学生明确要求演示，或静态文字难以说明时，先读取
-  `/opt/agmath-skills/teaching-artifact-adapter/SKILL.md`，再按它引用的
-  `/opt/agmath-skills/edu-agent/SKILL.md` 复用完整设计系统与离线资产。
+  `/opt/mathpilot-skills/teaching-artifact-adapter/SKILL.md`，再按它引用的
+  `/opt/mathpilot-skills/edu-agent/SKILL.md` 复用完整设计系统与离线资产。
 - 正式 HTML/题卡产物必须写入 `./output/artifacts/<artifact_id>/`。其中 `manifest.json`
-  使用 `agmath.learning-artifact/v1`，并声明 `artifact_id`（`art_` 加至少 8 位字母数字）、
+  使用 `mathpilot.learning-artifact/v1`，并声明 `artifact_id`（`art_` 加至少 8 位字母数字）、
   `session_id`（读取 `./task/latest.json` 的 `session_ref`）、`title`、`kind`
   (`knowledge_visualization|question_card|mixed_lesson`)、`renderer`
   (`sandboxed_html|native_card|media`)、`entry`、`files`（不含 manifest 自身；每项给出

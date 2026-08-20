@@ -20,7 +20,7 @@ All Bash paths are sandbox paths below `/workspace`. Never use a host path shown
 5. Validate the exact file:
 
    ```sh
-   python3 /opt/agmath-skills/ktq-extraction/scripts/validate.py \
+   python3 /opt/mathpilot-skills/ktq-extraction/scripts/validate.py \
      /workspace/output/ktq-result.json \
      --workspace /workspace \
      --receipt /workspace/output/ktq-result.validation.json

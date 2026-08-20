@@ -23,7 +23,7 @@ const context: TaskContext = {
 };
 
 test("task policies are versioned prompts and compile without unresolved placeholders", () => {
-  assert.equal(manifest.schema, "agmath.task-policy-manifest/v1");
+  assert.equal(manifest.schema, "mathpilot.task-policy-manifest/v1");
   assert.equal(Object.keys(manifest.tasks).length, 10);
   for (const taskType of Object.keys(manifest.tasks) as TaskType[]) {
     const entry = manifest.tasks[taskType];

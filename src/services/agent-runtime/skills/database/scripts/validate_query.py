@@ -8,6 +8,6 @@ forbidden=r"\b(insert|update|delete|merge|alter|drop|create|grant|revoke|copy|se
 if not clean or re.search(forbidden,clean,re.I): raise SystemExit("query must be read-only and must not alter session identity")
 if not re.match(r"^(select|with)\b",clean,re.I): raise SystemExit("query must start with SELECT or WITH")
 if clean.count(";")>1 or (";" in clean[:-1]): raise SystemExit("exactly one statement is allowed")
-allowed=("agmath_agent_library(","agmath_agent_question(","agmath_agent_student_context(","agmath_agent_session_context(")
+allowed=("mathpilot_agent_library(","mathpilot_agent_question(","mathpilot_agent_student_context(","mathpilot_agent_session_context(")
 if not any(name in clean.lower() for name in allowed): raise SystemExit("query must call an approved scoped function")
 print("valid read-only scoped query")

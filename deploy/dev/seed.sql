@@ -5,12 +5,12 @@ begin;
 
 do $$
 begin
-  if not exists (select from pg_roles where rolname = 'agmath_app') then
-    create role agmath_app login password 'agmath-app-dev-only';
+  if not exists (select from pg_roles where rolname = 'mathpilot_app') then
+    create role mathpilot_app login password 'mathpilot-app-dev-only';
   end if;
 end $$;
-grant usage on schema public to agmath_app;
-grant select, insert, update, delete on all tables in schema public to agmath_app;
+grant usage on schema public to mathpilot_app;
+grant select, insert, update, delete on all tables in schema public to mathpilot_app;
 
 insert into identity_tenant(tenant_id, name)
 values ('tnt_dev00001', 'Dev Tenant') on conflict (tenant_id) do nothing;

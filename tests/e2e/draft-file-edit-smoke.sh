@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BASE="${BASE:-http://localhost:8080}"
-temporary="$(mktemp -d /tmp/agmath-draft-flow.XXXXXX)"
+temporary="$(mktemp -d /tmp/mathpilot-draft-flow.XXXXXX)"
 cookie="$temporary/teacher.cookie"
 run_id="" doc_one="" doc_two="" tenant_id=""
 
@@ -27,7 +27,7 @@ SQL
       tenant="$1"; shift
       case "$tenant" in (*[!A-Za-z0-9_-]*|"") exit 2;; esac
       for document in "$@"; do
-        case "$document" in (doc_[A-Za-z0-9_-]*) target="/var/lib/agmath/content-artifacts/$tenant/$document";; ("") continue;; (*) exit 2;; esac
+        case "$document" in (doc_[A-Za-z0-9_-]*) target="/var/lib/mathpilot/content-artifacts/$tenant/$document";; ("") continue;; (*) exit 2;; esac
         [ ! -e "$target" ] || find "$target" -xdev -depth -delete
       done
     ' sh "$tenant_id" "$doc_one" "$doc_two" || true

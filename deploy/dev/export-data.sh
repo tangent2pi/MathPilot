@@ -4,13 +4,13 @@
 set -eu
 cd "$(dirname "$0")/../.."
 
-: "${DATABASE_URL:=postgres://agmath_app:agmath-app-dev-only@localhost:5432/agmath}"
+: "${DATABASE_URL:=postgres://mathpilot_app:mathpilot-app-dev-only@localhost:5432/mathpilot}"
 OUT="${1:-data}"
 mkdir -p "$OUT"
 
 psql_csv() { # $1=带列别名的 SELECT -> PostgreSQL 原生 CSV（负责引号、逗号和换行转义）
   local sql="$1"
-  docker exec -i agmath-dev-postgres-1 psql -U agmath -d agmath \
+  docker exec -i mathpilot-dev-postgres-1 psql -U mathpilot -d mathpilot \
     -c "\\copy ($sql) to stdout with (format csv, header true)" 2>/dev/null \
     || psql "$DATABASE_URL" -c "\\copy ($sql) to stdout with (format csv, header true)"
 }

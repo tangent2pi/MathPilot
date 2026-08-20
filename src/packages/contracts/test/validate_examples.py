@@ -46,7 +46,7 @@ def main() -> int:
                 if key == "note":
                     continue
                 dv = Draft202012Validator(
-                    {"$ref": f"https://schemas.agmath.dev/common/identity/v1#/$defs/{key}"},
+                    {"$ref": f"https://schemas.mathpilot.dev/common/identity/v1#/$defs/{key}"},
                     registry=registry,
                 )
                 errs = list(dv.iter_errors(val))

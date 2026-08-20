@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agmath.dev/learning/teaching-message/v1",
+  "$id": "https://schemas.mathpilot.dev/learning/teaching-message/v1",
   "title": "TeachingMessage",
   "$description": "Teaching Agent 多段回复。written-by: learning-service（ArtifactPublisher 校验通过后）；read-by: 前端、review-service、审计。只允许引用已发布的 artifact:// URI，禁止 file:// 与外部临时 URL。对齐设计文档 §5.4。",
   "type": "object",
   "required": ["message_id", "session_id", "turn", "parts", "created_at"],
   "properties": {
     "message_id": { "type": "string", "pattern": "^msg_[A-Za-z0-9]{8,}$" },
-    "session_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/SessionId" },
+    "session_id": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/SessionId" },
     "turn": { "type": "integer", "minimum": 1 },
     "role": { "type": "string", "enum": ["teaching_agent", "system"], "default": "teaching_agent" },
     "parts": {
@@ -16,7 +16,7 @@
       "items": { "$ref": "#/$defs/MessagePart" }
     },
     "hint_level": { "type": "integer", "minimum": 0, "maximum": 5 },
-    "created_at": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ISODateTime" }
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ISODateTime" }
   },
   "additionalProperties": false,
   "$defs": {
@@ -26,7 +26,7 @@
       "properties": {
         "type": { "type": "string", "enum": ["text", "image", "video", "card"] },
         "markdown": { "type": "string" },
-        "artifact_ref": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ArtifactRef" },
+        "artifact_ref": { "$ref": "https://schemas.mathpilot.dev/common/identity/v1#/$defs/ArtifactRef" },
         "alt": { "type": "string", "description": "图片必需替代文本" },
         "caption_ref": { "type": "string", "description": "视频必需字幕/摘要引用" }
       },

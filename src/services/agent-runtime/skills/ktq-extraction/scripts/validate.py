@@ -20,7 +20,7 @@ def validate(result_path: Path, workspace: Path):
     try: data=json.loads(result_path.read_text(encoding="utf-8"))
     except Exception as exc: return None,[f"result: invalid JSON: {exc}"]
     if not isinstance(data,dict): return data,["result: must be an object"]
-    if data.get("schema") != "agmath.ktq-result/v1": fail(errors,"schema","must be agmath.ktq-result/v1")
+    if data.get("schema") != "mathpilot.ktq-result/v1": fail(errors,"schema","must be mathpilot.ktq-result/v1")
     questions=data.get("questions")
     if not isinstance(questions,list): return data,errors+["questions: must be an array"]
     seen={}
@@ -77,6 +77,6 @@ def main():
     data,errors=validate(result,workspace)
     if errors: print(json.dumps({"valid":False,"errors":errors},ensure_ascii=False,indent=2)); raise SystemExit(1)
     digest=hashlib.sha256(result.read_bytes()).hexdigest(); receipt=Path(a.receipt or str(result)+".validation.json")
-    receipt.write_text(json.dumps({"schema":"agmath.validation-receipt/v1","skill":"ktq-extraction","result_file":result.relative_to(workspace).as_posix(),"sha256":digest,"valid":True,"question_count":len(data["questions"])},ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+    receipt.write_text(json.dumps({"schema":"mathpilot.validation-receipt/v1","skill":"ktq-extraction","result_file":result.relative_to(workspace).as_posix(),"sha256":digest,"valid":True,"question_count":len(data["questions"])},ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     print(json.dumps({"valid":True,"sha256":digest,"questions":len(data["questions"]),"receipt":str(receipt)},ensure_ascii=False))
 if __name__=="__main__": main()

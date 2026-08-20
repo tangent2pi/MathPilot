@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-socket_dir=/var/run/agmath-db
+socket_dir=/var/run/mathpilot-db
 socket_path="$socket_dir/.s.PGSQL.5432"
 mkdir -p "$socket_dir"
 chown nobody:nogroup "$socket_dir"

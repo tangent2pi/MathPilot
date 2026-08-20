@@ -15,9 +15,9 @@ PostgreSQL 是唯一运行时事实源（实施规划一级决策 2）。CSV/XLS
 
 | 账号 | 用途 | 权限 |
 |---|---|---|
-| `agmath_migrate` | 执行迁移 | DDL |
-| `agmath_app` | 业务读写 | DML，受 RLS 约束 |
-| `agmath_read` | 只读分析 | SELECT，受 RLS 约束 |
+| `mathpilot_migrate` | 执行迁移 | DDL |
+| `mathpilot_app` | 业务读写 | DML，受 RLS 约束 |
+| `mathpilot_read` | 只读分析 | SELECT，受 RLS 约束 |
 
 连接时 `set app.current_tenant = '<tenant_id>'` 以激活租户隔离。
 
