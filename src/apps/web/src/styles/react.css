@@ -447,6 +447,8 @@ main.learning-chat-page {
 .chatbox-copy { max-width: 780px; color: var(--ink); font-size: .89rem; line-height: 1.8; overflow-wrap: anywhere; }
 .chatbox-copy > :first-child { margin-top: 0; }
 .chatbox-copy > :last-child { margin-bottom: 0; }
+.chatbox-images { max-width: 560px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.chatbox-images img { width: 100%; height: auto; max-height: 320px; object-fit: contain; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-soft); }
 .chatbox-message.student { grid-template-columns: minmax(0,1fr) 34px; }
 .chatbox-message.student .chatbox-avatar { grid-column: 2; grid-row: 1; background: var(--ink); }
 .chatbox-message.student .chatbox-message-body { grid-column: 1; grid-row: 1; justify-self: end; justify-items: end; width: min(82%, 700px); }

@@ -32,7 +32,10 @@ function model(id: string, baseUrl: string): Model<"openai-completions"> {
     contextWindow: 128_000,
     maxTokens: 16_384,
     // 部分 OpenAI 兼容服务器不认识 developer role；system 消息即可
-    compat: { supportsDeveloperRole: false },
+    // SCNET 网关对 reasoning_effort 与 max_completion_tokens 同框返回 400 Format
+    // Error（多模态请求稳定复现，见 2026-08-20 线上 KTQ/AI 提问排查），因此关闭
+    // reasoning_effort 下发；Qwen 推理行为仍由模型侧默认决定。
+    compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
   };
 }
 

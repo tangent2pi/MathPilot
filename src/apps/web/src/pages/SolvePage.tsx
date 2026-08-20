@@ -18,7 +18,7 @@ type Artifact = { artifact_id?: string; interaction_token?: string; title?: stri
 type TraceStep = { seq?: number; at?: string; type?: string; kind?: string; toolName?: string; status?: string; taskType?: string; label?: string; detail?: string; usage?: { total?: number; input?: number; cacheRead?: number } };
 type TraceConversation = { at: string; role: "student" | "agent"; kind: string; text: string; artifacts?: Artifact[]; thinking?: TraceStep[] };
 type Trace = { steps?: TraceStep[]; conversation?: TraceConversation[] };
-type ChatMessage = { id: string; role: "student" | "agent"; text: string; label?: string; artifacts?: Artifact[]; thinking?: TraceStep[] };
+type ChatMessage = { id: string; role: "student" | "agent"; text: string; label?: string; artifacts?: Artifact[]; thinking?: TraceStep[]; images?: string[] };
 type Judgment = { verdict?: string; decision_summary?: string };
 type VerdictData = { state?: string; session_learning_record_id?: string; judgment?: Judgment; card?: QuestionCardSpec; probe?: { question?: string }; claim?: { status?: string; resolved_error_cause?: string } };
 type BootstrapResult = { profile: false } | { profile: true; run_id: string; question_id?: string; goal?: string };
@@ -121,7 +121,7 @@ function ArtifactCard({ artifact, sessionRef, onEvent }: { artifact: Artifact; s
 }
 
 function MessageRow({ message, sessionRef, onArtifactEvent }: { message: ChatMessage; sessionRef: string | null; onArtifactEvent: (artifact: Artifact, response: "submitted" | "skipped" | "bypassed_free_text", answer: string) => void }) {
-  return <article className={`chatbox-message ${message.role}`}><div className="chatbox-avatar" aria-hidden="true">{message.role === "student" ? "你" : "∴"}</div><div className="chatbox-message-body"><div className="chatbox-message-head"><strong>{message.role === "student" ? "你" : PRODUCT_NAME}</strong>{message.label && <small>{message.label}</small>}</div>{message.role === "agent" && !!message.thinking?.length && <ThinkingPanel steps={message.thinking} />}{message.text && <div className="chatbox-copy"><MathText text={message.text} as="div" /></div>}{message.artifacts?.map((artifact, index) => <ArtifactCard key={artifact.artifact_id || index} artifact={artifact} sessionRef={sessionRef} onEvent={onArtifactEvent} />)}</div></article>;
+  return <article className={`chatbox-message ${message.role}`}><div className="chatbox-avatar" aria-hidden="true">{message.role === "student" ? "你" : "∴"}</div><div className="chatbox-message-body"><div className="chatbox-message-head"><strong>{message.role === "student" ? "你" : PRODUCT_NAME}</strong>{message.label && <small>{message.label}</small>}</div>{message.role === "agent" && !!message.thinking?.length && <ThinkingPanel steps={message.thinking} />}{message.text && <div className="chatbox-copy"><MathText text={message.text} as="div" /></div>}{!!message.images?.length && <div className="chatbox-images">{message.images.map((src, index) => <img key={index} src={src} alt={`附件 ${index + 1}`} width="640" height="480" loading="lazy" decoding="async" />)}</div>}{message.artifacts?.map((artifact, index) => <ArtifactCard key={artifact.artifact_id || index} artifact={artifact} sessionRef={sessionRef} onEvent={onArtifactEvent} />)}</div></article>;
 }
 
 function PracticeQuestionCard({ question, selected, answer, files, disabled, sessionReady, busy, onSelected, onAnswer, onFiles, onHelp, onSubmit }: { question?: Question; selected: string[]; answer: string; files: File[]; disabled: boolean; sessionReady: boolean; busy: boolean; onSelected: (values: string[]) => void; onAnswer: (value: string) => void; onFiles: (files: File[]) => void; onHelp: (action: "stuck" | "check_step" | "method_hint") => void; onSubmit: () => void }) {
@@ -165,7 +165,7 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
   const stillOnThisRoute = () => mounted.current && window.location.pathname === (askMode ? "/ask" : "/solve");
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const question = useQuery({ queryKey: ["question", qid], queryFn: () => apiFetch<Question>(`/api/questions/${encodeURIComponent(qid)}`), enabled: Boolean(qid), retry: false });
-  const addMessage = (role: "student" | "agent", text: string, label = "", artifacts: Artifact[] = [], thinking: TraceStep[] = []) => setMessages((current) => [...current, { id: `${Date.now()}-${Math.random()}`, role, text, label, artifacts, thinking }]);
+  const addMessage = (role: "student" | "agent", text: string, label = "", artifacts: Artifact[] = [], thinking: TraceStep[] = [], images: string[] = []) => setMessages((current) => [...current, { id: `${Date.now()}-${Math.random()}`, role, text, label, artifacts, thinking, images }]);
   const latestSteps = async (ref: string | null, startedAt?: string) => {
     if (!ref) return [];
     const after = startedAt ? Date.parse(startedAt) : Number.NEGATIVE_INFINITY;
@@ -271,9 +271,16 @@ export function SolvePage({ askMode = false }: { askMode?: boolean }) {
   });
   const ask = useMutation({
     mutationFn: async () => apiFetch<any>("/api/ask", { method: "POST", ...jsonBody({ conversation_id: conversationId, text: askText.trim(), images: await filesToImages(askFiles) }) }),
-    onMutate: () => { const startedAt = new Date().toISOString(); addMessage("student", askText.trim() || "（上传图片）"); return { startedAt }; },
-    onSuccess: async (data, _variables, context) => { setConversationId(data.conversation_id); addMessage("agent", data.reply, "", data.artifacts || [], await latestSteps(data.conversation_id, context?.startedAt)); setAskText(""); setAskFiles([]); },
-    onError: () => addMessage("agent", "暂时没有收到回复，你的提问仍保留在页面上。", "提示"),
+    onMutate: () => {
+      const startedAt = new Date().toISOString();
+      const previews = askFiles.map((file) => URL.createObjectURL(file));
+      addMessage("student", askText.trim() || "（上传图片）", "", [], [], previews);
+      setAskText("");
+      setAskFiles([]);
+      return { startedAt, previews };
+    },
+    onSuccess: async (data, _variables, context) => { setConversationId(data.conversation_id); addMessage("agent", data.reply, "", data.artifacts || [], await latestSteps(data.conversation_id, context?.startedAt)); context?.previews?.forEach((url) => URL.revokeObjectURL(url)); },
+    onError: (_error, _variables, context) => { addMessage("agent", "暂时没有收到回复，你的提问已保留在对话中。", "提示"); context?.previews?.forEach((url) => URL.revokeObjectURL(url)); },
   });
   const cardEvent = async (artifact: Artifact, response: "submitted" | "skipped" | "bypassed_free_text", cardAnswer: string) => {
     const ref = sessionId || conversationId; if (!ref) return;
