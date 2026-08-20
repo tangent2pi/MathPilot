@@ -579,6 +579,8 @@ main.learning-chat-page {
 @media (max-width: 620px) {
   .studio-hero, .review-detail-head, .review-save-row, .bulk-action-bar, .ask-send-row, .account-avatar-editor, .onboarding-callout { align-items: stretch; flex-direction: column; }
   .profile-settings-nav { grid-template-columns: 1fr; }
+  .class-create-form { grid-template-columns: minmax(0, 1fr); }
+  .class-create-form .btn { width: 100%; }
   .dashboard-stat-grid, .review-filter-grid, .decision-buttons, .learning-entry-grid, .library-package-list { grid-template-columns: 1fr; }
   .learning-entry:last-child { grid-column: auto; }
   .review-image-grid, .image-upload-grid { grid-template-columns: 1fr; }
