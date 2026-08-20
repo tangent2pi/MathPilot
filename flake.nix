@@ -1,5 +1,5 @@
 {
-  description = "AGMATH 开发环境（nix develop）";
+  description = "MathPilot 开发环境（nix develop）";
 
   inputs = {
     # 开发环境基于 nixpkgs unstable，工具版本较新
@@ -29,6 +29,11 @@
               # 算法侧车（ADR-001）：pyBKT 需 python3 + C++ 编译（venv 内 pip 安装）
               python312
               gcc
+              # 前端/TS 工具链（P1：nix develop 内可跑 pnpm typecheck/test/contracts:validate）
+              nodejs_22
+              pnpm
+              # 契约 schema 校验（packages/contracts 测试依赖 jsonschema）
+              python312Packages.jsonschema
             ];
 
             # numpy/pyBKT 等 C 扩展依赖 libstdc++/libz 可加载

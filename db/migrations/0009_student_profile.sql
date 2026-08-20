@@ -22,7 +22,8 @@ create policy tenant_isolation on state_student_profile
   using (tenant_id = current_setting('app.current_tenant', true))
   with check (tenant_id = current_setting('app.current_tenant', true));
 
-grant select, insert, update, delete on state_student_profile to agmath_app;
+-- 应用角色属于部署配置，可能尚未在全新数据库中创建；权限统一由
+-- deploy/dev/bootstrap.sql 在全部迁移完成后授予。
 
 insert into infra_schema_migration(version) values ('0009_student_profile');
 commit;

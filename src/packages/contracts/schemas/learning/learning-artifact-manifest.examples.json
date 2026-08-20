@@ -5,9 +5,9 @@
     "session_id": "s_m3n4b5v6",
     "kind": "question_card",
     "renderer": "native_card",
+    "title": "补角判断卡",
     "entry": "card.json",
     "files": [
-      { "path": "manifest.json", "mime_type": "application/json", "byte_size": 812, "content_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
       { "path": "card.json", "mime_type": "application/json", "byte_size": 433, "content_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }
     ],
     "response_policy": { "required": false, "allow_skip": true, "allow_free_text_without_answer": true },
@@ -25,6 +25,7 @@
     "session_id": "s_m3n4b5v6",
     "kind": "knowledge_visualization",
     "renderer": "sandboxed_html",
+    "title": "非法路径示例",
     "entry": "index.html",
     "files": [
       { "path": "../escape.html", "mime_type": "text/html", "byte_size": 100, "content_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" }

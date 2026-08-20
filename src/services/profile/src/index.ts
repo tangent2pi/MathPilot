@@ -13,122 +13,22 @@
  * - 本服务是 StudentSnapshot 唯一写入方。
  */
 import { startService, createPool, withTenant, newId } from "./lib.ts";
-import { createAgentRuntimeClient } from "@agmath/providers-model";
-import { masteryState } from "@agmath/mastery";
+import { createAgentRuntimeClient } from "@mathpilot/providers-model";
+import { masteryState } from "@mathpilot/mastery";
 import { planFromProfile } from "./planner.ts";
 import { rosterGetMastery, rosterUpdate } from "./bkt-sidecar.ts";
+import {
+  validatePud,
+  VALIDATOR_VERSION,
+  type DimensionUpdate,
+  type PudPayload,
+} from "./validator.ts";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
 /** 模型调用统一经 agent-runtime（Pi 宿主）；本服务不直连任何模型供应商 */
 const AGENT_RUNTIME_URL = process.env.AGENT_RUNTIME_URL ?? "http://localhost:3005";
 const REVIEW_URL = process.env.REVIEW_URL ?? "http://localhost:3008";
 const runtime = createAgentRuntimeClient({ baseUrl: AGENT_RUNTIME_URL });
-
-/** 版本化证据码 LR 区间（设计 §9.4，首版 prior_only 专家先验） */
-const EVIDENCE_CODE_LR: Record<string, [number, number]> = {
-  TRANSFER_SUCCESS_DISTINCT_CONTEXT: [2.0, 4.0],
-  SELF_CORRECTION_RECURS: [1.3, 2.0],
-  METHOD_STABLE_ACROSS_CONTEXTS: [1.3, 2.0],
-  HINT_DEPENDENCY_DECLINES: [1.1, 1.5],
-  REPEATED_MISCONCEPTION: [0.25, 0.5],
-  TRANSFER_FAILURE_DISTINCT_CONTEXT: [0.25, 0.5],
-  METHOD_INSTABILITY: [0.5, 0.8],
-};
-
-const VALIDATOR_VERSION = "profile-validator-0.1.0";
-
-interface DimensionUpdate {
-  dimension_id: string;
-  p_baseline: number;
-  p_final: number;
-  state_final: string;
-  evidence_ledger: {
-    code: string;
-    rubric_bin: string;
-    lr_used: number;
-    session_refs: string[];
-    evidence_refs: string[];
-    counterevidence_refs?: string[];
-    explanation: string;
-  }[];
-  alternatives?: string[];
-  uncertainty: "low" | "medium" | "high";
-}
-
-interface PudPayload {
-  decision_id: string;
-  student_id: string;
-  evidence_bundle_id?: string;
-  prior_snapshot_id: string | null;
-  supersedes?: string | null;
-  baseline_report_refs: string[];
-  teaching_summary_refs: string[];
-  dimension_updates: DimensionUpdate[];
-  semantic_profile_updates: unknown[];
-  review_required: boolean;
-  model_id: string;
-  prompt_version: string;
-  skill_version: string;
-  created_at: string;
-}
-
-interface ValidationCheck {
-  check: string;
-  passed: boolean;
-  failures?: string[];
-}
-
-function logit(p: number): number {
-  const c = Math.min(Math.max(p, 1e-6), 1 - 1e-6);
-  return Math.log(c / (1 - c));
-}
-
-/** 确定性 Validator：只校验（引用/区间/算术/双 Session），不得修改 Decision（设计 §9.4） */
-function validatePud(pud: PudPayload, existingRefs: Set<string>): ValidationCheck[] {
-  const refFailures: string[] = [];
-  for (const r of [...pud.baseline_report_refs, ...pud.teaching_summary_refs]) {
-    if (!existingRefs.has(r)) refFailures.push(r);
-  }
-
-  const lrFailures: string[] = [];
-  const arithFailures: string[] = [];
-  const sessionFailures: string[] = [];
-  const codeSeen = new Set<string>();
-  const dupFailures: string[] = [];
-
-  for (const du of pud.dimension_updates) {
-    let sumLogLr = 0;
-    for (const e of du.evidence_ledger) {
-      const range = EVIDENCE_CODE_LR[e.code];
-      if (!range) lrFailures.push(`${e.code}: unknown evidence code`);
-      else if (e.lr_used < range[0] || e.lr_used > range[1]) {
-        lrFailures.push(`${e.code}: lr ${e.lr_used} outside [${range[0]}, ${range[1]}]`);
-      }
-      if (codeSeen.has(`${du.dimension_id}:${e.code}`)) {
-        dupFailures.push(`${du.dimension_id}:${e.code} double counted`);
-      }
-      codeSeen.add(`${du.dimension_id}:${e.code}`);
-      sumLogLr += Math.log(e.lr_used);
-      if (Math.abs(du.p_final - du.p_baseline) > 1e-9 && e.session_refs.length < 2) {
-        sessionFailures.push(`${du.dimension_id}: numeric update requires >=2 distinct sessions`);
-      }
-    }
-    const expected = 1 / (1 + Math.exp(-(logit(du.p_baseline) + sumLogLr)));
-    if (Math.abs(expected - du.p_final) > 0.01) {
-      arithFailures.push(`${du.dimension_id}: p_final ${du.p_final} != recomputed ${expected.toFixed(4)}`);
-    }
-  }
-
-  return [
-    { check: "refs_exist_and_authorized", passed: refFailures.length === 0, ...(refFailures.length ? { failures: refFailures } : {}) },
-    { check: "provenance_complete", passed: Boolean(pud.model_id && pud.prompt_version && pud.skill_version) },
-    { check: "lr_within_allowed_range", passed: lrFailures.length === 0, ...(lrFailures.length ? { failures: lrFailures } : {}) },
-    { check: "arithmetic_recomputable", passed: arithFailures.length === 0, ...(arithFailures.length ? { failures: arithFailures } : {}) },
-    { check: "no_double_counting", passed: dupFailures.length === 0, ...(dupFailures.length ? { failures: dupFailures } : {}) },
-    { check: "min_two_sessions_per_numeric_update", passed: sessionFailures.length === 0, ...(sessionFailures.length ? { failures: sessionFailures } : {}) },
-    { check: "update_magnitude_review_threshold", passed: pud.dimension_updates.every((d) => Math.abs(d.p_final - d.p_baseline) < 0.5) || pud.review_required },
-  ];
-}
 
 function tenantOf(req: { headers: Record<string, unknown> }): string | null {
   const t = req.headers["x-tenant-id"];
@@ -209,25 +109,23 @@ startService({
       if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
       const { studentId } = req.params as { studentId: string };
       const out = await withTenant(pool, tenantId, async (c) => {
-        const [profile, snapshot, mastery, retention, misconceptions] = await Promise.all([
-          c.query("select payload from state_student_profile where student_id = $1", [studentId]),
-          c.query(
+        const profile = await c.query("select payload from state_student_profile where student_id = $1", [studentId]);
+        const snapshot = await c.query(
             "select payload from state_student_snapshot where student_id = $1 order by published_at desc limit 1",
             [studentId],
-          ),
-          c.query(
+          );
+        const mastery = await c.query(
             "select dimension_id, p_profile, state, updated_at from state_mastery_state where student_id = $1",
             [studentId],
-          ),
-          c.query(
+          );
+        const retention = await c.query(
             "select dimension_id, i90_posterior, next_review_due, stable from state_retention_state where student_id = $1",
             [studentId],
-          ),
-          c.query(
+          );
+        const misconceptions = await c.query(
             "select error_cause_id, state, evidence_refs, updated_at from state_misconception_state where student_id = $1 order by updated_at desc",
             [studentId],
-          ),
-        ]);
+          );
         return {
           profile: profile.rows[0]?.payload ?? null,
           snapshot: snapshot.rows[0]?.payload ?? null,
@@ -238,6 +136,26 @@ startService({
         };
       });
       return out;
+    });
+
+    /** 过程性历史：快照链、计划版本、保持率与错因状态，供学生趋势和教师复核只读展示。 */
+    app.get("/students/:studentId/history", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const { studentId } = req.params as { studentId: string };
+      return withTenant(pool, tenantId, async (c) => {
+        const snapshots = await c.query("select payload from state_student_snapshot where student_id = $1 order by published_at desc limit 50", [studentId]);
+        const plans = await c.query("select payload from state_learning_plan where student_id = $1 order by created_at desc limit 20", [studentId]);
+        const retention = await c.query("select dimension_id,i90_posterior,next_review_due,stable,updated_at from state_retention_state where student_id = $1 order by updated_at desc", [studentId]);
+        const misconceptions = await c.query("select error_cause_id,state,evidence_refs,updated_at from state_misconception_state where student_id = $1 order by updated_at desc", [studentId]);
+        return {
+          student_id: studentId,
+          snapshots: snapshots.rows.map((r) => r.payload),
+          plans: plans.rows.map((r) => r.payload),
+          retention: retention.rows,
+          misconceptions: misconceptions.rows,
+        };
+      });
     });
 
     /**
@@ -254,17 +172,15 @@ startService({
       }
 
       const facts = await withTenant(pool, tenantId, async (c) => {
-        const [profile, mastery, snapshot] = await Promise.all([
-          c.query("select payload from state_student_profile where student_id = $1", [studentId]),
-          c.query(
+        const profile = await c.query("select payload from state_student_profile where student_id = $1", [studentId]);
+        const mastery = await c.query(
             "select dimension_id, p_profile, state from state_mastery_state where student_id = $1",
             [studentId],
-          ),
-          c.query(
+          );
+        const snapshot = await c.query(
             "select payload from state_student_snapshot where student_id = $1 order by published_at desc limit 1",
             [studentId],
-          ),
-        ]);
+          );
         return { profile: profile.rows[0]?.payload ?? null, mastery: mastery.rows, snapshot: snapshot.rows[0]?.payload ?? null };
       });
       if (!facts.profile) {
@@ -292,15 +208,22 @@ startService({
         sessionRef: newId("pln"),
         tenantId,
         context: {
-          studentProfile: JSON.stringify({
+          studentProfile: "读取 ./input/student/profile.json",
+          planDraft: "读取 ./input/plan/draft.json",
+        },
+        workspaceFiles: [
+          { workspacePath: "student/profile.json", content: JSON.stringify({
             grade: facts.profile.grade,
             target_score: facts.profile.target_score,
             current_score: facts.profile.current_score,
             weekly_hours: facts.profile.weekly_hours,
             self_weak: facts.profile.self_weak,
-          }),
-          planDraft: JSON.stringify(tasks.map((t, i) => ({ task_index: i, ...t }))),
-        },
+          }, null, 2) },
+          { workspacePath: "plan/draft.json", content: JSON.stringify(tasks.map((t, i) => ({ task_index: i, ...t })), null, 2) },
+        ],
+        promptText: "读取工作区中的程序画像与确定性计划草案，只为既有任务顺序生成解释。",
+        databaseScope: { studentId },
+        workspaceLifecycle: "terminal",
       });
       let explanation = "";
       let taskExplanations: Record<string, string> = {};
@@ -365,12 +288,18 @@ startService({
       return row.payload;
     });
 
-    /** 独立校验入口（评测/黄金集用）：对给定 PUD 跑 Validator，不写库 */
+    /** 独立校验入口（评测/黄金集用）：对给定 PUD 跑 Validator，不写库。
+     *  程序基准（Roster）与观测数从库中确定性计算；窗口会话集可显式传入
+     *  （缺省为空集 → 数值调整的会话授权校验按传入集合判定）。 */
     app.post("/dream/validate", async (req, reply) => {
       const tenantId = tenantOf(req) ?? "tnt_dev00001";
-      const pud = req.body as PudPayload;
+      const body = req.body as PudPayload & { window_session_ids?: string[] };
+      const pud = body as PudPayload;
       // refs_exist 以库中实际存在为准
       const existing = new Set<string>();
+      const programBaselines = new Map<string, number>();
+      const obsCounts = new Map<string, number>();
+      const replayByDim = new Map<string, { observation_id: string; outcome: "success" | "failure"; supersedes: string | null }[]>();
       await withTenant(pool, tenantId, async (c) => {
         for (const id of pud.baseline_report_refs ?? []) {
           const r = await c.query(
@@ -382,8 +311,35 @@ startService({
             "select 1 from runtime_teaching_session_summary where summary_id = $1", [id]);
           if (r.rows.length > 0) existing.add(id);
         }
-      }).catch(() => undefined);
-      const checks = validatePud(pud, existing);
+        // 程序基准输入：该生该维度全部独立观测（含 supersede 关系）。先从 DB 取权威事实，
+        // 再在事务外幂等推送到 Roster；容器首次启动时也不能依赖残留 JSONL 状态。
+        for (const dim of new Set((pud.dimension_updates ?? []).map((du) => du.dimension_id))) {
+          const rows = await c.query(
+            `select observation_id, outcome, supersedes
+               from runtime_state_observation
+              where student_id = $1 and dimension_id = $2 and independent
+                and outcome in ('success','failure')
+              order by created_at, observation_id`,
+            [pud.student_id, dim],
+          );
+          const observations = rows.rows as { observation_id: string; outcome: "success" | "failure"; supersedes: string | null }[];
+          replayByDim.set(dim, observations);
+          const superseded = new Set(observations.map((o) => o.supersedes).filter((x): x is string => Boolean(x)));
+          obsCounts.set(dim, observations.filter((o) => !superseded.has(o.observation_id)).length);
+        }
+      });
+      for (const [dim, observations] of replayByDim) {
+        for (const o of observations) {
+          const up = await rosterUpdate(pud.student_id, dim, o.outcome, o.observation_id, o.supersedes ?? undefined);
+          if (!up.ok) {
+            return reply.code(502).send({ error: "roster_update_failed", detail: `${up.error}: ${up.detail ?? ""}` });
+          }
+        }
+        const g = await rosterGetMastery(pud.student_id, dim);
+        if (!g.ok) return reply.code(502).send({ error: "roster_get_failed", detail: `${g.error}: ${g.detail ?? ""}` });
+        if (g.value.p_mastery !== null) programBaselines.set(dim, g.value.p_mastery);
+      }
+      const checks = validatePud(pud, existing, programBaselines, obsCounts, new Set(body.window_session_ids ?? []));
       const passed = checks.every((ck) => ck.passed);
       return reply.send({ result: passed ? "passed" : "returned_to_model", checks, validator_version: VALIDATOR_VERSION });
     });
@@ -423,17 +379,18 @@ startService({
           [studentId],
         );
         const supersedesDecisionId: string | null = priorDecision.rows[0]?.decision_id ?? null;
-        // 窗口观测（供侧车 Roster 推送与证据索引）
+        // Roster 权威重放输入：待处理维度的全部历史独立观测，而非仅本次窗口。
+        // 这样 profile 容器/JSONL 状态重建后，程序基准仍与 DB 全历史一致；
+        // supersedes 一并推送，由侧车排除被取代观测。
+        const pendingDims = [...new Set(pending.rows.map((r) => r.dimension_id as string))];
         const obs = await c.query(
-          `select observation_id, student_id, dimension_id, outcome
+          `select observation_id, student_id, dimension_id, outcome, supersedes
              from runtime_state_observation o
-            where o.student_id = $1 and o.session_id = any($2)
+            where o.student_id = $1 and o.dimension_id = any($2::text[])
               and o.outcome in ('success','failure')
               and o.independent
-              and not exists (
-                select 1 from runtime_state_observation o2 where o2.supersedes = o.observation_id
-              )`,
-          [studentId, pending.rows.map((r) => r.session_id)],
+            order by o.created_at, o.observation_id`,
+          [studentId, pendingDims],
         );
         // 证据索引（§11.3 Dream Context Compiler：按需回看的会话级索引）
         const sessions = await c.query(
@@ -458,9 +415,11 @@ startService({
 
       // ── 阶段 2（事务外）：侧车 Roster 程序基准 + Dream 画像大模型 ──
       // 程序基准（架构修订 v4 §3：pyBKT Roster 成品；失败显式 502，不静默回退）
+      // 替代观测携带 supersedes 旧观测 ID（P0-8：Roster 重放排除被取代观测，与 DB 语义一致）
       const rosterBase = new Map<string, number>();
       for (const o of read.observations) {
-        const up = await rosterUpdate(o.student_id, o.dimension_id, o.outcome, o.observation_id);
+        const up = await rosterUpdate(o.student_id, o.dimension_id, o.outcome, o.observation_id,
+          o.supersedes ?? undefined);
         if (!up.ok) {
           return reply.code(502).send({ error: "roster_update_failed", detail: `${up.error}: ${up.detail ?? ""}` });
         }
@@ -485,16 +444,27 @@ startService({
         sessionRef: newId("dream"),
         tenantId,
         context: {
-          profileWindow: JSON.stringify({
+          profileWindow: "读取 ./input/student/profile-window.json；需要展开证据时按 database Skill 查询其中的稳定引用。",
+          priorSnapshot: "读取 ./input/student/prior-snapshot.json",
+          schemaNote: "p_baseline 为 pyBKT Roster 程序基准（与 SER 一致时使用 SER 值）",
+        },
+        workspaceFiles: [
+          { workspacePath: "student/profile-window.json", content: JSON.stringify({
             records: read.pending.map((r) => ({
               record_id: r.record_id, session_id: r.session_id, ser_id: r.ser_id, tss_id: r.tss_id,
               dimension_id: r.dimension_id, p_bkt_baseline: rosterBase.get(r.dimension_id) ?? r.p_bkt_baseline,
               obs_count: r.obs_count,
             })),
-          }),
-          priorSnapshot: read.priorSnapshotId ? `上一个快照：${read.priorSnapshotId}` : "（首次画像，无前快照）",
-          schemaNote: "p_baseline 为 pyBKT Roster 程序基准（与 SER 一致时使用 SER 值）",
-        },
+            session_evidence_index: read.sessions,
+          }, null, 2) },
+          { workspacePath: "student/prior-snapshot.json", content: JSON.stringify({
+            snapshot_id: read.priorSnapshotId,
+            status: read.priorSnapshotId ? "available_by_database_reference" : "first_profile",
+          }, null, 2) },
+        ],
+        promptText: "读取画像窗口、程序基准、会话证据索引和前序快照引用；仅在需要时通过只读数据库展开稳定引用并生成长期画像更新决策。",
+        databaseScope: { studentId },
+        workspaceLifecycle: "terminal",
       });
       if (!dreamRes.ok) {
         return reply.code(dreamRes.status ?? 502).send({ error: dreamRes.error, detail: dreamRes.detail });
@@ -514,7 +484,8 @@ startService({
           const base = latestByDim.get(d.dimension_id!)!;
           return {
             dimension_id: d.dimension_id!,
-            p_baseline: Math.abs((d.p_baseline ?? base.p) - base.p) < 0.001 ? base.p : (d.p_baseline ?? base.p),
+            // P0-8：不再静默替换模型自报基准——p_baseline 与 Roster 不一致由 Validator 拒绝
+            p_baseline: d.p_baseline ?? base.p,
             p_final: d.p_final ?? base.p,
             state_final: d.state_final ?? masteryState(d.p_final ?? base.p, base.count),
             evidence_ledger: (d.evidence_ledger ?? []) as DimensionUpdate["evidence_ledger"],
@@ -529,6 +500,17 @@ startService({
       );
       if (invalid.length > 0) {
         return reply.code(422).send({ error: "dream_output_invalid", detail: `dimension_updates 越界: ${invalid.map((d) => d.dimension_id).join(",")}` });
+      }
+      // 覆盖校验（P0-8）：模型漏掉待处理维度（或更新了非待处理维度）→ 立即退回，不物化
+      const pendingDims = new Set(read.pending.map((r) => r.dimension_id));
+      const updatedDims = new Set(updates.map((d) => d.dimension_id));
+      const missingDims = [...pendingDims].filter((d) => !updatedDims.has(d));
+      const strayDims = [...updatedDims].filter((d) => !pendingDims.has(d));
+      if (missingDims.length > 0 || strayDims.length > 0) {
+        return reply.code(422).send({
+          error: "dream_output_incomplete",
+          detail: `dimension_updates 未覆盖全部待处理维度（缺 ${missingDims.join(",") || "无"}；多 ${strayDims.join(",") || "无"}）`,
+        });
       }
 
       // ── 阶段 3（写事务）：Bundle + PUD + Validation + 物化 + 消费 ──
@@ -574,7 +556,11 @@ startService({
 
         const existingRefs = new Set<string>();
         for (const r of read.pending) { existingRefs.add(r.ser_id); existingRefs.add(r.tss_id); }
-        const checks = validatePud(pud, existingRefs);
+        // P0-8：程序基准（Roster）、观测数与窗口会话集传入 Validator
+        const obsCounts = new Map<string, number>();
+        for (const [dim, v] of latestByDim) obsCounts.set(dim, v.count);
+        const windowSessions = new Set(read.pending.map((r) => r.session_id));
+        const checks = validatePud(pud, existingRefs, rosterBase, obsCounts, windowSessions);
         const passed = checks.every((ck) => ck.passed);
 
         // 模型声明需要教师复核：不物化快照、不消费 SLR（设计 §9.3：送教师复核）

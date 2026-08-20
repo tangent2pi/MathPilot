@@ -1,0 +1,8 @@
+{
+  "schema": "agmath.ocr-evidence/v1",
+  "original": "src/services/agent-runtime/test/fixtures/source.txt",
+  "ocr_used": false,
+  "reason": "original_is_sufficient",
+  "derived_files": [],
+  "verified_against_original": true
+}

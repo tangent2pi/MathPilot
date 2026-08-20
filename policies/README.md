@@ -23,4 +23,4 @@ policies/
 4. `tasks/*.md` 中的 `{{placeholder}}` 由 skills.ts 在装载时注入任务上下文：
    `question / rubric / userData / fragments / frozenProjection / profileWindow / priorSnapshot / schemaNote`。
 5. 新增任务：先写 `tasks/<task>.md`（SKILL.md 前导）+ manifest 注册，再让领域服务经
-   `@agmath/providers-model` 调用；领域服务不得内联提示文本。
+   `@mathpilot/providers-model` 调用；领域服务不得内联提示文本。

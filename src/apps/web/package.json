@@ -1,9 +1,9 @@
 {
-  "name": "@agmath/web",
+  "name": "@mathpilot/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AGMATH React 单页应用。视觉延续数学卷宗，只经同源 API 访问后端，不持有任何密钥",
+  "description": "数学智元 MathPilot React 单页应用。视觉延续数学卷宗，只经同源 API 访问后端，不持有任何密钥",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",

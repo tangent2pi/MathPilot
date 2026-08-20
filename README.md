@@ -1,59 +1,66 @@
-# AGMATH — 高中数学知识掌握诊断与学习规划 Agent
+# 数学智元（MathPilot）— 高中数学知识掌握诊断与学习规划 Agent
 
-长株潭 Agent 训练营暨创新开发大赛（命题赛道）参赛作品。基于"解三角形"章节试点，
-构建**证据型诊断教学系统**：聊天式一题一诊断 + 错因归因追问 + 传统程序科学基准
+数学智元（MathPilot）是一套面向高中数学学习与教学管理的**证据型诊断教学系统**：聊天式一题一诊断 + 错因归因追问 + 传统程序科学基准
 （BKT/保持率）+ Dream 画像大模型最终更新 + 1-4 周学习计划。
 
 ## 产品定位（一句话）
 
 > 学生以聊天 + 可选草稿做题，每次作答变成可追溯的判定、程序基准与教学总结；
 > 跨题证据由画像模型整理成可展开的状态与计划；教师复核内容与诊断，改判以
-> "取代 + 重放"呈现——不是"会出题的聊天机器人"。
+> "取代 + 重放"呈现，让每个结论都能回到原始学习证据。
 
 ## 核心设计
 
 | 设计要点 | 位置 |
 |---|---|
 | 设计宪法与完整规格 | `design-docs/系统设计v3.3-…md`、`架构修订v4`、`科学内核与Dream设计v1` |
-| 赛题问题 ↔ 设计选择 ↔ 解决方式 | `design-docs/赛题映射与设计溯源v1` |
+| 产品决策与需求溯源 | `design-docs/产品重构基线v1-用户任务与信息架构.md` |
 | 用户呈现形式（界面规格） | `design-docs/用户呈现形式v1` |
-| Agent 策略源（pi Skills） | `policies/`（tasks.manifest.json 管理 prompt_version 与主/辅模型角色） |
+| 标准运行时 Skills | `/opt/agmath-skills` 统一九项树；数学智元六项源于 `src/services/agent-runtime/skills/`，Core/Search/Edu 源于固定 Qwen-MM 本地克隆 |
+| 任务策略源 | `policies/`（只管理任务目标、prompt_version 与主/辅模型角色） |
 | 算法侧车（pyBKT） | `sidecars/pybkt/`（ADR-001：Python 只作算法侧车） |
 
 ## 架构
 
 ```text
-apps/web（正式前端·数学卷宗设计）  apps/web-test（流程演示）
-services/api（OIDC 网关） agent-runtime（Pi 宿主：提供商/运行时 pi 原生管理）
-services/content（OCR→KTQ/ER 双 Session→复核→不可变章节包+字段血缘）
+apps/web（唯一正式前端·统一响应式 App Shell）
+services/api（Better Auth 网关） agent-runtime（完整 Pi 宿主：统一工具/Skill/工作区/Session 投影）
+services/content（原始资料→KTQ→独立 ER→复核；OCR 由 Agent 按原件质量决定）
 services/learning（一题一 Session：判答→错因归因→追问卡→双产物）
 services/profile（画像采集→Dream 三段式（pyBKT Roster 基准+画像大模型）→快照/计划）
 services/review（教师复核：supersede+重放+修订 SLR）
 packages/contracts（21 契约 schema） mastery（OATutor 移植+保持率） selector（选题） providers/{model,ocr}
-db/（PostgreSQL 唯一事实源：RLS+不可变事件触发器，迁移 0001-0009）
+db/（PostgreSQL 唯一事实源：RLS+不可变事件触发器+可恢复内容流水线，迁移 0001-0028）
 ```
 
 ## 快速启动（开发环境）
 
 ```sh
 nix develop            # 进入开发环境（python312+gcc 用于侧车）
+test -d references/qwen-mm-plugins/.git || git clone https://github.com/QwenLM/Qwen-MM-Plugins.git references/qwen-mm-plugins
+git -C references/qwen-mm-plugins checkout dd029da3bcadfe497de4b4ca8976b11177997cf0
 cd deploy/dev && cp .env.example .env   # 配置 MODEL_API_KEY / OCR_API_TOKEN
-docker compose up -d   # postgres+迁移+种子+6 服务+web(8080)+web-test(3000)
+docker compose up -d   # postgres+迁移+种子+6 服务+正式 web(8080)
 ```
 
-- 前端：http://localhost:8080（正式）/ http://localhost:3000（演示）
-- 端到端（需真实模型与 OCR key）：`bash tests/e2e/real-smoke.sh`
+- 前端：http://localhost:8080（唯一正式入口）
+- 无外部调用现状回归：`bash tests/e2e/current-state-smoke.sh`
+- 无外部调用浏览器回归：按 `deploy/dev/README.md` 的命令在 Agent Runtime 中运行 `browser-visual-smoke.mjs`
+- 真实端到端（会调用模型，并可能按 Agent 判断调用 OCR）：`bash tests/e2e/real-smoke.sh`
 - 侧车：`nix develop -c bash sidecars/pybkt/setup.sh` 建 venv；`test.sh` 跑对拍测试
 
 ## 验证现状
 
-- 11 包 `tsc --noEmit` 全绿；mastery（BKT 对拍）/retention/selector 契约测试全绿；
-- 21 契约 schema 样例校验通过；OCR 真实 API 实测打通（PDF→片段→题框入库）；
+- 全 workspace `tsc --noEmit` 全绿；mastery（BKT 对拍）/retention/selector 契约测试全绿；
+- 统一九项 Skill 树通过 `skill-creator` 结构检查；自动测试覆盖元数据、模板、上游固定提交、有效输出与危险/损坏输出拒绝；
+- 21 契约 schema 样例校验通过；PaddleOCR-VL 接口、原件/版面/图片持久化与 Agent 路由已接入；
+- 当前数据库保留教师实测得到的 84 道暂存题、33 个题图资产和 114 项待复核事项；正式学生库仍为空，人工复核完成前不会显示发布入口；
 - 无模型 key 时所有模型路径**显式 502 不伪造**（严禁回退方案纪律）。
 
-## 交付物索引
+## 项目资料索引
 
 - 代码仓库：本仓库（含 README/部署说明）
-- 结构化数据：`data/`（知识点/题型/错因/题目/规则/学生案例）+ 数据整理说明 `docs/数据整理说明.md`
-- 技术方案：`design-docs/赛题映射与设计溯源v1`（测评流程/出题策略/归因逻辑/掌握度/计划）
-- 演示视频：由正式系统派生录制（`docs/` 待录）
+- 结构化数据快照：`data/`（从 PostgreSQL 派生导出，不是运行时数据源）
+- 产品与交互：`design-docs/产品重构基线v1-用户任务与信息架构.md`、`design-docs/Web信息架构与响应式交互重构v2.md`
+- Agent 架构：`design-docs/统一Pi-Agent能力壳与工作区会话架构v1.md`、`design-docs/架构修订v4-Pi原生运行时与成品复用.md`
+- 数据说明：`docs/数据整理说明.md`

@@ -6,16 +6,21 @@
  * 侧车失败显式返回错误，调用方不得静默回退（Review-001"严禁回退方案"）。
  */
 import { spawn } from "node:child_process";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-// 默认使用侧车 venv 解释器（sidecars/pybkt/setup.sh 创建）；部署时经 env 注入
-const SIDECAR_PYTHON = process.env.PYBKT_PYTHON ?? "/home/tangent/AGMATH/sidecars/pybkt/.venv/bin/python";
-const SIDECAR_CLI = process.env.PYBKT_CLI ?? "/home/tangent/AGMATH/sidecars/pybkt/cli.py";
-const PYBKT_STATE_DIR = process.env.PYBKT_STATE_DIR ?? "/home/tangent/AGMATH/sidecars/pybkt/state";
+// 默认使用侧车 venv 解释器（sidecars/pybkt/setup.sh 创建）；部署时经 env 注入。
+// 路径按模块位置解析到仓库根（src/services/profile/src/../../../../ = 仓库根），
+// 与 cwd 无关：开发时服务从各自包目录启动、容器内 WORKDIR=/app 均正确（P0-2 容器化）。
+const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+const SIDECAR_PYTHON = process.env.PYBKT_PYTHON ?? resolve(REPO_ROOT, "sidecars/pybkt/.venv/bin/python");
+const SIDECAR_CLI = process.env.PYBKT_CLI ?? resolve(REPO_ROOT, "sidecars/pybkt/cli.py");
+const PYBKT_STATE_DIR = process.env.PYBKT_STATE_DIR ?? resolve(REPO_ROOT, "sidecars/pybkt/state");
 
 export type SidecarResult<T> = { ok: true; value: T } | { ok: false; error: string; detail?: string };
 
 /** 单次侧车调用：spawn → 发一行请求 → 读末行响应 */
-export async function sidecarCall<T>(req: Record<string, unknown>): Promise<SidecarResult<T>> {
+async function sidecarCall<T>(req: Record<string, unknown>): Promise<SidecarResult<T>> {
   return new Promise((resolve) => {
     let proc;
     try {
@@ -70,12 +75,14 @@ export async function rosterGetMastery(studentId: string, dimensionId: string): 
   });
 }
 
-/** 追加观测（幂等：order_id 唯一） */
+/** 追加观测（幂等：order_id 唯一）；supersedes 为被取代的旧观测 ID（P0-8：
+ *  教师纠正产生的替代观测携带它，Roster 重放据此排除旧观测，与 DB supersede 语义一致） */
 export async function rosterUpdate(
   studentId: string,
   dimensionId: string,
   outcome: "success" | "failure",
   orderId: string,
+  supersedes?: string,
 ): Promise<SidecarResult<{ p_mastery: number | null }>> {
   return sidecarCall<{ p_mastery: number | null }>({
     op: "roster_update",
@@ -83,5 +90,6 @@ export async function rosterUpdate(
     dimension_id: dimensionId,
     outcome,
     order_id: orderId,
+    ...(supersedes ? { supersedes } : {}),
   });
 }

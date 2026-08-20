@@ -259,7 +259,7 @@ async function main() {
   await navigate("/admin.html?view=settings", 834, 1112, "teacher-settings-tablet");
 
   const neutralLoaded = client.event("Page.loadEventFired");
-  await client.send("Page.navigate", { url: `${origin}/favicon.svg` });
+  await client.send("Page.navigate", { url: `${origin}/mathpilot-icon.png` });
   await neutralLoaded;
   const signOut = await evaluate(`fetch('/api/auth/sign-out', {method:'POST'}).then(r => ({ok:r.ok,status:r.status}))`);
   if (!signOut.ok) throw new Error(`sign out failed: ${signOut.status}`);
@@ -290,7 +290,7 @@ async function main() {
     && event.params?.entry?.level === "error"
     && event.params?.entry?.text?.includes("429")
     && event.params?.entry?.url?.endsWith("/api/auth/sign-in/email");
-  // 角色切换时临时导航到 SVG 以销毁旧页轮询；Chromium 会为该图片文档额外探测传统 favicon.ico。
+  // 角色切换时临时导航到品牌图标以销毁旧页轮询；Chromium 会为该图片文档额外探测传统 favicon.ico。
   const expectedNeutralFavicon = (event) => event.method === "Log.entryAdded"
     && event.params?.entry?.text?.includes("404")
     && event.params?.entry?.url?.endsWith("/favicon.ico");

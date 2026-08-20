@@ -1,0 +1,23 @@
+error_id,错因大类,错因名称,表现形式,判断依据,补救建议
+E_ALTITUDE_BASE_ERR,对应错误,高线底边对应错误,高与底边不匹配,面积=½·底·高 对不上,画图标注底与高
+E_ANGLE_SIDE_CONVERT,等价性破坏,角化边/边化角等价性破坏,无中生有引入比例,变换可逆性检查,只允许正弦定理整式变换
+E_AREA_HALF_MISS,公式误用,面积公式漏 ½ 或 sinA,面积计算差 ½ 倍,结果与单位检查,S=½·a·b·sinC 三步走
+E_BISECTOR_RATIO_ERR,比例误用,角平分线比例定理误用,BD/DC 写成边反比,比例方向错误,BD/DC=AB/AC 对应写清
+E_CIRCUMRADIUS_ERR,公式误用,外接圆半径公式误用,R=a/sinA 漏 2,结果合理性检查,R=a/(2sinA) 与正弦定理同源
+E_COMPUTE_SLIP,运算粗心,运算粗心错误,中间步骤符号/数值错误,结果与估算偏差大,代入验算、量纲检查
+E_COSINE_SIGN,公式误用,余弦定理符号错误,中间项符号错（+2bc 等）,代入展开检查,重抄公式 a²=b²+c²−2bc·cosA
+E_EQUAL_AREA_SETUP_ERR,列式错误,等面积法列式错误,两种面积表达不等价,表达式检查,同一三角形面积写成两式
+E_EXISTENCE_UNCHECKED,,未检验三角形存在条件,,,
+E_FORMULA_MISUSE,公式误用,正余弦定理公式混用,求边用余弦、求角用正弦混用,条件与公式不匹配,按已知条件选定理
+E_HIDDEN_CIRCLE_MISS,模型识别失败,隐圆几何关系未识别,定角条件未转轨迹,角度恒定未用,∠APB 定角→圆弧轨迹
+E_INEQUALITY_DIRECTION,不等式误用,基本不等式方向/取等误用,用错 ≥/≤ 或取等不成立,等号条件检验,a+b 定值求 ab 最大，ab 定值求 a+b 最小
+E_INRADIUS_AREA_ERR,公式误用,内切圆半径与面积关系误用,r=S/s 用成 r=S/a,数值验证,r=S/s，s 为半周长
+E_MEDIAN_FORMULA_ERR,公式记忆错误,中线长公式记错,系数或减号错误,公式检验：等边三角形自检,m_a=½√(2b²+2c²−a²) 特例验证
+E_MULTI_TRI_ANGLE_ERR,对应错误,多三角形公共角对应错误,拆分后角度对应错,几何图示核对,拆分图画公共角标注
+E_RANGE_END_MISS,取等条件遗漏,最值取等条件遗漏,给出范围不含取等说明,未验证取等可达,取等条件：变量取值必须落在定义域
+E_SHAPE_OVERGENERAL,结论过度泛化,形状判断过度泛化,仅凭一角定为某形状,条件不足以推出结论,逐一验证边/角关系
+E_SINE_AMBIGUITY,分类讨论不完整,正弦定理漏解或增解,解数判断错误,未验证 A+B<180° 或漏第二解,逐解验证三角形存在性
+E_SSA_MISSING_OBTUSE,分类讨论不完整,遗漏 SSA 补角分支,只给锐角解，未讨论补角,sinB 对应两角时仅取锐角,补角判断卡：sinB=x 时 B 可能值
+E_SSA_MISSING_SUPPLEMENT,,SSA 情形遗漏补角分支,,,
+E_TANGENT_DENOM_ZERO,定义域遗漏,正切恒等式分母为零,tan 和角分母为零时硬套,分母检验,A+B=90° 时 tan 无定义
+E_TRIG_RANGE_UNBOUNDED,范围误判,三角函数值域误判,"sin+sin 范围写成 [0,2]",未用和差化积,sinA+sinB=2sin((A+B)/2)cos((A−B)/2)

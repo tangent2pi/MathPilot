@@ -1,0 +1,22 @@
+rule_id,触发条件,知识点ID,题型ID,错因ID,诊断结论,学习建议,优先级
+R_ALTITUDE_BASE_CHECK,高与底边不对应,K_ALTITUDE,T_ALTITUDE_SOLVE,E_ALTITUDE_BASE_ERR,高与底边不对应,这个高对应哪条底边？面积两种写法一致吗？,1
+R_ANGLE_SIDE_CONVERT_CHECK,边角变换不可逆,K_ANGLE_TO_SIDE|K_SIDE_TO_ANGLE,T_ANGLE_SOLVE,E_ANGLE_SIDE_CONVERT,边角变换不可逆,这个变换每一步都能逆回去吗？,1
+R_AREA_HALF_CHECK,面积结果与边长量级不符,K_TRIANGLE_AREA,T_AREA_COMPUTE,E_AREA_HALF_MISS,面积结果与边长量级不符,面积公式写一遍，检查 ½ 与 sinA 是否都在。,1
+R_BISECTOR_RATIO_CHECK,角平分线分边比例方向错误,K_ANGLE_BISECTOR,T_BISECTOR_SOLVE,E_BISECTOR_RATIO_ERR,角平分线分边比例方向错误,BD/DC 应等于哪两条边的比？,1
+R_CIRCUMRADIUS_CHECK,外接圆半径缺 2 倍,K_CIRCUMCIRCLE,T_CIRCUMCIRCLE_SOLVE,E_CIRCUMRADIUS_ERR,外接圆半径缺 2 倍,R 与 a、sinA 的关系式写全。,1
+R_COMPUTE_SLIP_CHECK,结果与估算量级不符,K_SINE_RULE|K_COSINE_RULE,T_SIDE_SOLVE,E_COMPUTE_SLIP,结果与估算量级不符,把代入过程重新写一遍，逐行验算。,1
+R_COSINE_SIGN_CHECK,余弦定理展开中间项符号错误,K_COSINE_RULE,T_SIDE_SOLVE,E_COSINE_SIGN,余弦定理展开中间项符号错误,把余弦定理重新展开：a²=b²+c²−2bc·cosA。,1
+R_EQUAL_AREA_CHECK,等面积两种表达不相等,K_EQUAL_AREA,T_EQUAL_AREA,E_EQUAL_AREA_SETUP_ERR,等面积两种表达不相等,同一面积写两种表达式再相等。,1
+R_FORMULA_MISUSE_CHECK,已知条件与所用定理不匹配,K_SINE_RULE|K_COSINE_RULE,T_ANGLE_SOLVE,E_FORMULA_MISUSE,已知条件与所用定理不匹配,这个条件应该用正弦还是余弦？为什么？,1
+R_HIDDEN_CIRCLE_CHECK,定角条件未识别轨迹,K_HIDDEN_CIRCLE,T_POWER_AND_CIRCLE,E_HIDDEN_CIRCLE_MISS,定角条件未识别轨迹,角度恒定说明点 P 在什么曲线上？,1
+R_INEQUALITY_DIR_CHECK,不等式方向或取等误用,K_INEQUALITY,T_INEQUALITY_APPLY,E_INEQUALITY_DIRECTION,不等式方向或取等误用,a+b 与 ab 哪个是定值？方向写对了吗？,1
+R_INRADIUS_CHECK,内切圆半径用错半周长,K_INCIRCLE,T_INCIRCLE_SOLVE,E_INRADIUS_AREA_ERR,内切圆半径用错半周长,r=S/s 里 s 是什么？,1
+R_MEDIAN_FORMULA_CHECK,中线长公式系数/符号错误,K_MEDIAN,T_MEDIAN_SOLVE,E_MEDIAN_FORMULA_ERR,中线长公式系数/符号错误,用等边三角形自检一遍中线公式。,1
+R_MULTI_TRIANGLE_CHECK,拆分三角形角度对应错误,K_MULTI_TRIANGLE,T_MULTI_TRIANGLE,E_MULTI_TRI_ANGLE_ERR,拆分三角形角度对应错误,画出拆分图，标注公共角，重新对应。,1
+R_RANGE_END_CHECK,最值未验证取等条件,K_INEQUALITY|K_EDGE_RANGE,T_MAX_MIN,E_RANGE_END_MISS,最值未验证取等条件,取等条件成立吗？变量能取到吗？,1
+R_SHAPE_JUDGE_CHECK,仅凭单一条件断言形状,K_SHAPE_JUDGE,T_SHAPE_JUDGE,E_SHAPE_OVERGENERAL,仅凭单一条件断言形状,这个条件能推出什么？还需要什么条件？,1
+R_SINE_AMBIGUITY_CHECK,解数判断与存在性验证缺失,K_SSA|K_TRIANGLE_EXISTENCE,T_SSA_SOLVE,E_SINE_AMBIGUITY,解数判断与存在性验证缺失,两解都满足 A+B<180° 吗？逐个验证。,1
+R_SSA_BRANCH_CHECK,sinB 值给出单一锐角解,K_SSA|K_TRIANGLE_EXISTENCE,T_SSA_BRANCH,E_SSA_MISSING_OBTUSE,sinB 值给出单一锐角解,sinB=x 时 B 的可能值有哪些？,1
+R_SSA_BRANCH_PROBE,verdict=partially_correct and rubric.ssa_branch_check=not_met,"","",E_SSA_MISSING_SUPPLEMENT|E_EXISTENCE_UNCHECKED,verdict=partially_correct and rubric.ssa_branch_check=not_met,补角判断微型探针,1
+R_TANGENT_DENOM_CHECK,正切和角分母为零,K_TANGENT_IDENTITY,T_TANGENT_IDENTITY,E_TANGENT_DENOM_ZERO,正切和角分母为零,tan(A+B) 的分母在什么情况下为零？,1
+R_TRIG_RANGE_CHECK,三角式范围超出实际值域,K_TRIG_RANGE|K_SIDE_TO_ANGLE,T_TRIG_FUNC_RANGE,E_TRIG_RANGE_UNBOUNDED,三角式范围超出实际值域,用和差化积把 sinA+sinB 化开再求范围。,1

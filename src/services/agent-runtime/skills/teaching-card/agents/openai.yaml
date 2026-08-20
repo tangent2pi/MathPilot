@@ -1,0 +1,6 @@
+interface:
+  display_name: "教学交互卡片"
+  short_description: "生成可跳过、可自由作答且不越权判分的教学卡片"
+  default_prompt: "Use $teaching-card to create and validate a file-based native or sandboxed teaching card."
+policy:
+  allow_implicit_invocation: true

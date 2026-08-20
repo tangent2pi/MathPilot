@@ -1,0 +1,6 @@
+interface:
+  display_name: "教学产物发布"
+  short_description: "将 Edu Agent 页面或视频适配并验证为离线教学产物"
+  default_prompt: "Use $teaching-artifact-adapter with $qwen-mm-plugins-edu-agent to create a validated offline artifact."
+policy:
+  allow_implicit_invocation: true

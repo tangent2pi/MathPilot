@@ -1,5 +1,5 @@
 /**
- * @agmath/contracts — 契约包入口（ADR-003）。
+ * @mathpilot/contracts — 契约包入口（ADR-003）。
  * JSON Schema 位于 ../schemas（唯一契约源）；本文件导出 Provider TS 接口。
  */
 export * from "./errors.js";

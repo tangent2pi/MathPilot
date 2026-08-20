@@ -1,5 +1,5 @@
 {
-  "name": "@agmath/mastery",
+  "name": "@mathpilot/mastery",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node test/bkt.test.ts"
+    "test": "node test/bkt.test.ts && node test/retention.test.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

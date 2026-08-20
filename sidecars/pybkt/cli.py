@@ -26,9 +26,13 @@ from roster import DEFAULT_GUESSES, DEFAULT_LEARNS, DEFAULT_PRIOR, DEFAULT_SLIPS
 def op_roster_update(store: RosterStore, req: dict) -> dict:
     student_id, dim = req.get("student_id"), req.get("dimension_id")
     outcome, order_id = req.get("outcome"), req.get("order_id")
+    supersedes = req.get("supersedes")
     if not student_id or not dim or outcome not in ("success", "failure") or not order_id:
         return {"ok": False, "error": "invalid_request", "detail": "student_id/dimension_id/outcome/order_id 必填"}
-    store.append({"student_id": student_id, "dimension_id": dim, "outcome": outcome, "order_id": order_id})
+    obs = {"student_id": student_id, "dimension_id": dim, "outcome": outcome, "order_id": order_id}
+    if supersedes:
+        obs["supersedes"] = supersedes
+    store.append(obs)
     p = store.mastery(student_id, dim)
     return {"ok": True, "value": {"p_mastery": p}, "parameter_set_id": "bkt_prior_v1"}
 

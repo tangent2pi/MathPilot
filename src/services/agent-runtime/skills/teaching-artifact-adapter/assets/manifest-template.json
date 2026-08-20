@@ -1,0 +1,11 @@
+{
+  "schema": "agmath.learning-artifact/v1",
+  "artifact_id": "art_example",
+  "session_id": "session_example",
+  "kind": "knowledge_visualization",
+  "renderer": "sandboxed_html",
+  "entry": "index.html",
+  "title": "",
+  "files": [],
+  "response_policy": {"required": false, "allow_skip": true, "allow_free_text_without_answer": true}
+}

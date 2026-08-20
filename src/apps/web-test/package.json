@@ -1,7 +1,0 @@
-{
-  "name": "@agmath/web-test",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "description": "流程验证前端（静态页，nginx 托管）；仅经 api 访问后端，不持有任何密钥"
-}

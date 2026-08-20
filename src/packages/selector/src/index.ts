@@ -28,6 +28,7 @@ export interface QuestionCandidate {
   measurement_targets: { dim: string; role: TargetRole }[];
   /** 有评分点 = 答案可验证（硬过滤项） */
   answer_verifiable: boolean;
+  difficulty?: number;
 }
 
 export interface MasteryView {
@@ -46,6 +47,8 @@ export interface SelectorContext {
   seen: Set<string>;
   /** 自认薄弱维度（画像采集） */
   self_weak: string[];
+  /** 消歧目标维度（P1）：本会话错因候选 E 的 related_dims，由会话结束判定写入 run */
+  disambiguation_dims?: string[];
   /** 预测正确率目标区间（练习模式） */
   target_success_band?: [number, number];
   p_correct_now?: (dim: string) => number | null;
@@ -61,7 +64,7 @@ export function hardFilter(ctx: SelectorContext): QuestionCandidate[] {
   });
 }
 
-/** 目标维度集合（按 goal 解释） */
+/** 目标维度集合（按 goal 解释；P1：disambiguation/transfer 有专门目标维度） */
 function goalDims(ctx: SelectorContext): string[] {
   const { goal } = ctx;
   if (goal === "review") {
@@ -69,13 +72,23 @@ function goalDims(ctx: SelectorContext): string[] {
       .filter(([, m]) => m.next_review_due_days !== null && m.next_review_due_days <= 7)
       .map(([dim]) => dim);
   }
-  if (goal === "training") return ctx.self_weak;
+  if (goal === "training") return [...new Set([
+    ...ctx.self_weak,
+    ...Object.entries(ctx.mastery).filter(([, m]) => m.state === "weak" || m.state === "learning").map(([dim]) => dim),
+  ])];
   if (goal === "prerequisite") {
     return Object.entries(ctx.mastery)
       .filter(([, m]) => m.state === "insufficient_evidence" || m.p_profile === undefined)
       .map(([dim]) => dim);
   }
-  return []; // coverage/disambiguation/transfer：由测量目标与信息增益驱动
+  if (goal === "disambiguation") return ctx.disambiguation_dims ?? [];
+  if (goal === "transfer") {
+    // 迁移验证针对薄弱/学习中维度（§10.1 目标"迁移验证"）
+    return Object.entries(ctx.mastery)
+      .filter(([, m]) => m.state === "weak" || m.state === "learning")
+      .map(([dim]) => dim);
+  }
+  return []; // coverage：由测量目标与信息增益驱动
 }
 
 /** 评分（§10.2）：返回 ≥0 的分数；0 表示无合适题 */
@@ -119,17 +132,26 @@ export function scoreCandidate(q: QuestionCandidate, ctx: SelectorContext): numb
     score += best * 1.2;
   }
 
+  if (ctx.goal === "training") {
+    const difficulty = q.difficulty ?? 0.5;
+    // 巩固优先低一档/中低难度；不改编题目，只在已发布同维度题中选择。
+    score += difficulty <= 0.6 ? 1.4 : difficulty <= 0.75 ? 0.5 : 0;
+  }
+  if (ctx.goal === "transfer") score += (q.difficulty ?? 0.5) >= 0.65 ? 1.2 : 0;
+
   // fatigue_cost / leakage_risk：骨架期取 0（后续按会话内题量/泄露风险接入）
   return score;
 }
 
-/** 选择下一题：硬过滤 → 评分 → 最高分；并列时取第一个（确定性；辅助模型裁决在宿主侧） */
+/** 选择下一题：硬过滤 → 评分 → 最高分；并列时取第一个（确定性；辅助模型裁决在宿主侧）。
+ *  零分候选（P1）视为"无合适题"返回 null（避免选中与目标无关的题目）。 */
 export function selectNext(ctx: SelectorContext): { question_id: string; score: number } | null {
   const filtered = hardFilter(ctx);
   if (filtered.length === 0) return null;
   let best: { question_id: string; score: number } | null = null;
   for (const q of filtered) {
     const s = scoreCandidate(q, ctx);
+    if (s <= 0) continue;
     if (best === null || s > best.score) best = { question_id: q.question_id, score: s };
   }
   return best;

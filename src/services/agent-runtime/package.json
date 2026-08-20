@@ -1,18 +1,25 @@
 {
-  "name": "@agmath/agent-runtime",
+  "name": "@mathpilot/agent-runtime",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "start": "node --import tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.83.0",
-    "@earendil-works/pi-ai": "0.83.0",
-    "fastify": "^5.2.0"
+    "@earendil-works/pi-agent-core": "0.84.1",
+    "@earendil-works/pi-ai": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.1",
+    "fastify": "^5.2.0",
+    "pi-mcp-adapter": "2.26.1",
+    "pg": "^8.13.1",
+    "tsx": "4.20.6"
   },
   "devDependencies": {
+    "@types/cross-spawn": "6.0.6",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.6.0"
   }
 }

@@ -11,10 +11,11 @@ function check(name: string, actual: unknown, expected: unknown) {
   else console.log(`ok   ${name}`);
 }
 
-const q = (id: string, dims: string[], roles: Array<"primary" | "secondary" | "prerequisite"> = ["primary"], verifiable = true): QuestionCandidate => ({
+const q = (id: string, dims: string[], roles: Array<"primary" | "secondary" | "prerequisite"> = ["primary"], verifiable = true, difficulty = 0.5): QuestionCandidate => ({
   question_id: id, tags: dims, measurement_dims: dims,
   measurement_targets: dims.map((dim, i) => ({ dim, role: roles[i] ?? "primary" })),
   answer_verifiable: verifiable,
+  difficulty,
 });
 
 const base: SelectorContext = {
@@ -44,6 +45,12 @@ check("覆盖模式选未覆盖维度题", cov?.question_id === "Q_1" ? 1 : 0, 1
 const train: SelectorContext = { ...base, goal: "training", self_weak: ["K_SINE_RULE"] };
 const tr = selectNext(train);
 check("训练模式选薄弱维度题", tr?.question_id === "Q_2" ? 1 : 0, 1);
+
+const lower = selectNext({ ...base, goal: "training", self_weak: ["K_SSA"], mastery: {}, seen: new Set(), candidates: [
+  q("Q_EASY", ["K_SSA"], ["primary"], true, 0.4),
+  q("Q_HARD", ["K_SSA"], ["primary"], true, 0.9),
+] });
+check("专项巩固优先低一档题", lower?.question_id === "Q_EASY" ? 1 : 0, 1);
 
 // 复测模式：到期维度优先
 const review: SelectorContext = {

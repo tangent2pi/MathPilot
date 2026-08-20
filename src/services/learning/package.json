@@ -1,5 +1,5 @@
 {
-  "name": "@agmath/learning",
+  "name": "@mathpilot/learning",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,11 +8,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agmath/mastery": "workspace:*",
-    "@agmath/providers-model": "workspace:*",
+    "@mathpilot/mastery": "workspace:*",
+    "@mathpilot/providers-model": "workspace:*",
     "fastify": "^5.2.0",
     "pg": "^8.13.1",
-    "@agmath/selector": "workspace:*"
+    "@mathpilot/selector": "workspace:*"
   },
   "devDependencies": {
     "@types/pg": "^8.11.10",

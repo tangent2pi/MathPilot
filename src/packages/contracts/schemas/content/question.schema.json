@@ -25,6 +25,19 @@
       "type": "string",
       "enum": ["single_choice", "multiple_choice", "fill_blank", "true_false", "open_solution"]
     },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "text_markdown"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "text_markdown": { "type": "string", "minLength": 1 },
+          "asset_id": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
     "answer": {
       "type": "object",
       "description": "标准答案；结构随 stem_format 而定，发布校验必须齐全"

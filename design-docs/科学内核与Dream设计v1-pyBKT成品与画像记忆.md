@@ -92,11 +92,11 @@ SLR 窗口（双产物）
 
 ## 6. 记忆系统借鉴（OpenClaw / Hermes）
 
-### 6.1 OpenClaw 记忆架构 → AGMATH 画像映射
+### 6.1 OpenClaw 记忆架构 → MathPilot 画像映射
 
 OpenClaw 记忆五原则：①无隐藏状态（纯文件 + 索引，编辑器可查）②**写入是难点**——策展移出回复路径进后台整理 ③写路径是安全边界（写入时强制血缘）④**确定性门内做模型判断** ⑤失败不阻塞回复。
 
-| OpenClaw 层 | AGMATH 映射 |
+| OpenClaw 层 | MathPilot 映射 |
 |---|---|
 | Instructions（AGENTS.md，常注入） | policies/ + 工作区 AGENTS.md（已有） |
 | Curated core（MEMORY.md/USER.md，预算内常注入） | **每学生 `STUDENT.md` 投影**：快照维度 + 待办 + 复测到期，只读投影注入教学 Session（§5.1 student/ 挂载） |
@@ -119,11 +119,11 @@ OpenClaw 记忆五原则：①无隐藏状态（纯文件 + 索引，编辑器�
 
 ### 6.2 Hermes 记忆系统借鉴（调研定稿）
 
-来源：`reference/hermes-agent/`（三层记忆：策展 MEMORY.md/USER.md + 外部 provider 生命周期 + SQLite 会话事件库）。
+来源：`references/hermes-agent/`（三层记忆：策展 MEMORY.md/USER.md + 外部 provider 生命周期 + SQLite 会话事件库）。
 
-**三层映射到 AGMATH 画像**：
+**三层映射到 MathPilot 画像**：
 
-| Hermes 层 | AGMATH 映射 |
+| Hermes 层 | MathPilot 映射 |
 |---|---|
 | 策展记忆（MEMORY.md/USER.md，有界、人类可编辑） | **每学生 STUDENT.md 画像卡**（维度掌握 + 错因 + 复测到期，预算内注入）|
 | 会话事件库（SQLite + FTS5，原始证据） | runtime 证据表（观测/判定/草稿引用，按需检索）|
@@ -137,7 +137,7 @@ OpenClaw 记忆五原则：①无隐藏状态（纯文件 + 索引，编辑器�
 4. **记忆卫生（durable facts only）**：只存持久声明性事实，任务进度/7 天内过期物不入记忆；过程性知识归 skills——对应画像只存掌握/保持率/错因状态，不存"今天做了第 3 题"（§11.4 连续性包另存）；
 5. **FTS5 确定性检索足矣（无需嵌入向量）**：结构化掌握事实用确定性 SQL 检索 + 有界策展卡，比向量库更可审计——对应教学阶段证据查询与错因排序分（§9.7）。
 
-**保留差异**：Hermes 每会话持久化原始转录；AGMATH 的事实层只存事件索引（对象存储在阶段 B），不保存模型隐藏推理（§16.5 可回放 ≠ 保存思维链）。
+**保留差异**：Hermes 每会话持久化原始转录；MathPilot 的事实层只存事件索引（对象存储在阶段 B），不保存模型隐藏推理（§16.5 可回放 ≠ 保存思维链）。
 
 ## 7. 底层理念显式化（2026-08-18 用户校准：以下原则在设计文档中隐式存在，此处显式化）
 
@@ -178,4 +178,4 @@ OpenClaw 记忆五原则：①无隐藏状态（纯文件 + 索引，编辑器�
 
 
 
-来源：`reference/openclaw/`（v2026.8.1，与 pi 同生态——共享 pi-tui，运行时自研；借鉴其架构模式而非代码）。
+来源：`references/openclaw/`（v2026.8.1，与 pi 同生态——共享 pi-tui，运行时自研；借鉴其架构模式而非代码）。

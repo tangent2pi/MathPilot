@@ -1,0 +1,6 @@
+interface:
+  display_name: "受限数据库查询"
+  short_description: "通过会话绑定的只读身份查询现有内容库与学习事实"
+  default_prompt: "Use $database to validate and run a minimal scoped read-only database query."
+policy:
+  allow_implicit_invocation: true

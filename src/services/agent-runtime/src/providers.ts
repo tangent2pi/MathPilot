@@ -25,7 +25,9 @@ function model(id: string, baseUrl: string): Model<"openai-completions"> {
     provider: "scnet",
     baseUrl,
     reasoning: true,
-    input: ["text"],
+    // SCNET 主/辅模型均按 OpenAI-compatible 多模态消息接收图片；图片由 Pi
+    // 直接附到当前模型回合，Qwen-MM-Plugins/api 不参与任何第二次模型调用。
+    input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128_000,
     maxTokens: 16_384,

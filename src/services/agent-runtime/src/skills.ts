@@ -1,22 +1,22 @@
 /**
- * 任务策略装载（架构修订 v4：模型身份与动作由 prompts/skills 管理）。
+ * 任务 Prompt 策略装载。
  *
- * policies/ 即 pi Skills 目录：agent.md 为通用纪律，tasks/*.md 为任务技能
- * （SKILL.md 规范 frontmatter：name/description），tasks.manifest.json 注册
- * prompt_version 与主/辅模型角色。提示编译使用 pi 原生格式化机制
- * （formatSkillInvocation / formatSkillsForSystemPrompt），占位符 {{key}}
- * 由本装载器在加载时注入任务上下文。
+ * policies/agent.md 是统一运行纪律，policies/tasks/*.md 是一次运行的任务目标；
+ * 它们不是可发现的 Skill。正式 Skill 只来自 skills/<name>/SKILL.md，并由 Pi 的
+ * ResourceLoader 按需展示和读取。tasks.manifest.json 单一注册 prompt_version、
+ * 主/辅助模型角色与策略文件，占位符 {{key}} 在工作区创建前注入。
  *
- * 角色隔离（设计 §4.1）：systemPrompt 只含通用纪律 + 当前任务技能，
- * 不列出其他任务的技能（KTQ 看不到 Dream 的提示）。
+ * 角色隔离（设计 §4.1）：AGENTS.md 只含通用纪律、工作区地图与当前任务 Prompt，
+ * 不包含其他任务的目标（KTQ 看不到 Dream 的任务内容）。
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { formatSkillInvocation, formatSkillsForSystemPrompt, type Skill } from "@earendil-works/pi-agent-core";
 
 export type TaskType =
   | "teach_grade"      // Teaching Agent：模型主判答
+  | "teach_interact"   // Teaching Agent：多轮帮助/步骤检查/自由问答
   | "teach_summary"    // Teaching Agent：教学总结（双产物之一）
+  | "continuity_summary" // 辅助模型：题间递归连续学习摘要
   | "ktq_extract"      // KTQ Extraction Agent：内容抽取
   | "er_research"      // ER Research Agent：错因/规则调研
   | "dream_profile"     // Dream/Profile Update Agent：长期画像最终更新
@@ -34,6 +34,15 @@ export interface TaskContext {
   priorSnapshot?: string;
   diagnosisContext?: string;
   schemaNote?: string;
+  verdict?: string;
+  studentProfile?: string;
+  planDraft?: string;
+  sessionSummary?: string;
+  studentProjection?: string;
+  previousContinuity?: string;
+  currentSession?: string;
+  scientificEvaluation?: string;
+  teachingSummary?: string;
 }
 
 interface TaskPolicy {
@@ -57,7 +66,7 @@ for (const [key, p] of Object.entries(manifest.tasks)) {
 
 const basePolicy = readFileSync(`${POLICIES_DIR}agent.md`, "utf8");
 
-/** 解析 SKILL.md 前导（--- name / description ---）；无前导时退化为文件名 */
+/** 解析任务策略前导（--- name / description ---）；无前导时退化为任务键 */
 function parseFrontmatter(text: string): { name: string; description: string; body: string } {
   const m = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text);
   if (!m) return { name: "", description: "", body: text };
@@ -70,7 +79,10 @@ function parseFrontmatter(text: string): { name: string; description: string; bo
 }
 
 interface LoadedTask {
-  skill: Skill;
+  name: string;
+  description: string;
+  content: string;
+  filePath: string;
   version: string;
   role: "main" | "aux";
 }
@@ -85,12 +97,10 @@ function loadTask(taskType: TaskType): LoadedTask {
   const raw = readFileSync(`${POLICIES_DIR}${entry.file}`, "utf8");
   const { name, description, body } = parseFrontmatter(raw);
   const loaded: LoadedTask = {
-    skill: {
-      name: name || taskType,
-      description,
-      content: body,
-      filePath: `${POLICIES_DIR}${entry.file}`,
-    },
+    name: name || taskType,
+    description,
+    content: body,
+    filePath: `${POLICIES_DIR}${entry.file}`,
     version: entry.prompt_version,
     role: entry.role,
   };
@@ -109,23 +119,17 @@ export function taskPromptVersion(taskType: TaskType): string {
 }
 
 /**
- * 编译 systemPrompt（AGENTS.md）：通用纪律 + 工作区地图 + 当前任务技能。
- * 上下文经 {{key}} 占位符注入技能正文；技能调用与技能索引均使用 pi 原生格式。
- * 角色隔离：只注入当前任务技能，不列出其他任务技能。
+ * 编译 AGENTS.md：通用纪律 + 工作区地图 + 当前任务 Prompt。
+ * 可发现能力由 ResourceLoader 从正式 Skill 目录加载，不在这里硬编码或重复注入。
  */
 export function compileSystemPrompt(taskType: TaskType, ctx: TaskContext, workspaceMap: string): string {
-  const { skill } = loadTask(taskType);
-  let content = skill.content;
+  const task = loadTask(taskType);
+  let content = task.content;
   for (const [key, value] of Object.entries(ctx)) {
     content = content.replaceAll(`{{${key}}}`, value ?? "(未提供)");
   }
-  const active: Skill = { ...skill, content };
+  content = content.replace(/\{\{[A-Za-z0-9_]+\}\}/g, "(未提供)");
   const workspaceSection = `## 工作区（设计 §5.1）\n${workspaceMap.trim()}\n`;
-  // 单技能注入：当前任务的全部内容（文件层落地后改为仅索引 + 按需读取，§5.3）
-  return `${basePolicy}\n\n${workspaceSection}\n${formatSkillInvocation(active)}`;
-}
-
-/** 技能索引（阶段 B 文件层：systemPrompt 仅列名称与触发说明，模型按需读取） */
-export function skillIndex(taskType: TaskType): string {
-  return formatSkillsForSystemPrompt([loadTask(taskType).skill]);
+  const taskSection = `## 当前任务\n\n任务：${task.name}\n${task.description ? `目标：${task.description}\n\n` : ""}${content.trim()}\n`;
+  return `${basePolicy}\n\n${workspaceSection}\n${taskSection}`;
 }

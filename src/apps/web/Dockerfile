@@ -4,7 +4,7 @@ WORKDIR /app
 COPY . .
 RUN --mount=type=cache,id=agmath-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \
     corepack enable && corepack pnpm install --frozen-lockfile --ignore-scripts && \
-    corepack pnpm rebuild esbuild && corepack pnpm --filter @agmath/web build
+    corepack pnpm rebuild esbuild && corepack pnpm --filter @mathpilot/web build
 
 FROM nginx:1.27-alpine
 COPY src/apps/web/nginx.conf /etc/nginx/conf.d/default.conf

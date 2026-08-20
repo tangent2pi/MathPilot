@@ -9,13 +9,21 @@
  *   5. 标记 replayed；长期画像仍只经 Dream 路径更新（ADR-004）
  */
 import { startService, createPool, withTenant, newId } from "./lib.ts";
-import { bktReplay, BKT_PRIOR_V1 } from "@agmath/mastery";
+import { bktReplay, BKT_PRIOR_V1 } from "@mathpilot/mastery";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/agmath");
 
 function tenantOf(req: { headers: Record<string, unknown> }): string | null {
   const t = req.headers["x-tenant-id"];
   return typeof t === "string" && t.length > 0 ? t : null;
+}
+function actorOf(req: { headers: Record<string, unknown> }): string | null {
+  const value=req.headers["x-user-id"];
+  return typeof value==="string"&&value.length?value:null;
+}
+function rolesOf(req: { headers: Record<string, unknown> }): string[] {
+  const value=req.headers["x-user-roles"];
+  return typeof value==="string"?value.split(",").map((role)=>role.trim()).filter(Boolean):[];
 }
 
 interface CorrectionBody {
@@ -39,22 +47,62 @@ startService({
     app.get("/review/tasks", async (req, reply) => {
       const tenantId = tenantOf(req);
       if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
-      const { queue, status } = req.query as { queue?: string; status?: string };
+      const { queue, status, target_ids, target_type, stem_format: stemFormat, source_pipeline_id: sourcePipelineId, q, limit: rawLimit, offset: rawOffset } = req.query as {
+        queue?: string; status?: string; target_ids?: string; target_type?: string; stem_format?: string; source_pipeline_id?: string; q?: string; limit?: string; offset?: string;
+      };
+      const actor=actorOf(req),admin=rolesOf(req).includes("tenant_admin");
+      // target_ids：逗号分隔的目标过滤（发布门按本章节题目拉取裁决，P0-4）
+      const targets = target_ids
+        ? target_ids.split(",").map((s) => s.trim()).filter(Boolean)
+        : null;
+      const parsedLimit=Number.parseInt(rawLimit??"",10),parsedOffset=Number.parseInt(rawOffset??"",10);
+      const limit=Number.isFinite(parsedLimit)?Math.min(1000,Math.max(1,parsedLimit)):1000;
+      const offset=Number.isFinite(parsedOffset)?Math.max(0,parsedOffset):0;
+      const search=q?.trim()?`%${q.trim().slice(0,200)}%`:null;
       return withTenant(pool, tenantId, async (c) => {
         const r = await c.query(
-          `select task_id, queue, target_type, target_id, status, created_at
+          `select task_id, queue, target_type, target_id, status, assignee_id, payload, created_at, resolved_at
              from review_review_task
             where ($1::text is null or queue = $1)
               and ($2::text is null or status = $2)
-            order by created_at desc limit 50`,
-          [queue ?? null, status ?? null],
+              and ($3::text[] is null or target_id = any($3))
+              and ($6::text is null or target_type = $6)
+              and ($7::text is null or target_id ilike $7
+                or coalesce(payload->'candidate'->>'stem_markdown','') ilike $7
+                or coalesce(payload->'candidate'->>'name','') ilike $7
+                or coalesce(payload->'candidate'->>'trigger','') ilike $7)
+              and ($10::text is null or payload->>'source_pipeline_id' = $10)
+              and ($11::text is null or payload->'candidate'->>'stem_format' = $11)
+              and ($4::text is null or $5::boolean
+                or (queue='content' and payload->>'owner_teacher_id'=$4)
+                or (queue='student_diagnosis' and exists(select 1 from identity_teacher_student_binding b
+                  where b.teacher_id=$4 and b.student_id=payload->>'student_id' and b.status='active')))
+            order by created_at desc limit $8 offset $9`,
+          [queue ?? null, status ?? null, targets, actor, admin, target_type ?? null, search, limit, offset, sourcePipelineId ?? null, stemFormat ?? null],
         );
-        const pendingCount = await c.query(
-          `select count(*)::int as n from review_review_task
-            where status = 'pending' and ($1::text is null or queue = $1)`,
-          [queue ?? null],
+        const summary = await c.query(
+          `select count(*) filter (where $9::text is null or status=$9)::int as filtered_count,
+                  count(*)::int as total_count,
+                  count(*) filter (where status='pending')::int as pending_count,
+                  count(*) filter (where status='rejected')::int as rejected_count,
+                  count(*) filter (where status in ('confirmed','modified','merged'))::int as resolved_count
+             from review_review_task
+            where ($1::text is null or queue = $1)
+              and ($2::text[] is null or target_id = any($2))
+              and ($5::text is null or target_type = $5)
+              and ($6::text is null or target_id ilike $6
+                or coalesce(payload->'candidate'->>'stem_markdown','') ilike $6
+                or coalesce(payload->'candidate'->>'name','') ilike $6
+                or coalesce(payload->'candidate'->>'trigger','') ilike $6)
+              and ($7::text is null or payload->>'source_pipeline_id' = $7)
+              and ($8::text is null or payload->'candidate'->>'stem_format' = $8)
+              and ($3::text is null or $4::boolean
+                or (queue='content' and payload->>'owner_teacher_id'=$3)
+                or (queue='student_diagnosis' and exists(select 1 from identity_teacher_student_binding b
+                  where b.teacher_id=$3 and b.student_id=payload->>'student_id' and b.status='active')))`,
+          [queue ?? null, targets, actor, admin, target_type ?? null, search, sourcePipelineId ?? null, stemFormat ?? null, status ?? null],
         );
-        return { tasks: r.rows, pending_count: pendingCount.rows[0].n };
+        return { tasks: r.rows, ...summary.rows[0], limit, offset };
       });
     });
 
@@ -77,27 +125,86 @@ startService({
       return reply.code(201).send({ task_id: taskId, status: "pending" });
     });
 
-    /** 教师裁决复核任务（review_review_task 是工作流状态表，非不可变事实） */
+    /** 教师裁决复核任务（review_review_task 是工作流状态表，非不可变事实）。
+     *  - modified：可携带 modification 载荷（stem_markdown/answer_summary/rubric/measurement_targets），
+     *    发布时由 content 真正应用（P0-4）；
+     *  - cancelled：内容管线补偿清理（staging 事务失败后取消已注册任务），不视为裁决。 */
     app.patch("/review/tasks/:id", async (req, reply) => {
       const tenantId = tenantOf(req);
       if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
       const { id } = req.params as { id: string };
-      const { status, assignee_id } = req.body as { status: string; assignee_id?: string };
-      if (!["confirmed", "modified", "rejected", "merged"].includes(status)) {
-        return reply.code(422).send({ error: "status must be confirmed|modified|rejected|merged" });
+      const body = req.body as { status: string; assignee_id?: string; modification?: Record<string, unknown> };
+      const actor=actorOf(req),admin=rolesOf(req).includes("tenant_admin");
+      if (!actor && body.status!=="cancelled") return reply.code(403).send({error:"review actor required"});
+      if (!["confirmed", "modified", "rejected", "merged", "cancelled"].includes(body.status)) {
+        return reply.code(422).send({ error: "status must be confirmed|modified|rejected|merged|cancelled" });
+      }
+      if (body.status === "modified" && body.modification !== undefined
+          && (typeof body.modification !== "object" || Array.isArray(body.modification))) {
+        return reply.code(422).send({ error: "modification must be an object" });
       }
       const out = await withTenant(pool, tenantId, async (c) => {
         const r = await c.query(
           `update review_review_task
-              set status = $2, assignee_id = coalesce($3, assignee_id), resolved_at = now()
-            where task_id = $1 and status = 'pending'
-            returning task_id, status`,
-          [id, status, assignee_id ?? null],
+              set status = $2, assignee_id = coalesce($3, assignee_id), resolved_at = now(),
+                  payload = payload || jsonb_build_object('modification', $4::jsonb)
+            where task_id = $1 and status <> 'cancelled'
+              and ($5::text is null or $6::boolean
+                or (queue='content' and payload->>'owner_teacher_id'=$5)
+                or (queue='student_diagnosis' and exists(select 1 from identity_teacher_student_binding b
+                  where b.teacher_id=$5 and b.student_id=payload->>'student_id' and b.status='active')))
+            returning task_id, status, payload`,
+          [id, body.status, body.assignee_id ?? null,
+           JSON.stringify(body.modification ?? {}),actor,admin],
         );
         return r.rows[0];
       });
-      if (!out) return reply.code(409).send({ error: "task not found or already resolved" });
-      return out;
+      if (!out) return reply.code(409).send({ error: "task not found or no longer editable" });
+      return { task_id: out.task_id, status: out.status, modification: out.payload?.modification ?? undefined };
+    });
+
+    /** 列表批量裁决。批量操作只处理无需逐项编辑的状态；“修改后确认”仍在详情中
+     *  连同具体 modification 一起提交，避免出现没有修改内容的 modified 任务。 */
+    app.post("/review/tasks/bulk", async (req, reply) => {
+      const tenantId = tenantOf(req);
+      if (!tenantId) return reply.code(400).send({ error: "missing x-tenant-id" });
+      const actor = actorOf(req), admin = rolesOf(req).includes("tenant_admin");
+      if (!actor) return reply.code(403).send({ error: "review actor required" });
+      const body = req.body as { task_ids?: unknown; status?: unknown };
+      const taskIds = Array.isArray(body.task_ids)
+        ? [...new Set(body.task_ids.filter((id): id is string => typeof id === "string" && id.length > 0))]
+        : [];
+      if (taskIds.length === 0 || taskIds.length > 100) {
+        return reply.code(422).send({ error: "task_ids must contain 1..100 unique ids" });
+      }
+      if (!["confirmed", "rejected", "merged"].includes(String(body.status ?? ""))) {
+        return reply.code(422).send({ error: "bulk status must be confirmed|rejected|merged" });
+      }
+      const updated = await withTenant(pool, tenantId, async (c) => {
+        const result = await c.query(
+          `update review_review_task
+              set status=$2, assignee_id=$3, resolved_at=now()
+            where task_id=any($1::text[]) and status<>'cancelled'
+              and ($4::boolean
+                or (queue='content' and payload->>'owner_teacher_id'=$3)
+                or (queue='student_diagnosis' and exists(select 1 from identity_teacher_student_binding b
+                  where b.teacher_id=$3 and b.student_id=payload->>'student_id' and b.status='active')))
+            returning task_id,status`,
+          [taskIds, body.status, actor, admin],
+        );
+        const rows = result.rows as { task_id: string; status: string }[];
+        if (rows.length !== taskIds.length) throw Object.assign(new Error("bulk review conflict"), { code: "BULK_REVIEW_CONFLICT" });
+        return rows;
+      }).catch((error: unknown) => {
+        if ((error as { code?: string }).code === "BULK_REVIEW_CONFLICT") return null;
+        throw error;
+      });
+      if (!updated) {
+        return reply.code(409).send({
+          error: "one or more tasks are unavailable or no longer editable",
+        });
+      }
+      return { updated, count: updated.length };
     });
 
     app.post("/review/corrections", async (req, reply) => {

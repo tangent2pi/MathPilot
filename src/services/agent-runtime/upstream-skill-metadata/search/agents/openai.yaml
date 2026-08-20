@@ -1,0 +1,6 @@
+interface:
+  display_name: "网络检索"
+  short_description: "搜索公开网页、读取来源并核验外部事实"
+  default_prompt: "Use $qwen-mm-plugins-search to verify the external fact and cite the source."
+policy:
+  allow_implicit_invocation: true

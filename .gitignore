@@ -1,4 +1,4 @@
-# references 目录（codex、pi agent 等开源项目源码副本，仅供阅读，不入库）
+# 开源项目源码副本与研究材料（仅供阅读，不入库）
 references/
 
 # 依赖与构建产物
@@ -9,9 +9,7 @@ dist/
 # 本地密钥/环境（模板见 deploy/dev/.env.example）
 .env
 deploy/dev/.env
-.runtime/workspaces/
-# reference 目录（Hermes/OpenClaw 等参考项目，仅供阅读，不入库）
-reference/
+.runtime/
 sidecars/pybkt/.venv
 sidecars/pybkt/state/
 __pycache__/

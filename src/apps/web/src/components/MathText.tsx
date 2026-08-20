@@ -1,6 +1,6 @@
 import renderMathInElement from "katex/contrib/auto-render";
 import "katex/dist/katex.min.css";
-import { useEffect, useRef, type ElementType } from "react";
+import { useLayoutEffect, useRef, type ElementType } from "react";
 
 const options = {
   delimiters: [
@@ -17,7 +17,7 @@ const options = {
 
 export function MathText({ text, as: Tag = "p", className }: { text: string; as?: ElementType; className?: string }) {
   const ref = useRef<HTMLElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (ref.current) renderMathInElement(ref.current, options);
   }, [text]);
   return <Tag ref={ref} className={className}>{text}</Tag>;

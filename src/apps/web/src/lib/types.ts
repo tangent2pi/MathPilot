@@ -10,6 +10,8 @@ export type SessionUser = {
   id: string;
   email: string;
   name?: string | null;
+  image?: string | null;
+  phone?: string | null;
 };
 
 export type AuthState = {
@@ -17,7 +19,7 @@ export type AuthState = {
   user: SessionUser;
 };
 
-export const TEACHER_ROLES = ["teacher", "content_reviewer", "tenant_admin"] as const;
+const TEACHER_ROLES = ["teacher", "content_reviewer", "tenant_admin"] as const;
 
 export function isTeacher(principal: Principal | null | undefined): boolean {
   return Boolean(principal?.roles.some((role) => TEACHER_ROLES.includes(role as typeof TEACHER_ROLES[number])));

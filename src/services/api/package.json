@@ -1,12 +1,12 @@
 {
-  "name": "@agmath/api",
+  "name": "@mathpilot/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": { "start": "node src/index.ts", "typecheck": "tsc --noEmit" },
   "dependencies": {
+    "better-auth": "1.6.23",
     "fastify": "^5.2.0",
-    "jose": "^6.0.0",
     "pg": "^8.13.1",
     "undici": "^8.10.0"
   },

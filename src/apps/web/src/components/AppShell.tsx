@@ -14,6 +14,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { isTeacher } from "../lib/types";
+import { PRODUCT_NAME } from "../lib/brand";
 import { useAuth } from "../app/auth";
 import { Brand } from "./Brand";
 import { PageTransition } from "./PageTransition";
@@ -35,7 +36,7 @@ const studentNav: NavItem[] = [
 
 const teacherNav: NavItem[] = [
   { to: "/teacher", label: "工作台", hint: "查看待处理事项", icon: Home },
-  { to: "/content", label: "内容", hint: "整理教学资料", icon: BookOpenText, match: (l) => l.pathname === "/content" || l.pathname === "/agent-session" },
+  { to: "/content", label: "内容", hint: "整理教学资料", icon: BookOpenText, match: (l) => ["/content", "/review", "/agent-session"].includes(l.pathname) || l.pathname.startsWith("/library") },
   { to: "/admin?view=students", label: "学生", hint: "跟进学习进度", icon: UsersRound, match: (l) => l.pathname === "/admin" && new URLSearchParams(l.search).get("view") !== "settings" },
   { to: "/admin?view=settings", label: "设置", hint: "工作区设置", icon: Settings, match: (l) => l.pathname === "/admin" && new URLSearchParams(l.search).get("view") === "settings" },
 ];
@@ -43,10 +44,14 @@ const teacherNav: NavItem[] = [
 const routeTitles: Record<string, string> = {
   "/": "学习",
   "/solve": "练习",
+  "/ask": "向 AI 提问",
   "/report": "报告",
   "/profile": "我的",
+  "/account": "账户设置",
   "/teacher": "教师工作台",
   "/content": "内容工坊",
+  "/review": "内容复核",
+  "/library": "已发布内容",
   "/agent-session": "处理对话",
   "/admin": "学生",
 };
@@ -54,13 +59,24 @@ const routeTitles: Record<string, string> = {
 function ShellNavLink({ item, compact = false }: { item: NavItem; compact?: boolean }) {
   const location = useLocation();
   const current = item.match ? item.match(location) : location.pathname === item.to;
+  const destination = current && item.to === "/solve" ? `${location.pathname}${location.search}` : item.to;
   const Icon = item.icon;
   return (
-    <Link className={compact ? "mobile-nav-link" : "side-nav-link"} to={item.to} aria-current={current ? "page" : undefined}>
+    <Link className={compact ? "mobile-nav-link" : "side-nav-link"} to={destination} aria-current={current ? "page" : undefined}>
       <span className="nav-glyph" aria-hidden="true"><Icon /></span>
       <span className="nav-link-copy"><strong>{item.label}</strong><small>{item.hint}</small></span>
     </Link>
   );
+}
+
+function TopNavLink({ item }: { item: NavItem }) {
+  const location = useLocation();
+  const current = item.match ? item.match(location) : location.pathname === item.to;
+  const destination = current && item.to === "/solve" ? `${location.pathname}${location.search}` : item.to;
+  const Icon = item.icon;
+  return <Link className="top-nav-link" to={destination} aria-current={current ? "page" : undefined}>
+    <Icon aria-hidden="true" /><span>{item.label}</span>
+  </Link>;
 }
 
 export function AppShell() {
@@ -75,12 +91,14 @@ export function AppShell() {
   const accountRef = useRef<HTMLDivElement>(null);
   const name = user.name || user.email || "账户";
   const initial = name.trim().slice(0, 1).toUpperCase() || "A";
-  const pageTitle = location.pathname === "/admin" && new URLSearchParams(location.search).get("view") === "settings"
+  const pageTitle = location.pathname.startsWith("/library/")
+    ? "内容详细信息"
+    : location.pathname === "/admin" && new URLSearchParams(location.search).get("view") === "settings"
     ? "设置"
     : routeTitles[location.pathname] ?? "学习空间";
 
   useEffect(() => {
-    document.title = `${pageTitle} · AGMATH`;
+    document.title = `${pageTitle} · ${PRODUCT_NAME}`;
     setMenuOpen(false);
   }, [pageTitle]);
 
@@ -105,7 +123,7 @@ export function AppShell() {
 
   const leave = async () => {
     await signOut();
-    navigate("/login", { replace: true });
+    navigate("/login?signed_out=1", { replace: true });
   };
 
   return (
@@ -115,10 +133,10 @@ export function AppShell() {
         <div className="app-header-inner">
           <Brand to={teacher ? "/teacher" : "/"} role={role} />
           <div className="topbar-context"><span className="topbar-kicker">{role}</span><strong>{pageTitle}</strong></div>
-          <div className="topbar-spacer" />
+          <nav className="top-nav" aria-label="主导航">{items.map((item) => <TopNavLink key={item.to} item={item} />)}</nav>
           <div className="app-account" ref={accountRef}>
             <button className="account-trigger" type="button" aria-expanded={menuOpen} aria-controls="account-menu" onClick={() => setMenuOpen((value) => !value)}>
-              <span className="account-avatar" aria-hidden="true">{initial}</span>
+              <span className="account-avatar" aria-hidden="true">{user.image ? <img src={user.image} alt="" /> : initial}</span>
               <span className="account-copy"><strong>{name}</strong><small>{teacher ? "教师" : "学生"}</small></span>
               <ChevronDown className="account-chevron" aria-hidden="true" />
             </button>
@@ -133,7 +151,7 @@ export function AppShell() {
                   transition={{ duration: reduced ? 0 : 0.16, ease: [0.22, 1, 0.36, 1] }}
                 >
                   <div className="account-menu-heading">{name}<small>{principal.email}</small></div>
-                  <Link to={teacher ? "/admin?view=settings" : "/profile"}>账户设置</Link>
+                  <Link to="/account">账户设置</Link>
                   <button type="button" onClick={leave}><LogOut aria-hidden="true" />退出登录</button>
                 </motion.div>
               )}
@@ -141,14 +159,6 @@ export function AppShell() {
           </div>
         </div>
       </header>
-
-      <aside className="side-nav" aria-label="主导航">
-        <div className="side-nav-inner">
-          <p className="side-nav-label">{role}</p>
-          <nav>{items.map((item) => <ShellNavLink key={item.to} item={item} />)}</nav>
-          <div className="side-nav-footer"><span className="status-pip" /><span>学习空间已连接</span></div>
-        </div>
-      </aside>
 
       <PageTransition />
 

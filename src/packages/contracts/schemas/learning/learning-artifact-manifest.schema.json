@@ -4,7 +4,7 @@
   "title": "LearningArtifact Manifest (agmath.learning-artifact/v1)",
   "$description": "ArtifactPublisher 发布前的 manifest 校验契约。written-by: Teaching Agent / edu-agent（写入 /workspace/output/artifacts/<id>/manifest.json）；read-by: artifact-service、前端。发布失败（越界路径/符号链接逃逸/危险 MIME/缺 manifest）必须拒绝。对齐设计文档 §5.4。",
   "type": "object",
-  "required": ["schema", "artifact_id", "session_id", "kind", "renderer", "entry", "files", "response_policy"],
+  "required": ["schema", "artifact_id", "session_id", "kind", "renderer", "title", "entry", "files", "response_policy"],
   "properties": {
     "schema": { "const": "agmath.learning-artifact/v1" },
     "artifact_id": { "$ref": "https://schemas.agmath.dev/common/identity/v1#/$defs/ArtifactId" },
@@ -17,10 +17,10 @@
       "type": "string",
       "enum": ["native_card", "sandboxed_html", "media"]
     },
+    "title": { "type": "string", "minLength": 1, "maxLength": 160 },
     "entry": {
       "type": "string",
-      "enum": ["index.html", "card.json"],
-      "description": "media 类可为 media/ 下文件，用 files 首项判定；此处仅允许固定入口名"
+      "pattern": "^(index\\.html|card\\.json|media/[A-Za-z0-9._-]+)$"
     },
     "files": {
       "type": "array",
@@ -29,11 +29,7 @@
         "type": "object",
         "required": ["path", "mime_type", "byte_size", "content_hash"],
         "properties": {
-          "path": {
-            "type": "string",
-            "pattern": "^(index\\.html|card\\.json|content\\.md|manifest\\.json|media/[A-Za-z0-9._-]+)$",
-            "description": "仅允许固定文件名；禁止 ../ 与绝对路径"
-          },
+          "path": { "type": "string", "pattern": "^(index\\.html|card\\.json|content\\.md|media/[A-Za-z0-9._-]+|[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+)$", "description": "payload 文件清单；manifest.json 本身不入清单，避免自哈希循环" },
           "mime_type": { "type": "string" },
           "byte_size": { "type": "integer", "minimum": 1, "maximum": 52428800 },
           "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }

@@ -1,4 +1,4 @@
-/* AGMATH Web v2 — 证明工作台
+/* 数学智元 MathPilot Web — 证明工作台
  * 稳定的一套 App Shell；蓝黑证明墨、朱砂裁决、松绿证据。
  */
 @import url("/fonts/lxgw-wenkai/lxgwwenkai-regular.css");
@@ -62,8 +62,10 @@ select:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
 .app-header { position: sticky; top: 0; z-index: 70; min-height: var(--header-h); border-bottom: 1px solid rgba(23,35,59,.16); background: rgba(247,248,244,.96); backdrop-filter: blur(16px); }
 .app-header-inner { width: min(100%, 1480px); min-height: var(--header-h); margin: 0 auto; padding: 0 24px; display: grid; grid-template-columns: auto auto minmax(0,1fr) auto; align-items: center; gap: 20px; }
 .app-brand { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; white-space: nowrap; }
-.app-brand-mark { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--indigo); color: var(--indigo); font: 700 1rem var(--serif); transform: rotate(-2deg); }
-.app-brand-word { font: 750 1.02rem/1 var(--sans); letter-spacing: .12em; }
+.app-brand-mark { width: 32px; height: 32px; display: block; flex: 0 0 auto; border: 0; border-radius: 8px; object-fit: cover; }
+.app-brand-word { min-width: 0; display: grid; gap: 2px; line-height: 1; }
+.app-brand-word strong { font: 750 .88rem/1 var(--sans); letter-spacing: .08em; }
+.app-brand-word small { color: var(--ink-faint); font: 650 .52rem/1 var(--mono); letter-spacing: .04em; }
 .app-context { min-width: 116px; padding-left: 18px; border-left: 1px solid var(--line); display: grid; line-height: 1.2; }
 .app-context span { color: var(--ink-faint); font: 600 .62rem var(--mono); letter-spacing: .12em; }
 .app-context strong { margin-top: 4px; font-size: .76rem; font-weight: 650; white-space: nowrap; }
@@ -262,6 +264,9 @@ dialog .proof-sheet { max-height: calc(100dvh - 32px); overflow: auto; }
 .auth-card { width: min(430px,100%); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: white; padding: clamp(24px,5vw,42px); box-shadow: var(--shadow); }
 .auth-card h1 { margin: 28px 0 5px; font: 700 1.8rem var(--serif); }
 .auth-card .app-brand { display: inline-flex; }
+.auth-card .app-brand-mark { width: 44px; height: 44px; border-radius: 11px; }
+.auth-card .app-brand-word strong { font-size: 1rem; }
+.auth-card .app-brand-word small { font-size: .56rem; }
 
 /* ── Empty/error states ───────────────────────────────────── */
 .empty-note { border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); padding: 24px; text-align: center; color: var(--ink-faint); }
@@ -378,8 +383,9 @@ body::before { inset: var(--header-h) 0 0; opacity: .7; }
 .app-header { min-height: var(--header-h); height: var(--header-h); background: rgba(255,255,255,.94); border-bottom: 1px solid var(--line); }
 .app-header-inner { width: 100%; height: var(--header-h); min-height: var(--header-h); padding: 0 26px; display: grid; grid-template-columns: var(--rail-w) auto minmax(0,1fr) auto; gap: 22px; align-items: center; }
 .app-brand { gap: 10px; }
-.app-brand-mark { width: 30px; height: 30px; border-color: var(--cinnabar); color: var(--cinnabar); transform: none; }
-.app-brand-word { letter-spacing: .16em; font-size: .9rem; }
+.app-brand-mark { width: 34px; height: 34px; }
+.app-brand-word strong { font-size: .86rem; }
+.app-brand-word small { font-size: .5rem; }
 .topbar-context { min-width: 0; display: grid; gap: 1px; line-height: 1.25; }
 .topbar-kicker { color: var(--ink-faint); font: 600 .62rem var(--mono); letter-spacing: .1em; }
 .topbar-context strong { font-size: .85rem; font-weight: 700; }
@@ -574,7 +580,8 @@ dialog[data-state="closing"] .review-dialog-form { opacity: 0; transform: transl
   .app-header-inner { grid-template-columns: auto minmax(0,1fr) auto; gap: 10px; padding: 0 14px; }
   .topbar-spacer { display: none; }
   .app-brand-mark { width: 26px; height: 26px; }
-  .app-brand-word { font-size: .78rem; }
+  .app-brand-word strong { font-size: .76rem; }
+  .app-brand-word small { font-size: .46rem; }
   .topbar-context { justify-self: start; }
   .topbar-kicker { display: none; }
   .topbar-context strong { font-size: .78rem; }

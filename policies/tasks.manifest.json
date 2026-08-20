@@ -3,7 +3,12 @@
   "tasks": {
     "teach_grade": {
       "file": "tasks/teach-grade.md",
-      "prompt_version": "teach-grade@0.4.0",
+      "prompt_version": "teach-grade@0.5.0",
+      "role": "main"
+    },
+    "teach_interact": {
+      "file": "tasks/teach-interact.md",
+      "prompt_version": "teach-interact@0.3.0",
       "role": "main"
     },
     "teach_summary": {
@@ -11,15 +16,20 @@
       "prompt_version": "teach-summary@0.4.0",
       "role": "main"
     },
+    "continuity_summary": {
+      "file": "tasks/continuity-summary.md",
+      "prompt_version": "continuity-summary@0.1.0",
+      "role": "aux"
+    },
     "ktq_extract": {
       "file": "tasks/ktq-extract.md",
-      "prompt_version": "ktq-extract@0.4.0",
-      "role": "aux"
+      "prompt_version": "ktq-extract@0.8.0",
+      "role": "main"
     },
     "er_research": {
       "file": "tasks/er-research.md",
-      "prompt_version": "er-research@0.4.0",
-      "role": "aux"
+      "prompt_version": "er-research@0.5.0",
+      "role": "main"
     },
     "dream_profile": {
       "file": "tasks/dream-profile.md",
@@ -28,7 +38,7 @@
     },
     "diagnose": {
       "file": "tasks/diagnose.md",
-      "prompt_version": "diagnose@0.4.0",
+      "prompt_version": "diagnose@0.5.0",
       "role": "main"
     },
     "session_decision": {

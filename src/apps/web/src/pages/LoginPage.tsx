@@ -8,6 +8,7 @@ import { Brand } from "../components/Brand";
 import { AsyncButton } from "../components/feedback/AsyncButton";
 import { authClient } from "../lib/auth-client";
 import { apiFetch } from "../lib/api";
+import { PRODUCT_NAME } from "../lib/brand";
 import { isTeacher, type Principal } from "../lib/types";
 
 export function LoginPage() {
@@ -24,7 +25,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  useEffect(() => { document.title = "登录 · AGMATH"; }, []);
+  useEffect(() => { document.title = `登录 · ${PRODUCT_NAME}`; }, []);
   if (auth.data) return <Navigate to={isTeacher(auth.data.principal) ? "/teacher" : "/"} replace />;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -42,14 +43,15 @@ export function LoginPage() {
     await queryClient.invalidateQueries({ queryKey: ["auth", "principal"] });
     const principal = await apiFetch<Principal>("/api/me").catch(() => null);
     const next = params.get("next");
-    if (next?.startsWith("/") && !next.startsWith("//")) navigate(next, { replace: true });
+    if (signup) navigate("/profile?first=1", { replace: true });
+    else if (params.get("signed_out") !== "1" && next?.startsWith("/") && !next.startsWith("//")) navigate(next, { replace: true });
     else navigate(isTeacher(principal) ? "/teacher" : "/", { replace: true });
   };
 
   return (
     <main className="auth-page" id="main-content">
       <section className="auth-story" aria-label="产品说明">
-        <div><p className="eyebrow">从学习过程出发</p><h1>先看你怎样思考，<br />再谈掌握与否。</h1><p>AGMATH 把每次作答、提示和修正整理为可追溯证据，给学生下一步，也给教师复核入口。</p></div>
+        <div><p className="eyebrow">从学习过程出发</p><h1>让 AI 看见你的思考，<br />而不只是答案。</h1><p>学生获得真正适合自己的下一步，教师看见每一次思考与成长。</p></div>
       </section>
       <section className="auth-side">
         <div className="auth-card">

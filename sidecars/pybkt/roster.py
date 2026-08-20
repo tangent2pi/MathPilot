@@ -84,9 +84,18 @@ class RosterStore:
             fh.write(json.dumps(obs, ensure_ascii=False) + "\n")
 
     def mastery(self, student_id: str, dimension_id: str) -> float | None:
-        """重放该学生该维度观测序列，返回确定性掌握度；无观测返回 None。"""
+        """重放该学生该维度观测序列，返回确定性掌握度；无观测返回 None。
+
+        supersede 语义（P0-8）：观测日志追加"取代"关系——被更新的观测
+        （supersedes 指向的 order_id）在重放中排除，与 DB 侧 supersedes 指针语义一致，
+        避免教师纠正后旧观测与新观测同时计数。
+        """
         seq = [o for o in self.observations
                if o["student_id"] == student_id and o["dimension_id"] == dimension_id]
+        if not seq:
+            return None
+        superseded_ids = {o.get("supersedes") for o in seq if o.get("supersedes")}
+        seq = [o for o in seq if o["order_id"] not in superseded_ids]
         if not seq:
             return None
         roster = Roster(self.students(), self.skills(), mastery_state=0.95, model=self._model())

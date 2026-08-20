@@ -1,5 +1,5 @@
 /**
- * @agmath/providers-ocr — OCRProvider 实现（设计 §2.4 packages/providers/ocr）。
+ * @mathpilot/providers-ocr — OCRProvider 实现（设计 §2.4 packages/providers/ocr）。
  *
  * 覆盖 PaddleOCR 官方 API 的 job 模式（AI Studio）；本地 / MCP / 自建服务模式
  * 在阶段 B 以同接口适配器加入。输出保持与队友 TEACHER 管线一致的分页 Markdown
@@ -9,6 +9,7 @@
  */
 // 注意：使用全局 fetch（Node 内置）而非 undici 包——undici@8.x 的 multipart
 // 编码与 aistudio API 不兼容（返回 500）；本包各请求超时均 <300s，无需自定义 dispatcher。
+import { createHash } from "node:crypto";
 
 export interface OcrClientConfig {
   readonly baseUrl: string;
@@ -29,6 +30,15 @@ export interface OcrPageOut {
   readonly page_no: number;
   readonly markdown: string;
   readonly blocks: OcrBlockOut[];
+  readonly images: OcrImageOut[];
+}
+
+export interface OcrImageOut {
+  /** PaddleOCR Markdown 中的相对图片路径 */
+  readonly path: string;
+  readonly mime_type: string;
+  readonly content_hash: string;
+  readonly bytes_base64: string;
 }
 
 export type OcrResult =
@@ -60,6 +70,7 @@ export function createAistudioOcrClient(cfg: OcrClientConfig): {
     filename: string,
     pageRanges: string | undefined,
     pageStart: number,
+    mimeType?: string,
   ): Promise<OcrResult>;
 } {
   const base = cfg.baseUrl.replace(/\/$/, "");
@@ -71,6 +82,7 @@ export function createAistudioOcrClient(cfg: OcrClientConfig): {
     filename: string,
     pageRanges: string | undefined,
     pageStart: number,
+    mimeType = "application/pdf",
   ): Promise<OcrResult> {
     const jobsUrl = `${base}/api/v2/ocr/jobs`;
     const bytes = Buffer.from(fileBase64, "base64");
@@ -90,7 +102,7 @@ export function createAistudioOcrClient(cfg: OcrClientConfig): {
           useChartRecognition: false,
         }));
         if (pageRanges) form.set("pageRanges", pageRanges);
-        form.set("file", new Blob([bytes], { type: "application/pdf" }), filename);
+        form.set("file", new Blob([bytes], { type: mimeType }), filename);
         const res = await fetchLong(jobsUrl, {
           method: "POST",
           headers: { authorization: `bearer ${cfg.apiToken}` },
@@ -150,7 +162,7 @@ export function createAistudioOcrClient(cfg: OcrClientConfig): {
       const parsed = JSON.parse(line) as {
         result?: {
           layoutParsingResults?: {
-            markdown?: { text?: string };
+            markdown?: { text?: string; images?: Record<string, string> };
             prunedResult?: {
               width?: number; height?: number;
               parsing_res_list?: { block_label?: string; block_content?: string; block_bbox?: number[]; block_order?: number }[];
@@ -178,7 +190,24 @@ export function createAistudioOcrClient(cfg: OcrClientConfig): {
             ...(order !== undefined ? { block_order: order } : {}),
           };
         });
-        pages.push({ page_no: pageNo, markdown: pr.markdown?.text ?? "", blocks });
+        const images: OcrImageOut[] = [];
+        for (const [imagePath, imageUrl] of Object.entries(pr.markdown?.images ?? {})) {
+          try {
+            const imageRes = await fetchLong(imageUrl, {}, 60_000);
+            if (!imageRes.ok) continue;
+            const imageBytes = Buffer.from(await imageRes.arrayBuffer());
+            if (imageBytes.length === 0 || imageBytes.length > 10 * 1024 * 1024) continue;
+            const mime = imageRes.headers.get("content-type")?.split(";")[0]
+              ?? (/\.jpe?g$/i.test(imagePath) ? "image/jpeg" : /\.webp$/i.test(imagePath) ? "image/webp" : "image/png");
+            images.push({
+              path: imagePath,
+              mime_type: mime,
+              content_hash: `sha256:${createHash("sha256").update(imageBytes).digest("hex")}`,
+              bytes_base64: imageBytes.toString("base64"),
+            });
+          } catch { /* 单张图片失败不丢弃整份 OCR；调用方可据数量触发复核 */ }
+        }
+        pages.push({ page_no: pageNo, markdown: pr.markdown?.text ?? "", blocks, images });
         pageNo += 1;
       }
     }

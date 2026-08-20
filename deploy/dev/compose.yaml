@@ -1,4 +1,4 @@
-name: agmath-dev
+name: mathpilot-dev
 
 services:
   postgres:
@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "${PGPORT}:5432"
+      - "127.0.0.1:${PGPORT}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -36,11 +36,38 @@ services:
       db-migrate:
         condition: service_completed_successfully
     volumes:
-      - ./seed.sql:/seed.sql:ro
+      - ./bootstrap.sql:/seed.sql:ro
+    environment:
+      AGENT_DB_MASTER_SECRET: ${AGENT_DB_MASTER_SECRET:-mathpilot-agent-dev-master-change-me}
     command:
       - sh
       - -ce
-      - psql "host=postgres user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}" -v ON_ERROR_STOP=1 -q -f /seed.sql
+      - |
+        content_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:agmath_agent_content_tnt_dev00001" | sha256sum | cut -d' ' -f1)
+        student01_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:agmath_agent_tnt_dev00001_usr_student01" | sha256sum | cut -d' ' -f1)
+        student02_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:agmath_agent_tnt_dev00001_usr_student02" | sha256sum | cut -d' ' -f1)
+        student03_password=$$(printf '%s' "$${AGENT_DB_MASTER_SECRET}:agmath_agent_tnt_dev00001_usr_student03" | sha256sum | cut -d' ' -f1)
+        psql "host=postgres user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}" \
+          -v ON_ERROR_STOP=1 -q \
+          -v content_password="$$content_password" -v student01_password="$$student01_password" \
+          -v student02_password="$$student02_password" -v student03_password="$$student03_password" \
+          -f /seed.sql
+    restart: "no"
+
+  # 仅供确定性回归/演示使用。默认 `docker compose up` 不执行这批合成题；
+  # 显式 `docker compose --profile fixtures run --rm db-fixtures` 才会加载。
+  db-fixtures:
+    profiles: ["fixtures"]
+    image: postgres:16-alpine
+    depends_on:
+      db-seed:
+        condition: service_completed_successfully
+    volumes:
+      - ./seed.sql:/fixtures.sql:ro
+    command:
+      - sh
+      - -ce
+      - psql "host=postgres user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}" -v ON_ERROR_STOP=1 -q -f /fixtures.sql
     restart: "no"
 
   learning:
@@ -52,6 +79,7 @@ services:
       DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
       AGENT_RUNTIME_URL: http://agent-runtime:3005
       CONTENT_URL: http://content:3006
+      PROFILE_URL: http://profile:3003
       PORT: "3002"
     depends_on:
       db-seed:
@@ -61,7 +89,7 @@ services:
       content:
         condition: service_started
     ports:
-      - "3002:3002"
+      - "127.0.0.1:3002:3002"
 
   profile:
     build:
@@ -71,6 +99,8 @@ services:
     environment:
       DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
       AGENT_RUNTIME_URL: http://agent-runtime:3005
+      REVIEW_URL: http://review:3008
+      PYBKT_STATE_DIR: /app/sidecars/pybkt/state
       PORT: "3003"
     depends_on:
       db-seed:
@@ -78,22 +108,59 @@ services:
       agent-runtime:
         condition: service_started
     ports:
-      - "3003:3003"
+      - "127.0.0.1:3003:3003"
 
   agent-runtime:
+    # Pi/MCP/Bubblewrap 会创建短生命周期子进程；init 负责可靠回收退出进程。
+    init: true
     build:
       context: ../..
       dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: agent-runtime }
+    # Docker 默认 seccomp 会拦截 unprivileged user namespace；仅放开 syscall
+    # 过滤以便每次 Bash 调用进入 Bubblewrap。外层容器仍 no-new-privileges，且能力
+    # 缩到创建工作区权限和启动 nobody 所需的最小集合。
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=unconfined
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETUID, SETGID]
     environment:
+      DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
       # 模型供应商凭据只进入本服务（Pi 宿主）；沙箱/前端不持有（设计 §4.4）
       MODEL_API_BASE: ${MODEL_API_BASE:-https://api.scnet.cn/api/llm/v1}
       MODEL_API_KEY: ${MODEL_API_KEY:-}
       MODEL_ID_MAIN: ${MODEL_ID_MAIN:-Qwen3.8-Max}
       MODEL_ID_AUX: ${MODEL_ID_AUX:-DeepSeek-V4-Flash-0731}
+      # 每个沙箱只拿租户/学生绑定的只读 PostgreSQL 身份，经 Unix socket 连接。
+      AGENT_DB_MASTER_SECRET: ${AGENT_DB_MASTER_SECRET:-mathpilot-agent-dev-master-change-me}
+      AGENT_DB_NAME: agmath
+      WORKSPACE_ROOT: /var/lib/agmath/workspaces
+      PI_SESSION_ROOT: /var/lib/agmath/pi-sessions
+      CONTENT_ARTIFACT_ROOT: /var/lib/agmath/content-artifacts
+      # Qwen-MM-Plugins/search：文本搜索按 Serper → Tavily → Exa 自动选择。
+      # 凭据只进入 agent-runtime 的宿主侧 MCP 子进程，Bash 沙箱不可见。
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      QWEN_MM_SEARCH_BACKEND: ${QWEN_MM_SEARCH_BACKEND:-auto}
+      # PaddleOCR-VL 是高精度文字/版面能力；原图语义观察仍由 SCNET + Core 完成。
+      PADDLEOCR_MCP_MODEL: ${OCR_MODEL:-PaddleOCR-VL-1.6}
+      PADDLEOCR_MCP_PPOCR_SOURCE: aistudio
+      PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN: ${OCR_API_TOKEN:-}
+      PADDLEOCR_MCP_AISTUDIO_BASE_URL: ${OCR_API_BASE:-https://paddleocr.aistudio-app.com}
+      PADDLEOCR_MCP_AISTUDIO_REQUEST_TIMEOUT: "120"
+      PADDLEOCR_MCP_AISTUDIO_POLL_TIMEOUT: "600"
       PORT: "3005"
+    volumes:
+      - agent_workspaces:/var/lib/agmath/workspaces
+      - pi_sessions:/var/lib/agmath/pi-sessions
+      - content_artifacts:/var/lib/agmath/content-artifacts:ro
+    depends_on:
+      db-seed:
+        condition: service_completed_successfully
     ports:
-      - "3005:3005"
+      - "127.0.0.1:3005:3005"
 
   content:
     build:
@@ -108,7 +175,10 @@ services:
       OCR_API_BASE: ${OCR_API_BASE:-https://paddleocr.aistudio-app.com}
       OCR_API_TOKEN: ${OCR_API_TOKEN:-}
       OCR_MODEL: ${OCR_MODEL:-PaddleOCR-VL-1.6}
+      CONTENT_ARTIFACT_ROOT: /var/lib/agmath/content-artifacts
       PORT: "3006"
+    volumes:
+      - content_artifacts:/var/lib/agmath/content-artifacts
     depends_on:
       db-seed:
         condition: service_completed_successfully
@@ -127,15 +197,6 @@ services:
     depends_on:
       db-seed:
         condition: service_completed_successfully
-
-  web-test:
-    build:
-      context: ../..
-      dockerfile: src/apps/web-test/Dockerfile
-    depends_on:
-      - api
-    ports:
-      - "3000:80"
 
   web:
     build:
@@ -156,10 +217,17 @@ services:
       PROFILE_URL: http://profile:3003
       CONTENT_URL: http://content:3006
       REVIEW_URL: http://review:3008
+      AGENT_RUNTIME_URL: http://agent-runtime:3005
       DATABASE_URL: postgres://agmath_app:agmath-app-dev-only@postgres:5432/agmath
-      OIDC_ISSUER: http://localhost:8080/realms/agmath
-      OIDC_JWKS_URL: http://keycloak:8080/realms/agmath/protocol/openid-connect/certs
-      AUTH_DEV_FALLBACK: "true"   # 生产必须 false：无 token 即 401
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8080}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-mathpilot-dev-secret-change-me-at-least-32-characters}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      BETTER_AUTH_SECURE_COOKIES: ${BETTER_AUTH_SECURE_COOKIES:-false}
+      BETTER_AUTH_IP_ADDRESS_HEADERS: ${BETTER_AUTH_IP_ADDRESS_HEADERS:-x-real-ip}
+      BETTER_AUTH_STUDENT_EMAIL: ${BETTER_AUTH_STUDENT_EMAIL:-student@mathpilot.local}
+      BETTER_AUTH_STUDENT_PASSWORD: ${BETTER_AUTH_STUDENT_PASSWORD:-MathPilotStudent123!}
+      BETTER_AUTH_TEACHER_EMAIL: ${BETTER_AUTH_TEACHER_EMAIL:-teacher@mathpilot.local}
+      BETTER_AUTH_TEACHER_PASSWORD: ${BETTER_AUTH_TEACHER_PASSWORD:-MathPilotTeacher123!}
       PORT: "3001"
     depends_on:
       db-seed:
@@ -173,51 +241,10 @@ services:
       content:
         condition: service_started
     ports:
-      - "3001:3001"
-
-  minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    ports:
-      - "${MINIO_PORT}:9000"
-      - "${MINIO_CONSOLE_PORT}:9001"
-    volumes:
-      - miniodata:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.0
-    command: start-dev --import-realm
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-    volumes:
-      - ./keycloak/realm-agmath.json:/opt/keycloak/data/import/realm-agmath.json:ro
-    ports:
-      - "${KEYCLOAK_PORT}:8080"
-    healthcheck:
-      # KC 25+ 的 /health 在 9000 管理端口且需显式开启；改为探测 realm well-known，
-      # 同时证明 realm 导入成功
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && printf 'GET /realms/agmath/.well-known/openid-configuration HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q '200'"]
-      interval: 10s
-      timeout: 5s
-      retries: 18
-
-  otel-collector:
-    image: otel/opentelemetry-collector:0.110.0
-    command: ["--config=/etc/otel-collector.yaml"]
-    volumes:
-      - ./otel-collector.yaml:/etc/otel-collector.yaml:ro
-    ports:
-      - "${OTEL_COLLECTOR_PORT}:4317"
+      - "127.0.0.1:3001:3001"
 
 volumes:
   pgdata:
-  miniodata:
+  content_artifacts:
+  agent_workspaces:
+  pi_sessions:

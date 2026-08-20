@@ -3,8 +3,10 @@ import { Send } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AsyncButton } from "../components/feedback/AsyncButton";
+import { BackButton } from "../components/BackButton";
 import { MathText } from "../components/MathText";
 import { apiFetch, jsonBody } from "../lib/api";
+import { PRODUCT_NAME } from "../lib/brand";
 
 type Usage = { input?: number; cacheRead?: number; total?: number };
 type AgentEvent = { type: string; detail?: string; label?: string; at?: string; status?: string; toolName?: string; usage?: Usage };
@@ -87,7 +89,7 @@ export function AgentSessionPage() {
 
   return (
     <main className="page agent-chat-page" id="main-content">
-      <nav className="breadcrumb" aria-label="面包屑"><Link to="/content">内容</Link><span aria-hidden="true">/</span><span>处理对话</span></nav>
+      <BackButton fallback="/content" />
       <header className="chat-page-header"><div><p className="eyebrow">{ref.startsWith("run_er_") ? "诊断研究" : "内容整理"}</p><h1>{task}</h1><p className="mono">{safe ? ref : "无效的会话地址"}</p></div><div className="session-status"><span className={`status-pill ${failed ? "is-error" : stopped ? "is-complete" : "is-running"}`}>{status}</span><Link to="/content" className="btn ghost">返回内容任务</Link></div></header>
       <div className="agent-chat-layout">
         <section className="chat-panel" aria-label="会话内容">
@@ -95,7 +97,7 @@ export function AgentSessionPage() {
             {!messages.length && <div className="chat-empty"><span className="spinner" /><p>{safe ? "会话正在准备，请稍候…" : "请从内容任务打开有效对话。"}</p></div>}
             {messages.map((message) => <article className={`message-row ${message.role}`} key={message.id}>
               <span className="message-avatar" aria-hidden="true">{message.role === "user" ? "你" : "∴"}</span>
-              <div className="message-wrap"><div className="message-head"><strong>{message.role === "user" ? "你" : "AGMATH"}</strong><time>{message.at ? new Date(message.at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : ""}</time></div><div className="message-bubble"><MathText text={message.text} as="span" /></div>
+              <div className="message-wrap"><div className="message-head"><strong>{message.role === "user" ? "你" : PRODUCT_NAME}</strong><time>{message.at ? new Date(message.at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : ""}</time></div><div className="message-bubble"><MathText text={message.text} as="span" /></div>
                 {!!message.tools.length && <details className="message-attachments"><summary>{message.tools.some((tool) => tool.status === "failed") ? `${message.tools.length} 个操作，有需要查看的项目` : `查看 ${message.tools.length} 个操作`}</summary><div className="attachment-list">{message.tools.map((tool, index) => <details className={`attachment-item ${tool.status}`} key={`${tool.name}-${index}`}><summary>{tool.name} · {tool.status === "failed" ? "未完成" : tool.status === "running" ? "进行中" : "已完成"}</summary><pre>{tool.detail}</pre></details>)}</div></details>}
                 {message.usage && <small className="message-usage">本回合 {Number(message.usage.total || 0).toLocaleString()} tokens{Number(message.usage.input || 0) + Number(message.usage.cacheRead || 0) > 0 && Number(message.usage.cacheRead || 0) > 0 ? ` · 提示缓存 ${Math.round(Number(message.usage.cacheRead || 0) / (Number(message.usage.input || 0) + Number(message.usage.cacheRead || 0)) * 100)}%` : ""}</small>}
               </div>

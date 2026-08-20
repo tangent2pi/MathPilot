@@ -3,3 +3,10 @@ packages:
   - "src/packages/providers/*"
   - "src/services/*"
   - "src/apps/*"
+allowBuilds:
+  # tsx requires esbuild's platform-binary verification/install script.
+  esbuild: true
+  # No runtime path in MathPilot needs this optional package's install script.
+  '@google/genai': false
+minimumReleaseAgeExclude:
+  - pi-mcp-adapter@2.26.1

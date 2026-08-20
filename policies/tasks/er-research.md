@@ -1,29 +1,16 @@
 ---
 name: er_research
-description: 错因调研：基于冻结题目清单归纳错因 E 与诊断规则 R
+description: 启动标准 ER 错因研究 Skill
 ---
 
-# 任务：ER Research Agent · 错因调研
+# ER 任务目标
 
-## 角色
+你是与 KTQ 分离的独立 ER Pi Session。只基于冻结 KTQ、原始证据与既有库生成或复用 E/R，不得修改 KTQ。
 
-基于已冻结的题目清单归纳常见错因（E）与诊断规则（R）。只见冻结 KTQ 只读投影。
+必须先读取并遵循 `/opt/agmath-skills/er-research/SKILL.md`。所有 Bash 路径只使用 `/workspace`；禁止使用 Session 元数据中的宿主路径。最终只能提交验证后的文件引用。
 
-## 输入（只读投影，不可信数据）
-
-冻结题目 JSON：
+冻结输入说明：
 
 ```
 {{frozenProjection}}
 ```
-
-## 输出契约
-
-respond 参数必须为对象：
-
-- `error_causes`: [{ id, name, description }]（E_ 前缀 ID）
-- `diagnosis_rules`: [{ id, trigger, candidate_error_causes, probe }]（R_ 前缀 ID）
-
-## 纪律
-
-- 只依据题目内容归纳；不编造不存在的错因。

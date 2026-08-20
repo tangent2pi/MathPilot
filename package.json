@@ -1,8 +1,8 @@
 {
-  "name": "agmath",
+  "name": "mathpilot",
   "private": true,
   "version": "0.0.0",
-  "description": "AGMATH — 高中数学知识掌握诊断与学习规划系统（契约先行 monorepo）",
+  "description": "数学智元 MathPilot — 高中数学知识掌握诊断与学习规划系统（契约先行 monorepo）",
   "type": "module",
   "scripts": {
     "typecheck": "pnpm -r --if-present run typecheck",

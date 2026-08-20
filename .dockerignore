@@ -1,8 +1,18 @@
 .git
-references
+# Qwen-MM-Plugins 是 Agent 镜像的固定本地上游。仅把这一份克隆送入构建上下文；
+# 其余研究参考仍不进入镜像。
+references/*
+!references/qwen-mm-plugins/
+!references/qwen-mm-plugins/**
+references/qwen-mm-plugins/.git
+references/qwen-mm-plugins/tests
+references/qwen-mm-plugins/examples
+references/qwen-mm-plugins/docs
 design-docs
 competition-info
 deploy
 node_modules
 **/node_modules
 **/*.tsbuildinfo
+sidecars/pybkt/.venv
+sidecars/pybkt/state

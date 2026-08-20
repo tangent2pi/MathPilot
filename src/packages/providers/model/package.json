@@ -1,5 +1,5 @@
 {
-  "name": "@agmath/providers-model",
+  "name": "@mathpilot/providers-model",
   "version": "0.1.0",
   "private": true,
   "type": "module",

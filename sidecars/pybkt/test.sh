@@ -46,4 +46,28 @@ for i in range(2):
         for j in range(10)]}))
 PY
 
+# 6. supersede 语义（P0-8）：旧观测被取代后重放排除，与"直接不追加旧观测"结果一致
+export PYBKT_STATE_DIR="$(mktemp -d)"
+printf '%s\n' \
+  '{"op":"roster_update","student_id":"usr_01","dimension_id":"K_SSA","outcome":"success","order_id":"obs_1"}' \
+  '{"op":"roster_update","student_id":"usr_01","dimension_id":"K_SSA","outcome":"failure","order_id":"obs_2"}' \
+  | .venv/bin/python cli.py >/dev/null
+BEFORE=$(printf '%s\n' \
+  '{"op":"roster_update","student_id":"usr_01","dimension_id":"K_SSA","outcome":"success","order_id":"obs_3","supersedes":"obs_2"}' \
+  | .venv/bin/python cli.py | python3 -c 'import json,sys; print(json.loads(sys.stdin.readlines()[-1])["value"]["p_mastery"])')
+# 对照：obs_2 从未出现过（只有 obs_1 success + obs_3 success）
+export PYBKT_STATE_DIR="$(mktemp -d)"
+CONTROL=$(printf '%s\n' \
+  '{"op":"roster_update","student_id":"usr_01","dimension_id":"K_SSA","outcome":"success","order_id":"obs_1"}' \
+  '{"op":"roster_update","student_id":"usr_01","dimension_id":"K_SSA","outcome":"success","order_id":"obs_3"}' \
+  | .venv/bin/python cli.py | python3 -c 'import json,sys; print(json.loads(sys.stdin.readlines()[-1])["value"]["p_mastery"])')
+python3 - "$BEFORE" "$CONTROL" <<'PY'
+import sys
+a, b = float(sys.argv[1]), float(sys.argv[2])
+if abs(a - b) > 1e-9:
+    print(f"FAIL: supersede 重放 {a} != 无旧观测对照 {b}")
+    sys.exit(1)
+print(f"OK: supersede 后重放与无旧观测一致（{a}）")
+PY
+
 echo "SIDECAR TESTS PASS"
