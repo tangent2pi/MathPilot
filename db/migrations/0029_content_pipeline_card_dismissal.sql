@@ -17,5 +17,7 @@ create policy tenant_isolation on content_pipeline_card_dismissal
   using (tenant_id = current_setting('app.current_tenant', true))
   with check (tenant_id = current_setting('app.current_tenant', true));
 
+grant select, insert, update, delete on content_pipeline_card_dismissal to mathpilot_app;
+
 insert into infra_schema_migration(version) values ('0029_content_pipeline_card_dismissal');
 commit;
