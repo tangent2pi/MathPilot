@@ -1248,6 +1248,92 @@ startService({
       return reply.code(202).send({ run_id: id, status: row.status === "draft" ? "queued" : row.status, stage: row.stage, ktq_session_ref: row.ktq_session_ref, er_session_ref: row.er_session_ref });
     });
 
+    /**
+     * 失败任务沿用同一 run_id 重启，避免最近任务中产生重复卡片。
+     * KTQ 失败时换新章节与两段 Session；ER 失败时保留已冻结的 KTQ，只换新 ER Session。
+     * 旧 Session 与错误写入 retry_history，便于审计而不污染当前可打开的 Session 引用。
+     */
+    app.post("/pipelines/:id/retry", async (req, reply) => {
+      const tenantId=tenantOf(req),actor=actorOf(req);
+      if(!tenantId||!actor)return reply.code(400).send({error:"missing tenant/actor headers"});
+      const {id}=req.params as {id:string};
+      const retry=await withTenant(pool,tenantId,async(c)=>{
+        const row=(await c.query(
+          `select run_id,tenant_id,created_by,chapter_id,status,stage,document_ids,
+                  ktq_session_ref,er_session_ref,payload,error_detail,library_visibility,owner_teacher_id
+             from content_pipeline_run where run_id=$1 for update`,[id])).rows[0] as {
+          run_id:string;tenant_id:string;created_by:string;chapter_id:string;status:string;stage:string;
+          document_ids:string[];ktq_session_ref:string;er_session_ref:string;payload:Record<string,unknown>;
+          error_detail:string|null;library_visibility:LibraryVisibility;owner_teacher_id:string|null;
+        }|undefined;
+        if(!row)return {kind:"missing" as const};
+        if(row.created_by!==actor)return {kind:"forbidden" as const};
+        if(row.status!=="failed")return {kind:"not_failed" as const};
+        if(!Array.isArray(row.document_ids)||row.document_ids.length===0)return {kind:"no_files" as const};
+
+        const now=new Date().toISOString();
+        const suffix=crypto.randomUUID().replaceAll("-","");
+        const payload=row.payload&&typeof row.payload==="object"&&!Array.isArray(row.payload)?{...row.payload}:{};
+        const retryHistory=Array.isArray(payload.retry_history)?payload.retry_history.slice(-19):[];
+        retryHistory.push({
+          requested_at:now,requested_by:actor,failed_stage:row.stage,error_detail:row.error_detail,
+          chapter_id:row.chapter_id,ktq_session_ref:row.ktq_session_ref,er_session_ref:row.er_session_ref,
+        });
+        const resumeEr=row.stage==="er"&&payload.ktq!==undefined;
+        const chapterId=resumeEr?row.chapter_id:`batch_${suffix.slice(0,12)}`;
+        const ktqSessionRef=resumeEr?row.ktq_session_ref:`run_ktq_${suffix}`;
+        const erSessionRef=`run_er_${suffix}`;
+        const stage=resumeEr?"er":"ktq";
+        const nextPayload:Record<string,unknown>={...payload,retry_history:retryHistory,retry_count:Number(payload.retry_count??0)+1};
+        delete nextPayload.er;
+        delete nextPayload.publication;
+        if(!resumeEr)delete nextPayload.ktq;
+
+        await c.query(
+          `update content_pipeline_run
+              set chapter_id=$2,status='queued',stage=$3,ktq_session_ref=$4,er_session_ref=$5,
+                  payload=$6,error_detail=null,completed_at=null,updated_at=now()
+            where run_id=$1`,
+          [id,chapterId,stage,ktqSessionRef,erSessionRef,JSON.stringify(nextPayload)],
+        );
+        return {kind:"queued" as const,row:{
+          run_id:id,tenant_id:tenantId,created_by:row.created_by,chapter_id:chapterId,
+          document_ids:row.document_ids,ktq_session_ref:ktqSessionRef,er_session_ref:erSessionRef,
+          stage,library_visibility:row.library_visibility,owner_teacher_id:row.owner_teacher_id,
+        }};
+      });
+      if(retry.kind==="missing")return reply.code(404).send({error:"pipeline not found"});
+      if(retry.kind==="forbidden")return reply.code(403).send({error:"only the creator can retry this task"});
+      if(retry.kind==="not_failed")return reply.code(409).send({error:"only failed pipelines can be retried"});
+      if(retry.kind==="no_files")return reply.code(409).send({error:"pipeline has no files"});
+      setImmediate(()=>void executePipeline(retry.row));
+      return reply.code(202).send({
+        run_id:id,status:"queued",stage:retry.row.stage,chapter_id:retry.row.chapter_id,
+        ktq_session_ref:retry.row.ktq_session_ref,er_session_ref:retry.row.er_session_ref,error_detail:null,
+      });
+    });
+
+    /** 关闭只记录当前用户的列表偏好，流水线、Session、产物和审计记录都保留。 */
+    app.post("/pipelines/:id/dismiss", async (req, reply) => {
+      const tenantId=tenantOf(req),actor=actorOf(req);
+      if(!tenantId||!actor)return reply.code(400).send({error:"missing tenant/actor headers"});
+      const {id}=req.params as {id:string};
+      const visible=await withTenant(pool,tenantId,async(c)=>{
+        const found=(await c.query(
+          `select 1 from content_pipeline_run where run_id=$1 and ($3::boolean or created_by=$2)`,
+          [id,actor,isTenantAdmin(req)])).rowCount;
+        if(!found)return false;
+        await c.query(
+          `insert into content_pipeline_card_dismissal(tenant_id,run_id,user_id)
+           values($1,$2,$3) on conflict (tenant_id,run_id,user_id) do nothing`,
+          [tenantId,id,actor],
+        );
+        return true;
+      });
+      if(!visible)return reply.code(404).send({error:"pipeline not found"});
+      return {run_id:id,dismissed:true};
+    });
+
     /** 采用一个已验证、已写入 staging 的旧 KTQ Session，从独立 ER 阶段继续；不再调用 KTQ 模型。 */
     app.post("/pipelines/adopt-recovered-ktq", async (req,reply) => {
       const tenantId=tenantOf(req),actor=actorOf(req); if(!tenantId||!actor)return reply.code(400).send({error:"missing tenant/actor headers"});
@@ -1261,8 +1347,17 @@ startService({
 
     app.get("/pipelines", async (req,reply) => {
       const tenantId=tenantOf(req),actor=actorOf(req); if(!tenantId||!actor)return reply.code(400).send({error:"missing tenant/actor headers"});const admin=isTenantAdmin(req);
-      const rows=await withTenant(pool,tenantId,async(c)=>(await c.query(`select run_id,chapter_id,status,stage,document_ids,ktq_session_ref,er_session_ref,payload,error_detail,created_at,updated_at,completed_at,library_visibility from content_pipeline_run where $2::boolean or created_by=$1 order by created_at desc limit 100`,[actor,admin])).rows);
-      return {runs:rows};
+      const rows=await withTenant(pool,tenantId,async(c)=>(await c.query(
+        `select p.run_id,p.chapter_id,p.created_by,p.status,p.stage,p.document_ids,p.ktq_session_ref,p.er_session_ref,
+                p.payload,p.error_detail,p.created_at,p.updated_at,p.completed_at,p.library_visibility
+           from content_pipeline_run p
+          where ($2::boolean or p.created_by=$1)
+            and not exists(
+              select 1 from content_pipeline_card_dismissal d
+               where d.tenant_id=p.tenant_id and d.run_id=p.run_id and d.user_id=$1
+            )
+          order by p.created_at desc limit 100`,[actor,admin])).rows);
+      return {runs:rows.map((row)=>({...row,can_retry:row.created_by===actor}))};
     });
     app.get("/pipelines/:id", async (req,reply) => {
       const tenantId=tenantOf(req),actor=actorOf(req); if(!tenantId||!actor)return reply.code(400).send({error:"missing tenant/actor headers"}); const {id}=req.params as {id:string};

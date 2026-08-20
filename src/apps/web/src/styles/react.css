@@ -111,6 +111,11 @@ main.proof-layout { width: min(calc(100% - 40px), 1420px); margin-inline: auto; 
 }
 .run-file-checklist small, .run-file-checklist .text-button { white-space: nowrap; }
 .status-note { overflow-wrap: anywhere; }
+.run-card .action-cluster .btn { white-space: nowrap; }
+
+@media (min-width: 721px) {
+  .run-card .action-cluster .run-card-close { margin-inline-start: auto; }
+}
 
 .modal-backdrop {
   position: fixed;

@@ -533,6 +533,8 @@ startService({
     app.post("/api/content/pipelines/:id/files", contentForward("/pipelines/:id/files"));
     app.delete("/api/content/pipelines/:id/files/:documentId", contentForward("/pipelines/:id/files/:documentId", "DELETE"));
     app.post("/api/content/pipelines/:id/confirm", contentForward("/pipelines/:id/confirm"));
+    app.post("/api/content/pipelines/:id/retry", contentForward("/pipelines/:id/retry"));
+    app.post("/api/content/pipelines/:id/dismiss", contentForward("/pipelines/:id/dismiss"));
     app.get("/api/content/pipelines", contentForward("/pipelines", "GET"));
     app.get("/api/content/pipelines/:id", contentForward("/pipelines/:id", "GET"));
     app.post("/api/content/publish", contentForward("/publish"));

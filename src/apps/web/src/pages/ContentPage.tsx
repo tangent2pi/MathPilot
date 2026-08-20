@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FilePlus2, RefreshCw, Trash2, UploadCloud } from "lucide-react";
+import { FilePlus2, RefreshCw, RotateCcw, Trash2, UploadCloud, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../app/auth";
@@ -19,7 +19,8 @@ type Pipeline = {
   document_ids?: string[];
   ktq_session_ref?: string;
   er_session_ref?: string;
-  error_detail?: string;
+  error_detail?: string | null;
+  can_retry?: boolean;
   payload?: { files?: PipelineFile[]; publication?: { package_id?: string; version?: string } };
 };
 type PipelineList = { runs?: Pipeline[] };
@@ -63,6 +64,26 @@ function PipelineCard({ run }: { run: Pipeline }) {
   });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["content-pipelines"] });
   const confirm = useMutation({ mutationFn: () => apiFetch(`/api/content/pipelines/${encodeURIComponent(run.run_id)}/confirm`, { method: "POST" }), onSuccess: async () => { setFeedback("任务已开始，可以打开对话查看进度。"); await refresh(); }, onError: () => setFeedback("无法开始处理，请确认至少保留一份资料。") });
+  const retry = useMutation({
+    mutationFn: () => apiFetch<Partial<Pipeline> & { run_id: string }>(`/api/content/pipelines/${encodeURIComponent(run.run_id)}/retry`, { method: "POST" }),
+    onSuccess: async (next) => {
+      setFeedback("任务已重新启动，正在重新处理这批资料。");
+      queryClient.setQueryData<PipelineList>(["content-pipelines"], (current) => current ? {
+        ...current,
+        runs: current.runs?.map((item) => item.run_id === run.run_id ? { ...item, ...next, error_detail: null } : item),
+      } : current);
+      await refresh();
+    },
+    onError: () => setFeedback("暂时无法重试，请刷新任务状态后再试。"),
+  });
+  const dismiss = useMutation({
+    mutationFn: () => apiFetch(`/api/content/pipelines/${encodeURIComponent(run.run_id)}/dismiss`, { method: "POST" }),
+    onSuccess: () => queryClient.setQueryData<PipelineList>(["content-pipelines"], (current) => current ? {
+      ...current,
+      runs: current.runs?.filter((item) => item.run_id !== run.run_id),
+    } : current),
+    onError: () => setFeedback("暂时无法关闭这张任务卡片，请稍后重试。"),
+  });
   const remove = useMutation({ mutationFn: (id: string) => apiFetch(`/api/content/pipelines/${encodeURIComponent(run.run_id)}/files/${encodeURIComponent(id)}`, { method: "DELETE" }), onSuccess: refresh });
   const add = useMutation({
     mutationFn: async (files: File[]) => {
@@ -89,10 +110,12 @@ function PipelineCard({ run }: { run: Pipeline }) {
       {run.status !== "draft" && ["er", "review"].includes(run.stage) && run.er_session_ref && <Link className="btn ghost" to={`/agent-session?ref=${encodeURIComponent(run.er_session_ref)}`}>打开诊断研究对话</Link>}
       {run.status === "review_ready" && <Link className="btn cinnabar" to={`/review?status=pending&queue=content&pipeline=${encodeURIComponent(run.run_id)}`}>{pending ? `继续复核（${pending}）` : "查看复核"}</Link>}
       {run.status === "published" && run.payload?.publication?.package_id && <Link className="btn cinnabar" to={`/library?package=${encodeURIComponent(run.payload.publication.package_id)}`}>查看已发布内容</Link>}
+      {run.status === "failed" && run.can_retry !== false && <AsyncButton className="cinnabar" pending={retry.isPending} pendingLabel="正在重启…" disabled={dismiss.isPending} onClick={() => retry.mutate()}><RotateCcw aria-hidden="true" />重试处理</AsyncButton>}
+      <AsyncButton className="ghost run-card-close" pending={dismiss.isPending} pendingLabel="正在关闭…" disabled={retry.isPending} onClick={() => dismiss.mutate()}><X aria-hidden="true" />关闭卡片</AsyncButton>
     </div>
     {run.status === "review_ready" && <section className="publish-panel"><p className={`status-note ${rejected ? "warning" : pending || !total ? "" : "success"}`}>{progress.isPending ? "正在读取本批复核进度…" : rejected ? `本批有 ${rejected} 项已退回，请修正内容后重新处理。` : pending ? `已完成 ${resolved} / ${total} 项复核，全部确认后即可发布。` : total ? `${total} 项复核已完成，可以发布给学生。` : "等待生成复核事项。"}</p>{Boolean(total && !pending && !rejected) && <form className="publish-form" onSubmit={(event: FormEvent) => { event.preventDefault(); publish.mutate(); }}><label>内容版本<input value={version} onChange={(e) => setVersion(e.target.value)} required pattern="\d+\.\d+\.\d+" inputMode="numeric" /></label><AsyncButton type="submit" className="cinnabar" pending={publish.isPending} pendingLabel="发布检查中…">发布给学生</AsyncButton></form>}</section>}
     {run.status === "published" && run.payload?.publication && <p className="status-note success">版本 {run.payload.publication.version} 已发布，可以打开内容库查看。</p>}
-    {feedback && <p className={`status-note ${publish.isSuccess || confirm.isSuccess ? "success" : publish.isError || confirm.isError || add.isError ? "error" : ""}`} aria-live="polite">{feedback}</p>}
+    {feedback && <p className={`status-note ${publish.isSuccess || confirm.isSuccess || retry.isSuccess ? "success" : publish.isError || confirm.isError || add.isError || retry.isError || dismiss.isError ? "error" : ""}`} aria-live="polite">{feedback}</p>}
   </article>;
 }
 
