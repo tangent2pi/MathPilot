@@ -81,7 +81,7 @@ export type TaskResult =
   | { readonly ok: false; readonly status: number; readonly error: string; readonly detail?: string };
 
 /** 抽取任务可处理多份长文档；具体业务仍由各客户端 timeout signal 收紧。 */
-const TRANSPORT_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const TRANSPORT_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 const longAgent = new Agent({ headersTimeout: TRANSPORT_TIMEOUT_MS, bodyTimeout: TRANSPORT_TIMEOUT_MS, connectTimeout: 30_000 });
 
 function fetchLong(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {

@@ -15,6 +15,14 @@ type EventsResponse = { events?: AgentEvent[] };
 type ToolEvent = { name: string; status: string; detail: string };
 type Message = { id: string; role: "user" | "assistant"; text: string; at?: string; tools: ToolEvent[]; usage?: Usage };
 
+function lastTerminalEventIndex(events: AgentEvent[]): number {
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event && (event.type === "session_end" || event.type === "agent_end") && ["completed", "failed"].includes(event.status || "")) return index;
+  }
+  return -1;
+}
+
 function buildMessages(events: AgentEvent[]): Message[] {
   const messages: Message[] = [];
   let tools: ToolEvent[] = [];
@@ -56,15 +64,20 @@ export function AgentSessionPage() {
     retry: true,
     refetchInterval: (query) => {
       const list = (query.state.data as EventsResponse | undefined)?.events ?? [];
-      const terminal = list.some((event) => (event.type === "session_end" || event.type === "agent_end") && ["completed", "failed"].includes(event.status || ""));
+      const lastTerminal = lastTerminalEventIndex(list);
+      const resumed = lastTerminal >= 0 && list.slice(lastTerminal + 1).some((event) => ["agent_start", "turn_start", "tool_start"].includes(event.type));
+      const terminal = lastTerminal >= 0 && !resumed;
       return terminal ? 5_000 : 1_200;
     },
   });
   const rawEvents = (events.data?.events ?? []).filter((event) => event.type !== "model_update");
   const messages = useMemo(() => buildMessages(rawEvents), [rawEvents]);
   const lifecycle = rawEvents.filter((event) => event.type === "session_end");
-  const stopped = lifecycle.length ? lifecycle.some((event) => event.status === "completed") : rawEvents.some((event) => event.type === "agent_end" && event.status === "completed");
-  const failed = lifecycle.length ? lifecycle.some((event) => event.status === "failed") : rawEvents.some((event) => event.type === "agent_end" && event.status === "failed");
+  const lastTerminalIndex = lastTerminalEventIndex(rawEvents);
+  const resumedAfterTerminal = lastTerminalIndex >= 0 && rawEvents.slice(lastTerminalIndex + 1).some((event) => ["agent_start", "turn_start", "tool_start"].includes(event.type));
+  const latestTerminal = lastTerminalIndex >= 0 && !resumedAfterTerminal ? rawEvents[lastTerminalIndex] : undefined;
+  const stopped = latestTerminal?.status === "completed";
+  const failed = latestTerminal?.status === "failed";
   const terminal = stopped || failed;
   const toolCount = rawEvents.filter((event) => event.type === "tool_start").length;
   const usages = rawEvents.filter((event) => event.type === "turn_end" && event.usage).map((event) => event.usage as Usage);

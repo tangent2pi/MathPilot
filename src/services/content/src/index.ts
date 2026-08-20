@@ -20,6 +20,7 @@ import path from "node:path";
 import { startService, createPool, withTenant, newId } from "./lib.ts";
 import { createAgentRuntimeClient, type TaskResult } from "@mathpilot/providers-model";
 import { createAistudioOcrClient } from "@mathpilot/providers-ocr";
+import { PIPELINE_TASK_TIMEOUT_MS, shouldResumeTimedOutKtq } from "./pipeline-retry.ts";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
 const REVIEW_URL = process.env.REVIEW_URL ?? "http://localhost:3008";
@@ -33,8 +34,7 @@ const OCR_API_BASE = (process.env.OCR_API_BASE ?? "https://paddleocr.aistudio-ap
 const OCR_API_TOKEN = process.env.OCR_API_TOKEN ?? "";
 const OCR_MODEL = process.env.OCR_MODEL ?? "PaddleOCR-VL-1.6";
 
-// 大批次必须在 45 分钟内完成；到期后客户端会调用 runtime cancel，不能留下孤儿模型进程。
-const PIPELINE_TASK_TIMEOUT_MS = 45 * 60 * 1000;
+// 大批次最长运行三小时；到期后客户端会调用 runtime cancel，不能留下孤儿模型进程。
 const runtime = createAgentRuntimeClient({ baseUrl: AGENT_RUNTIME_URL, timeoutMs: PIPELINE_TASK_TIMEOUT_MS });
 const ocrClient = createAistudioOcrClient({ baseUrl: OCR_API_BASE, apiToken: OCR_API_TOKEN, model: OCR_MODEL });
 
@@ -216,14 +216,14 @@ async function postPipelineStage(
   });
 }
 
-async function executePipeline(row: { run_id:string; tenant_id:string; created_by:string; chapter_id:string; document_ids:string[]; ktq_session_ref:string; er_session_ref:string; stage?:string; library_visibility?:LibraryVisibility; owner_teacher_id?:string|null }): Promise<void> {
+async function executePipeline(row: { run_id:string; tenant_id:string; created_by:string; chapter_id:string; document_ids:string[]; ktq_session_ref:string; er_session_ref:string; stage?:string; library_visibility?:LibraryVisibility; owner_teacher_id?:string|null; continue_ktq_session?:boolean }): Promise<void> {
   if (runningPipelines.has(row.run_id)) return;
   runningPipelines.add(row.run_id);
   let activeSessionRef = row.stage === "er" ? row.er_session_ref : row.ktq_session_ref;
   try {
     if (row.stage !== "er") {
       await updatePipeline(row.tenant_id,row.run_id,{status:"running",stage:"ktq"});
-      const ktq = await postPipelineStage("/ktq/run", {"content-type":"application/json","x-tenant-id":row.tenant_id,"x-user-id":row.created_by,"x-library-visibility":row.library_visibility??"teacher"}, {document_ids:row.document_ids,chapter_id:row.chapter_id,agent_run_id:row.ktq_session_ref});
+      const ktq = await postPipelineStage("/ktq/run", {"content-type":"application/json","x-tenant-id":row.tenant_id,"x-user-id":row.created_by,"x-library-visibility":row.library_visibility??"teacher"}, {document_ids:row.document_ids,chapter_id:row.chapter_id,agent_run_id:row.ktq_session_ref,...(row.continue_ktq_session?{continue_existing_session:true}:{})});
       const ktqBody = ktq.body;
       if (!ktq.ok) throw new Error(`KTQ ${ktq.status}: ${JSON.stringify(ktqBody)}`);
       await updatePipeline(row.tenant_id,row.run_id,{stage:"er",payload:{ktq:ktqBody}});
@@ -439,7 +439,7 @@ async function ktqRunModel(
   const tenantId = tenantOf(req);
   const actor = actorOf(req);
   if (!tenantId || !actor) return reply.code(400).send({ error: "missing tenant/actor headers" });
-  const body = req.body as { document_id?: string; document_ids?: string[]; chapter_id?: string; agent_run_id?: string; recover_existing?: boolean; recovery_source_file?: string };
+  const body = req.body as { document_id?: string; document_ids?: string[]; chapter_id?: string; agent_run_id?: string; recover_existing?: boolean; recovery_source_file?: string; continue_existing_session?: boolean };
   const documentIds = [...new Set([...(Array.isArray(body.document_ids) ? body.document_ids : []), ...(body.document_id ? [body.document_id] : [])])];
   const chapterId = body.chapter_id;
   if (!documentIds.length || !chapterId) return reply.code(422).send({ error: "document_ids and internal chapter_id required" });
@@ -531,7 +531,9 @@ async function ktqRunModel(
         : "只有原始资料；不要要求预先 OCR。先用 Core 查看，是否调用 PaddleOCR 由你按 ocr-routing Skill 决定。",
     },
     inputArtifacts,
-    promptText: "读取 /opt/mathpilot-skills/ktq-extraction/SKILL.md 后执行。先检查全部原件；OCR 由你决定。查询既有库、跨文档去重，写文件、验证，再用 respond 引用文件。",
+    promptText: body.continue_existing_session
+      ? "这是上一次超时后的同一个 KTQ Session。不要从头重新读取或重做已经完成的工作。先检查当前 /workspace/output、/workspace/tmp/build、/workspace/tmp/pages 和已有 transcript，总结已完成部分；直接从未完成的文档继续构建。复用已有题目脚本和裁图，完成 ktq-result.json、验证回执，并用 respond 引用文件。"
+      : "读取 /opt/mathpilot-skills/ktq-extraction/SKILL.md 后执行。先检查全部原件；OCR 由你决定。查询既有库、跨文档去重，写文件、验证，再用 respond 引用文件。",
     databaseScope: { actorId: actor },
     workspaceLifecycle: "terminal",
   });
@@ -1282,7 +1284,8 @@ startService({
 
     /**
      * 失败任务沿用同一 run_id 重启，避免最近任务中产生重复卡片。
-     * KTQ 失败时换新章节与两段 Session；ER 失败时保留已冻结的 KTQ，只换新 ER Session。
+     * KTQ 超时且尚未写入血缘时复用原章节与 Session；其他 KTQ 失败换新 Session。
+     * ER 失败时保留已冻结的 KTQ，只换新 ER Session。
      * 旧 Session 与错误写入 retry_history，便于审计而不污染当前可打开的 Session 引用。
      */
     app.post("/pipelines/:id/retry", async (req, reply) => {
@@ -1312,8 +1315,9 @@ startService({
           chapter_id:row.chapter_id,ktq_session_ref:row.ktq_session_ref,er_session_ref:row.er_session_ref,
         });
         const resumeEr=row.stage==="er"&&payload.ktq!==undefined;
-        const chapterId=resumeEr?row.chapter_id:`batch_${suffix.slice(0,12)}`;
-        const ktqSessionRef=resumeEr?row.ktq_session_ref:`run_ktq_${suffix}`;
+        const resumeKtq=shouldResumeTimedOutKtq(row.stage,row.error_detail);
+        const chapterId=resumeEr||resumeKtq?row.chapter_id:`batch_${suffix.slice(0,12)}`;
+        const ktqSessionRef=resumeEr||resumeKtq?row.ktq_session_ref:`run_ktq_${suffix}`;
         const erSessionRef=`run_er_${suffix}`;
         const stage=resumeEr?"er":"ktq";
         const nextPayload:Record<string,unknown>={...payload,retry_history:retryHistory,retry_count:Number(payload.retry_count??0)+1};
@@ -1332,6 +1336,7 @@ startService({
           run_id:id,tenant_id:tenantId,created_by:row.created_by,chapter_id:chapterId,
           document_ids:row.document_ids,ktq_session_ref:ktqSessionRef,er_session_ref:erSessionRef,
           stage,library_visibility:row.library_visibility,owner_teacher_id:row.owner_teacher_id,
+          ...(resumeKtq?{continue_ktq_session:true}:{}),
         }};
       });
       if(retry.kind==="missing")return reply.code(404).send({error:"pipeline not found"});
