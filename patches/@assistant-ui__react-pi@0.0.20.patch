@@ -1,0 +1,228 @@
+diff --git a/dist/runtime/messageProjection.js b/dist/runtime/messageProjection.js
+index 6455b1e3d078ece39f5b9248af0972e72e66b899..f280f388dad4a9ae1a2541b321442a9280fa4d57 100644
+--- a/dist/runtime/messageProjection.js
++++ b/dist/runtime/messageProjection.js
+@@ -51,6 +51,31 @@ const projectUserContent = (content) => {
+ 		};
+ 	});
+ };
++const workspaceAttachmentsOf = (message) => {
++	if (message.customType !== "mathpilot.turn-attachments" || message.display) return;
++	const details = message.details;
++	if (!Array.isArray(details?.attachments)) return;
++	const files = details.attachments.filter((value) => {
++		if (typeof value !== "object" || value === null) return false;
++		const file = value;
++		return typeof file.id === "string" && typeof file.originalName === "string" && typeof file.workspacePath === "string" && file.workspacePath.startsWith("input/original/") && typeof file.mimeType === "string" && !file.mimeType.toLowerCase().startsWith("image/");
++	});
++	if (files.length === 0) return;
++	return files.map((file) => ({
++		id: file.id,
++		type: "document",
++		name: file.originalName,
++		contentType: file.mimeType,
++		status: { type: "complete" },
++		content: [{
++			type: "file",
++			data: file.workspacePath,
++			sourceType: "id",
++			mimeType: file.mimeType,
++			filename: file.originalName
++		}]
++	}));
++};
+ const dataPart = (name, data) => ({
+ 	type: "data",
+ 	name,
+@@ -225,7 +250,15 @@ const projectPiThreadMessages = (input) => {
+ 			case "custom": {
+ 				flush(false);
+ 				const m = message;
+-				if (!m.display) break;
++				if (!m.display) {
++					const attachments = workspaceAttachmentsOf(m);
++					const previous = out.at(-1);
++					if (attachments && previous?.role === "user") out[out.length - 1] = {
++						...previous,
++						attachments: [...previous.attachments ?? [], ...attachments]
++					};
++					break;
++				}
+ 				out.push({
+ 					id: messageId(index),
+ 					role: "assistant",
+@@ -297,7 +330,7 @@ const deepEqual = (a, b) => {
+ 	}
+ 	return false;
+ };
+-const sameThreadMessageLike = (a, b) => a.id === b.id && a.role === b.role && deepEqual(a.createdAt, b.createdAt) && deepEqual(a.content, b.content) && deepEqual(a.status, b.status) && deepEqual(a.metadata, b.metadata);
++const sameThreadMessageLike = (a, b) => a.id === b.id && a.role === b.role && deepEqual(a.createdAt, b.createdAt) && deepEqual(a.content, b.content) && deepEqual(a.attachments, b.attachments) && deepEqual(a.status, b.status) && deepEqual(a.metadata, b.metadata);
+ const shareProjectedThreadMessages = (next, previous) => {
+ 	let changed = next.length !== previous.length;
+ 	const shared = next.map((message, index) => {
+diff --git a/src/runtime/messageProjection.test.ts b/src/runtime/messageProjection.test.ts
+index ac9b0c162deeb89364addf6ef936df7c8067b5da..c004153fbd2209511e690983ff4e6afc677e26d4 100644
+--- a/src/runtime/messageProjection.test.ts
++++ b/src/runtime/messageProjection.test.ts
+@@ -79,6 +79,61 @@ describe("messageProjection", () => {
+     });
+   });
+ 
++  it("attaches hidden MathPilot workspace files to the preceding user message", () => {
++    const out = projectPiThreadMessages(
++      input([
++        { role: "user", content: "请分析", timestamp: 1 },
++        {
++          role: "custom",
++          customType: "mathpilot.turn-attachments",
++          content: "hidden model context",
++          display: false,
++          details: {
++            version: 1,
++            turnId: "turn-1",
++            attachments: [
++              {
++                id: "file-1",
++                originalName: "作业.pdf",
++                workspacePath: "input/original/作业.pdf",
++                mimeType: "application/pdf",
++                byteSize: 42,
++              },
++              {
++                id: "image-1",
++                originalName: "题目.png",
++                workspacePath: "input/original/题目.png",
++                mimeType: "image/png",
++                byteSize: 24,
++              },
++            ],
++          },
++          timestamp: 2,
++        },
++      ]),
++    );
++
++    expect(out).toHaveLength(1);
++    expect(out[0]!.attachments).toEqual([
++      {
++        id: "file-1",
++        type: "document",
++        name: "作业.pdf",
++        contentType: "application/pdf",
++        status: { type: "complete" },
++        content: [
++          {
++            type: "file",
++            data: "input/original/作业.pdf",
++            sourceType: "id",
++            mimeType: "application/pdf",
++            filename: "作业.pdf",
++          },
++        ],
++      },
++    ]);
++  });
++
+   it("does not re-wrap image data that is already an uppercase-scheme data URL", () => {
+     const out = projectPiThreadMessages(
+       input([
+diff --git a/src/runtime/messageProjection.ts b/src/runtime/messageProjection.ts
+index adcb5bbe82ccddaf39dc49ed51d66f992f824f10..12d7d005b52154b459e4bd866e3f3612c9dcf26b 100644
+--- a/src/runtime/messageProjection.ts
++++ b/src/runtime/messageProjection.ts
+@@ -41,6 +41,7 @@ import type {
+ } from "../types";
+ 
+ type ContentPart = Exclude<ThreadMessageLike["content"], string>[number];
++type MessageAttachment = NonNullable<ThreadMessageLike["attachments"]>[number];
+ type ToolCallPart = Extract<ContentPart, { type: "tool-call" }>;
+ type Step = NonNullable<
+   NonNullable<ThreadMessageLike["metadata"]>["steps"]
+@@ -94,6 +95,56 @@ const projectUserContent = (
+   });
+ };
+ 
++type WorkspaceAttachmentDetails = {
++  id: string;
++  originalName: string;
++  workspacePath: string;
++  mimeType: string;
++};
++
++const workspaceAttachmentsOf = (
++  message: PiCustomMessage,
++): MessageAttachment[] | undefined => {
++  if (message.customType !== "mathpilot.turn-attachments" || message.display) {
++    return undefined;
++  }
++  const details = message.details as { attachments?: unknown } | undefined;
++  if (!Array.isArray(details?.attachments)) return undefined;
++
++  const files = details.attachments.filter(
++    (value): value is WorkspaceAttachmentDetails => {
++      if (typeof value !== "object" || value === null) return false;
++      const file = value as Partial<WorkspaceAttachmentDetails>;
++      return (
++        typeof file.id === "string" &&
++        typeof file.originalName === "string" &&
++        typeof file.workspacePath === "string" &&
++        file.workspacePath.startsWith("input/original/") &&
++        typeof file.mimeType === "string" &&
++        !file.mimeType.toLowerCase().startsWith("image/")
++      );
++    },
++  );
++  if (files.length === 0) return undefined;
++
++  return files.map((file) => ({
++    id: file.id,
++    type: "document",
++    name: file.originalName,
++    contentType: file.mimeType,
++    status: { type: "complete" },
++    content: [
++      {
++        type: "file",
++        data: file.workspacePath,
++        sourceType: "id",
++        mimeType: file.mimeType,
++        filename: file.originalName,
++      },
++    ],
++  }));
++};
++
+ const dataPart = (
+   name: string,
+   data: Record<string, unknown>,
+@@ -343,7 +394,21 @@ export const projectPiThreadMessages = (
+       case "custom": {
+         flush(false);
+         const m = message as PiCustomMessage;
+-        if (!m.display) break; // hidden from UI, still in LLM context
++        if (!m.display) {
++          // A hidden per-turn attachment context follows its canonical user
++          // message in Pi's transcript. Keep it hidden from the message flow,
++          // but expose ordinary files through assistant-ui's native attachment
++          // collection so MessagePrimitive.Attachments can render them.
++          const attachments = workspaceAttachmentsOf(m);
++          const previous = out.at(-1);
++          if (attachments && previous?.role === "user") {
++            out[out.length - 1] = {
++              ...previous,
++              attachments: [...(previous.attachments ?? []), ...attachments],
++            };
++          }
++          break;
++        }
+         out.push({
+           id: messageId(index),
+           role: "assistant",
+@@ -461,6 +526,7 @@ const sameThreadMessageLike = (
+   a.role === b.role &&
+   deepEqual(a.createdAt, b.createdAt) &&
+   deepEqual(a.content, b.content) &&
++  deepEqual(a.attachments, b.attachments) &&
+   deepEqual(a.status, b.status) &&
+   deepEqual(a.metadata, b.metadata);
+ 

@@ -1,0 +1,11 @@
+{
+  "name": "mathpilot-pi-extensions",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.74",
+    "@earendil-works/pi-coding-agent": "0.84.1",
+    "typebox": "^1.3.19"
+  }
+}

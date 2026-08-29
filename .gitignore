@@ -8,6 +8,7 @@ dist/
 
 # 本地密钥/环境（模板见 deploy/dev/.env.example）
 .env
+.env.local
 deploy/dev/.env
 .runtime/
 sidecars/pybkt/.venv

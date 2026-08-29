@@ -12,8 +12,8 @@ export interface ServiceOptions {
 }
 
 export async function startService(opts: ServiceOptions): Promise<FastifyInstance> {
-  // bodyLimit 32MiB：文档上传（base64 PDF）经 api→content 传递
-  const app = Fastify({ logger: true, bodyLimit: 32 * 1024 * 1024 });
+  // 最大 32MiB 的 base64 字段还有 JSON 封装开销，入口需留出余量。
+  const app = Fastify({ logger: true, bodyLimit: 48 * 1024 * 1024 });
 
   app.get("/healthz", async () => ({ status: "ok", service: opts.name }));
   app.get("/readyz", async () => ({ status: "ready", service: opts.name }));

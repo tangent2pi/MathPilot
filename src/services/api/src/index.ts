@@ -10,12 +10,14 @@ import { startService, createPool, longFetch, withTenant } from "./lib.ts";
 import { auth, authenticate, bootstrapAuthUsers, requireRole, AuthError, type Principal } from "./auth.ts";
 import { fromNodeHeaders } from "better-auth/node";
 import { randomBytes, randomUUID } from "node:crypto";
+import { Readable } from "node:stream";
 
 const LEARNING_URL = process.env.LEARNING_URL ?? "http://localhost:3002";
 const PROFILE_URL = process.env.PROFILE_URL ?? "http://localhost:3003";
 const CONTENT_URL = process.env.CONTENT_URL ?? "http://localhost:3006";
 const REVIEW_URL = process.env.REVIEW_URL ?? "http://localhost:3008";
 const AGENT_RUNTIME_URL = process.env.AGENT_RUNTIME_URL ?? "http://localhost:3005";
+const PI_GATEWAY_SECRET = process.env.PI_GATEWAY_SECRET ?? "";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
 
@@ -71,6 +73,67 @@ async function forward(p: Principal, url: string, init: { method?: string; body?
 
 async function relay(reply: FastifyReply, res: Response): Promise<FastifyReply> {
   return reply.code(res.status).send(await res.json());
+}
+
+/**
+ * Pi 的 HTTP/SSE 协议只允许经此网关到达 runtime。身份来自 Better Auth Cookie，
+ * 绝不接受浏览器提交的 tenant/user/role 头；runtime 用这组服务间事实查询线程
+ * 映射并执行 RLS/学生-教师绑定校验。
+ */
+async function relayPiRequest(
+  p: Principal,
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<FastifyReply | void> {
+  if (PI_GATEWAY_SECRET.length < 32) {
+    return reply.code(503).send({ error: "Pi gateway is not configured" });
+  }
+  const suffix = request.url.replace(/^\/api\/pi(?=\/|$)/, "") || "/";
+  const isSse = request.method === "GET" && suffix.includes("/events");
+  const accessibleStudentIds = p.roles.includes("teacher")
+    ? await withTenant(pool, p.tenantId, async (client) => (await client.query<{ student_id: string }>(
+        `select student_id from identity_teacher_student_binding
+         where teacher_id=$1 and status='active'
+         order by student_id limit 500`,
+        [p.userId],
+      )).rows.map((row) => row.student_id))
+    : [];
+  const response = await fetch(`${AGENT_RUNTIME_URL}/pi${suffix}`, {
+    method: request.method,
+    headers: {
+      ...(request.headers["content-type"] ? { "content-type": String(request.headers["content-type"]) } : {}),
+      "x-tenant-id": p.tenantId,
+      "x-user-id": p.userId,
+      "x-user-roles": p.roles.join(","),
+      "x-accessible-student-ids": accessibleStudentIds.join(","),
+      "x-mathpilot-gateway-secret": PI_GATEWAY_SECRET,
+    },
+    ...(request.body !== undefined && !["GET", "HEAD"].includes(request.method) ? { body: JSON.stringify(request.body) } : {}),
+  });
+  if (!isSse) {
+    reply.code(response.status);
+    for (const name of ["content-type", "content-disposition", "cache-control", "x-content-type-options"]) {
+      const value = response.headers.get(name);
+      if (value) reply.header(name, value);
+    }
+    return reply.send(Buffer.from(await response.arrayBuffer()));
+  }
+
+  reply.hijack();
+  reply.raw.writeHead(response.status, {
+    "content-type": response.headers.get("content-type") ?? "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+  });
+  if (!response.body) {
+    reply.raw.end();
+    return;
+  }
+  const stream = Readable.fromWeb(response.body as import("node:stream/web").ReadableStream);
+  request.raw.on("close", () => stream.destroy());
+  stream.on("error", () => reply.raw.end());
+  stream.pipe(reply.raw);
 }
 
 /** 测评轮按当前用户或有效教学绑定校验访问范围。 */
@@ -184,7 +247,20 @@ startService({
     app.get("/api/me", async (req, reply) => {
       const p = await principalOf(req, reply);
       if (!p) return;
-      return { user_id: p.userId, tenant_id: p.tenantId, roles: p.roles, via: p.via, email: p.email };
+      return { uid: p.uid, user_id: p.userId, tenant_id: p.tenantId, roles: p.roles, via: p.via, name: p.name, email: p.email };
+    });
+
+    // assistant-ui/react-pi 的完整 PiClient wire contract。此处刻意不按路由
+    // 手写 threads/messages/events：API 网关只做 Cookie→主体转换；agent-runtime
+    // 是 Pi 会话、工作区和线程归属映射的唯一执行者。
+    app.route({
+      method: ["GET", "POST", "PATCH", "DELETE"],
+      url: "/api/pi/*",
+      async handler(req, reply) {
+        const p = await principalOf(req, reply);
+        if (!p) return;
+        return relayPiRequest(p, req, reply);
+      },
     });
 
     app.get("/api/account/avatar", async (req, reply) => {

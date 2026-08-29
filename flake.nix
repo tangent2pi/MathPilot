@@ -32,6 +32,7 @@
               # 前端/TS 工具链（P1：nix develop 内可跑 pnpm typecheck/test/contracts:validate）
               nodejs_22
               pnpm
+              postgresql_16
               # 契约 schema 校验（packages/contracts 测试依赖 jsonschema）
               python312Packages.jsonschema
             ];
