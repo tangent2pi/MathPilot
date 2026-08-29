@@ -1,9 +1,16 @@
 {
   "schema": "mathpilot.question-card/v1",
+  "artifact_id": "art_replace1234",
   "card_id": "card_example",
-  "prompt_markdown": "",
-  "response_type": "free_text",
+  "type": "short_answer",
+  "prompt": "",
   "options": [],
-  "allow_skip": true,
-  "allow_free_text": true
+  "answer_hint": "写下你的思路或答案",
+  "response_policy": {
+    "required": false,
+    "allow_skip": true,
+    "allow_free_text_without_answer": true
+  },
+  "evidence_policy": "teaching_only",
+  "source_refs": []
 }

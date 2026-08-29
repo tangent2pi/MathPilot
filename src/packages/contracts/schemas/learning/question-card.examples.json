@@ -9,6 +9,17 @@
     "evidence_policy": "teaching_only",
     "source_refs": ["question://Q_TRI_012", "chat://s_m3n4b5v6/turn/8"]
   },
+  "valid_short_answer": {
+    "schema": "mathpilot.question-card/v1",
+    "artifact_id": "art_b2c3d4e5",
+    "card_id": "card_reasoning1",
+    "type": "short_answer",
+    "prompt": "请用一到两句话说明为什么函数在该区间单调递增。",
+    "answer_hint": "指出导数符号与单调性的关系",
+    "response_policy": { "required": false, "allow_skip": true, "allow_free_text_without_answer": true },
+    "evidence_policy": "teaching_only",
+    "source_refs": ["chat://s_m3n4b5v6/turn/10"]
+  },
   "missing_field": {
     "schema": "mathpilot.question-card/v1",
     "card_id": "card_1",

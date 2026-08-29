@@ -11,7 +11,7 @@
     "card_id": { "type": "string", "pattern": "^card_[A-Za-z0-9]+$" },
     "type": {
       "type": "string",
-      "enum": ["single_choice", "multiple_choice", "fill_blank", "true_false"]
+      "enum": ["single_choice", "multiple_choice", "fill_blank", "true_false", "short_answer"]
     },
     "prompt": { "type": "string", "minLength": 1 },
     "options": {
@@ -38,6 +38,10 @@
         "additionalProperties": false
       },
       "description": "fill_blank 时使用，支持多个命名空格"
+    },
+    "answer_hint": {
+      "type": "string",
+      "description": "short_answer 可选的作答提示，不得包含标准答案"
     },
     "response_policy": {
       "type": "object",

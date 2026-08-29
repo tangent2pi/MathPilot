@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/learning/card-response/v1",
+  "title": "Pi transcript card response",
+  "$description": "题卡交互写入 Pi 对话转录的最小结构化信封。written-by: assistant-ui 题卡 Tool UI；read-by: Pi 教学 Agent。服务端审计标识由网关补充，不由浏览器或模型声明。",
+  "type": "object",
+  "required": ["schema", "card_id", "response_type"],
+  "properties": {
+    "schema": { "const": "mathpilot.card-response/v1" },
+    "card_id": { "type": "string", "pattern": "^card_[A-Za-z0-9]+$" },
+    "response_type": {
+      "type": "string",
+      "enum": ["submitted", "skipped", "bypassed_free_text"]
+    },
+    "answer": {
+      "type": "object",
+      "properties": {
+        "single": { "type": "string" },
+        "multiple": { "type": "array", "items": { "type": "string" } },
+        "blanks": { "type": "object", "additionalProperties": { "type": "string" } },
+        "true_false": { "type": "string", "enum": ["true", "false", "unknown"] },
+        "text": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

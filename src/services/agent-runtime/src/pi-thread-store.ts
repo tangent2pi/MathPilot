@@ -1,4 +1,5 @@
 import pg from "pg";
+import { randomUUID } from "node:crypto";
 
 export interface PiPrincipal {
   tenantId: string;
@@ -138,6 +139,32 @@ export class PiThreadStore {
       [threadId, minioKey, principal.tenantId],
     );
     return (result.rowCount ?? 0) === 1;
+  }
+
+  async recordCardEvent(
+    principal: PiPrincipal,
+    value: {
+      threadId: string;
+      studentId: string;
+      toolCallId: string;
+      artifactId: string;
+      cardId: string;
+      responseType: "submitted" | "skipped" | "bypassed_free_text";
+      payload: Record<string, unknown>;
+    },
+  ): Promise<{ eventId: string; created: boolean }> {
+    const eventId = randomUUID();
+    const result = await this.scopedQuery<{ event_id: string }>(principal,
+      `insert into pi_card_events
+         (event_id,thread_id,tenant_id,student_id,tool_call_id,artifact_id,card_id,response_type,payload)
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       on conflict(thread_id,tool_call_id) do nothing
+       returning event_id`,
+      [eventId, value.threadId, principal.tenantId, value.studentId, value.toolCallId,
+       value.artifactId, value.cardId, value.responseType, JSON.stringify(value.payload)],
+    );
+    const inserted = result.rows[0]?.event_id;
+    return { eventId: inserted ?? eventId, created: Boolean(inserted) };
   }
 
   async markArchived(principal: PiPrincipal, threadId: string, archived: boolean): Promise<boolean> {

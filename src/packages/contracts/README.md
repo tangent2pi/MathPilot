@@ -33,6 +33,6 @@ src/packages/contracts/
 
 ## 首批冻结清单（实施规划 v1 §11）
 
-1. `common/identity`　2. `common/provenance`　3. `content/source-document`　4. `content/question`　5. `content/chapter-package`　6. `learning/question-session`　7. `learning/answer-judgment`　8. `learning/state-observation`　9. `learning/teaching-message`　10. `learning/learning-artifact-manifest`　11. `learning/question-card`　12. `learning/artifact-response`　13. `profile/scientific-evaluation-report`　14. `profile/teaching-session-summary`　15. `profile/session-learning-record`　16. `profile/profile-evidence-bundle`　17. `profile/profile-update-decision`　18. `profile/profile-decision-validation`　19. `profile/student-snapshot`　20. `review/teacher-correction`　21. `providers/provider-trace`
+1. `common/identity`　2. `common/provenance`　3. `content/source-document`　4. `content/question`　5. `content/chapter-package`　6. `learning/question-session`　7. `learning/answer-judgment`　8. `learning/state-observation`　9. `learning/teaching-message`　10. `learning/learning-artifact-manifest`　11. `learning/question-card`　12. `learning/artifact-response`　13. `learning/card-response`　14. `profile/scientific-evaluation-report`　15. `profile/teaching-session-summary`　16. `profile/session-learning-record`　17. `profile/profile-evidence-bundle`　18. `profile/profile-update-decision`　19. `profile/profile-decision-validation`　20. `profile/student-snapshot`　21. `review/teacher-correction`　22. `providers/provider-trace`
 
 不变量：未发布文件、越界路径、无来源语义字段、越权引用在任何阶段都必须被拒绝。

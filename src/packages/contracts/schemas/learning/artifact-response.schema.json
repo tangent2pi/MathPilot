@@ -27,7 +27,8 @@
           "additionalProperties": { "type": "string" },
           "description": "fill_blank：命名空格 → 学生文本"
         },
-        "true_false": { "type": "string", "enum": ["true", "false", "unknown"] }
+        "true_false": { "type": "string", "enum": ["true", "false", "unknown"] },
+        "text": { "type": "string", "description": "short_answer：学生的简答文本" }
       },
       "additionalProperties": false
     },

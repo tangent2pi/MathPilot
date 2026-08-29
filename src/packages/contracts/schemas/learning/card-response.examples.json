@@ -1,0 +1,19 @@
+{
+  "valid": {
+    "schema": "mathpilot.card-response/v1",
+    "card_id": "card_reasoning1",
+    "response_type": "submitted",
+    "answer": { "text": "因为区间内导数恒大于零。" }
+  },
+  "missing_field": {
+    "schema": "mathpilot.card-response/v1",
+    "card_id": "card_reasoning1"
+  },
+  "invalid_source": {
+    "schema": "mathpilot.card-response/v1",
+    "card_id": "card_reasoning1",
+    "response_type": "submitted",
+    "answer": { "score": 100 },
+    "_comment": "题卡响应不能携带自判分数，且未知 answer 字段必须拒绝"
+  }
+}

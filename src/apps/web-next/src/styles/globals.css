@@ -1,6 +1,44 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* assistant-ui Generative UI registry 中本项目允许词表的样式子集。 */
+[data-aui-theme="elements"] [data-aui="root"] { display: flex; flex-direction: column; gap: 1rem; }
+[data-aui-theme="elements"] [data-aui="root"]:empty { display: none; }
+[data-aui-theme="elements"] [data-aui="card"] { display: flex; flex-direction: column; gap: .75rem; }
+[data-aui-theme="elements"] [data-aui="card-title"] { font-size: 1rem; font-weight: 600; }
+[data-aui-theme="elements"] [data-aui="col"] { display: flex; flex-direction: column; }
+[data-aui-theme="elements"] [data-aui="row"] { display: flex; flex-wrap: wrap; }
+[data-aui-theme="elements"] [data-aui-gap="0"] { gap: 0; }
+[data-aui-theme="elements"] [data-aui-gap="1"] { gap: .25rem; }
+[data-aui-theme="elements"] [data-aui-gap="2"] { gap: .5rem; }
+[data-aui-theme="elements"] [data-aui-gap="3"] { gap: .75rem; }
+[data-aui-theme="elements"] [data-aui-gap="4"] { gap: 1rem; }
+[data-aui-theme="elements"] [data-aui-gap="5"] { gap: 1.25rem; }
+[data-aui-theme="elements"] [data-aui-gap="6"] { gap: 1.5rem; }
+[data-aui-theme="elements"] [data-aui-gap="7"] { gap: 1.75rem; }
+[data-aui-theme="elements"] [data-aui-gap="8"] { gap: 2rem; }
+[data-aui-theme="elements"] [data-aui-align="start"] { align-items: flex-start; }
+[data-aui-theme="elements"] [data-aui-align="center"] { align-items: center; }
+[data-aui-theme="elements"] [data-aui-align="end"] { align-items: flex-end; }
+[data-aui-theme="elements"] [data-aui-justify="start"] { justify-content: flex-start; }
+[data-aui-theme="elements"] [data-aui-justify="center"] { justify-content: center; }
+[data-aui-theme="elements"] [data-aui-justify="end"] { justify-content: flex-end; }
+[data-aui-theme="elements"] [data-aui-justify="between"] { justify-content: space-between; }
+[data-aui-theme="elements"] [data-aui="header"] { margin: 0; font-size: 1.125rem; font-weight: 600; line-height: 1.25; }
+[data-aui-theme="elements"] [data-aui="text"] { font-size: .875rem; line-height: 1.6; }
+[data-aui-theme="elements"] [data-aui="caption"],
+[data-aui-theme="elements"] [data-aui="fact-label"] { color: var(--muted-foreground); font-size: .75rem; }
+[data-aui-theme="elements"] [data-aui="fact"] { margin: 0; }
+[data-aui-theme="elements"] [data-aui="fact-value"] { margin: .125rem 0 0; font-size: .875rem; font-weight: 500; }
+[data-aui-theme="elements"] [data-aui="badge"] { display: inline-flex; width: fit-content; border-radius: 999px; background: var(--muted); padding: .125rem .5rem; font-size: .75rem; }
+[data-aui-theme="elements"] [data-aui="alert"] { border-left: 3px solid var(--primary); border-radius: .75rem; background: var(--muted); padding: .75rem 1rem; }
+[data-aui-theme="elements"] [data-aui="alert-title"] { font-size: .875rem; font-weight: 600; }
+[data-aui-theme="elements"] [data-aui="alert-desc"] { margin: .25rem 0 0; color: var(--muted-foreground); font-size: .875rem; }
+[data-aui-theme="elements"] [data-aui="divider"] { margin: .25rem 0; border: 0; border-top: 1px solid var(--border); }
+[data-aui-theme="elements"] [data-aui="markdown"] { font-size: .875rem; line-height: 1.65; }
+[data-aui-theme="elements"] [data-aui="markdown"] p { margin: 0 0 .5rem; }
+[data-aui-theme="elements"] [data-aui="markdown"] p:last-child { margin-bottom: 0; }
+
 @custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
 @custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
 

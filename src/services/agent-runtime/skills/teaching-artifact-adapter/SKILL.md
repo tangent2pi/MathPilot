@@ -41,6 +41,7 @@ The upstream voice step is optional in MathPilot. Prefer captioned interactive H
    ```
 
 The runtime publisher independently validates hashes, MIME types, paths, and renderer policy before returning an `artifact://` reference.
+After the artifact directory is complete, call `present_learning_artifact` with the manifest identity, renderer, title, and entrypoint. Do not invent or pass a URL; the authenticated host derives it from the active Pi thread.
 
 ## Publication contract
 

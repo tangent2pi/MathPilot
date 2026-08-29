@@ -1,10 +1,11 @@
 "use client";
 
-import { AssistantRuntimeProvider, useAui, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react";
+import { AssistantRuntimeProvider, AuiConfig, Tools, useAui, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react";
 import { createPiHttpClient, usePiRuntime } from "@assistant-ui/react-pi";
 import { useEffect, useMemo, type ReactNode } from "react";
 import { UnifiedAttachmentAdapter } from "./AttachmentAdapter";
 import { AUTH_DRAFT_KEY, useAuth } from "./auth";
+import { learningToolkit } from "@/components/assistant-ui/learning-toolkit";
 
 /**
  * 把浏览器 PiClient（HTTP/SSE over /api/pi）接入 Pi runtime。
@@ -47,9 +48,10 @@ function AuthenticatedPiRuntimeProvider({ children }: { children: ReactNode }) {
   }, [attachmentAdapter]);
   const adapters = useMemo(() => ({ attachments: attachmentAdapter }), [attachmentAdapter]);
   const runtime = usePiRuntime({ client, adapters });
+  const config = AuiConfig({ tools: Tools({ toolkit: learningToolkit }) });
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
+    <AssistantRuntimeProvider runtime={runtime} config={config}>
       <PendingDraftRestorer />
       {children}
     </AssistantRuntimeProvider>

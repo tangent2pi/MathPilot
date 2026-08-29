@@ -84,12 +84,15 @@ importers:
       '@assistant-ui/react':
         specifier: ^0.15.17
         version: 0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
+      '@assistant-ui/react-generative-ui':
+        specifier: 0.0.16
+        version: 0.0.16(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@types/react@19.2.18)(react@19.2.7)(zod@4.4.3)
       '@assistant-ui/react-markdown':
         specifier: ^0.14.13
         version: 0.14.13(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@assistant-ui/react-pi':
         specifier: 0.0.20
-        version: 0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1)(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
+        version: 0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1(zod@4.4.3))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -102,6 +105,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      katex:
+        specifier: 0.18.1
+        version: 0.18.1
       lucide-react:
         specifier: ^1.35.0
         version: 1.35.0(react@19.2.7)
@@ -114,6 +120,9 @@ importers:
       react-dom:
         specifier: 19.2.7
         version: 19.2.7(react@19.2.7)
+      react-markdown:
+        specifier: ^10.1.0
+        version: 10.1.0(@types/react@19.2.18)(react@19.2.7)
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
@@ -126,6 +135,9 @@ importers:
       tw-shimmer:
         specifier: ^0.4.12
         version: 0.4.12(tailwindcss@4.3.3)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
       zustand:
         specifier: ^5.0.15
         version: 5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
@@ -193,7 +205,7 @@ importers:
         version: 0.0.74
       '@assistant-ui/react-pi':
         specifier: 0.0.20
-        version: 0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1)(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
+        version: 0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1(zod@4.4.3))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
       '@earendil-works/pi-agent-core':
         specifier: 0.84.1
         version: 0.84.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
@@ -386,6 +398,17 @@ packages:
       react:
         optional: true
       zustand:
+        optional: true
+
+  '@assistant-ui/react-generative-ui@0.0.16':
+    resolution: {integrity: sha512-hRRv72yx5b8JdR02IZVKt+Bh/o5Bbg0GlcBfjKHi42KAp/Rsupc2+CI0eikC35WotQs/o0ckM26HSSf3EaHhgQ==}
+    peerDependencies:
+      '@assistant-ui/react': ^0.15.0
+      '@types/react': '*'
+      react: ^18 || ^19
+      zod: ^4.0.0
+    peerDependenciesMeta:
+      '@types/react':
         optional: true
 
   '@assistant-ui/react-markdown@0.14.13':
@@ -4613,6 +4636,18 @@ snapshots:
       - ioredis
       - redis
 
+  '@assistant-ui/react-generative-ui@0.0.16(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@types/react@19.2.18)(react@19.2.7)(zod@4.4.3)':
+    dependencies:
+      '@assistant-ui/react': 0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
+      assistant-stream: 0.3.40
+      react: 19.2.7
+      zod: 4.4.3
+    optionalDependencies:
+      '@types/react': 19.2.18
+    transitivePeerDependencies:
+      - ioredis
+      - redis
+
   '@assistant-ui/react-markdown@0.14.13(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
       '@assistant-ui/react': 0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
@@ -4629,7 +4664,7 @@ snapshots:
       - react-dom
       - supports-color
 
-  '@assistant-ui/react-pi@0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1)(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))':
+  '@assistant-ui/react-pi@0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1(zod@4.4.3))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))':
     dependencies:
       '@assistant-ui/core': 0.3.16(@assistant-ui/store@0.3.11(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@types/react@19.2.18)(react@19.2.7))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
       '@assistant-ui/react': 0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))

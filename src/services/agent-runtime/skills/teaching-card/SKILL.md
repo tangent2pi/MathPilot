@@ -7,9 +7,9 @@ description: Build MathPilot native question cards or offline sandboxed teaching
 
 Use a card only when interaction materially helps the learner. Cards are optional and non-blocking; skipping or switching to free text is never a wrong answer.
 
-- Simple choice, multiple-choice, judgment, or fill-in interactions use `mathpilot.question-card/v1` and the `native_card` renderer.
+- Simple choice, multiple-choice, judgment, fill-in, or short-answer interactions use `mathpilot.question-card/v1`; call `present_question_card` with the complete card object so the host renders the registered assistant-ui Tool UI.
 - Rich visual explanation uses `$teaching-artifact-adapter` together with `$qwen-mm-plugins-edu-agent` and an offline `sandboxed_html` artifact. Do not call Qwen-MM `api`, DashScope, Qwen-TTS, or another model.
-- Write formal artifacts to `/workspace/output/artifacts/<artifact_id>/` with an `mathpilot.learning-artifact/v1` manifest and only local files.
+- Write rich formal artifacts to `/workspace/output/artifacts/<artifact_id>/` with an `mathpilot.learning-artifact/v1` manifest and only local files, then call `present_learning_artifact` with its identity and entrypoint. Read `input/session/thread.json` for the manifest `session_id`.
 - HTML sends only `card.answer_submitted`, `card.skipped`, or `card.free_text_requested` through `parent.postMessage`; copy the one-time `interaction_token` from the iframe URL.
 - A card does not grade itself, change mastery, or write formal content. The Teaching Agent and domain service keep those authorities.
 - Include accessible labels, keyboard focus, reduced-motion handling, and text alternatives.

@@ -412,7 +412,7 @@ interface QuestionCard {
   schema: "mathpilot.question-card/v1";
   artifact_id: string;
   card_id: string;
-  type: "single_choice" | "multiple_choice" | "fill_blank" | "true_false";
+  type: "single_choice" | "multiple_choice" | "fill_blank" | "true_false" | "short_answer";
   prompt: string;
   blanks?: { name: string; expected_format?: "number" | "expression" | "text" }[];
   response_policy: { required: false; allow_skip: true; allow_free_text_without_answer: true };

@@ -6,7 +6,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PiClient, PiHostUiResponse, PiSendMessageInput, PiThinkingLevel } from "@assistant-ui/react-pi";
 import { PiThreadStore, type PiPrincipal, type PiThreadRecord } from "./pi-thread-store.ts";
 import { PiObjectStore } from "./pi-object-store.ts";
-import { assemblePiChatWorkspace } from "./pi-chat-workspace.ts";
+import { assemblePiChatWorkspace, bindPiThreadWorkspace } from "./pi-chat-workspace.ts";
+import { publishWorkspaceArtifacts, readPublishedArtifact } from "./artifact-publisher.ts";
 import type { PiChatRuntime } from "./pi-chat-server.ts";
 import {
   bindAttachmentTurn,
@@ -128,6 +129,7 @@ export function registerPiChatRoutes(
       workspacePath,
       ...(typeof input.title === "string" ? { title: input.title } : {}),
     });
+    await bindPiThreadWorkspace(workspacePath, snapshot.metadata.id);
     const absoluteSessionFile = snapshot.metadata.sessionFile;
     if (!absoluteSessionFile) {
       await pi.deleteThread(snapshot.metadata.id).catch(() => undefined);
@@ -211,13 +213,105 @@ export function registerPiChatRoutes(
       };
       await bindAttachmentTurn(workspaceOf(runtime, record), turn);
     }
+    let unsubscribe: (() => void) | undefined;
+    unsubscribe = pi.subscribe(threadId, (event) => {
+      if (event.type !== "agent_end" || event.willRetry) return;
+      unsubscribe?.();
+      void publishWorkspaceArtifacts(workspaceOf(runtime, record), threadId).catch((error) => {
+        request.log.error({ err: error, threadId }, "Pi learning artifact publication failed");
+      });
+    });
     try {
       await pi.sendMessage(threadId, piInput);
     } catch (error) {
+      unsubscribe?.();
       if (turn) await releaseAttachmentTurn(workspaceOf(runtime, record), turn);
       throw error;
     }
     return reply.code(204).send();
+  });
+
+  app.get("/pi/threads/:threadId/artifacts/:artifactId/*", async (request, reply) => {
+    const principal = principalOf(request);
+    if (!principal) return reply.code(401).send({ error: "trusted principal required" });
+    const { threadId, artifactId, "*": file } = request.params as { threadId: string; artifactId: string; "*": string };
+    const record = await owned(store, principal, threadId, reply);
+    if (!record) return;
+    await restoreArchivedThread(runtime, record, objectStore);
+    const workspace = workspaceOf(runtime, record);
+    try {
+      // 正常路径在 agent_end 时已发布；这里的幂等发布覆盖用户立即点击和服务重启恢复。
+      await publishWorkspaceArtifacts(workspace, threadId);
+      const result = await readPublishedArtifact(workspace, artifactId, file);
+      if (!result) return reply.code(404).send({ error: "artifact not found" });
+      const mime: Record<string, string> = {
+        ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+        ".json": "application/json; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".svg": "image/svg+xml",
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
+        ".mp4": "video/mp4", ".webm": "video/webm", ".woff": "font/woff", ".woff2": "font/woff2",
+      };
+      reply.header("content-type", mime[result.extension] ?? "application/octet-stream");
+      reply.header("cache-control", "private, max-age=31536000, immutable");
+      reply.header("x-content-type-options", "nosniff");
+      if (result.extension === ".html") {
+        reply.header("content-security-policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'");
+      }
+      return reply.send(result.bytes);
+    } catch (error) {
+      request.log.error({ err: error, threadId, artifactId }, "Pi learning artifact read failed");
+      return reply.code(404).send({ error: "artifact not found" });
+    }
+  });
+
+  app.post("/pi/threads/:threadId/card-events", async (request, reply) => {
+    const principal = principalOf(request);
+    if (!principal) return reply.code(401).send({ error: "trusted principal required" });
+    const { threadId } = request.params as { threadId: string };
+    const record = await owned(store, principal, threadId, reply, true);
+    if (!record) return;
+    const body = request.body as {
+      tool_call_id?: unknown;
+      artifact_id?: unknown;
+      card_id?: unknown;
+      response_type?: unknown;
+      payload?: unknown;
+    };
+    if (
+      typeof body.tool_call_id !== "string"
+      || typeof body.artifact_id !== "string"
+      || !/^art_[A-Za-z0-9]{8,92}$/.test(body.artifact_id)
+      || typeof body.card_id !== "string"
+      || !/^card_[A-Za-z0-9]+$/.test(body.card_id)
+      || !["submitted", "skipped", "bypassed_free_text"].includes(String(body.response_type))
+      || !body.payload
+      || typeof body.payload !== "object"
+      || Array.isArray(body.payload)
+    ) return reply.code(422).send({ error: "invalid card event" });
+
+    // 不信任浏览器传来的 card/artifact 标识；只有当前 Pi 转录中真实存在且
+    // 参数一致的题卡工具调用才能进入结构化审计表。
+    const snapshot = await pi.getThread(threadId);
+    const registered = snapshot.messages.some((message) =>
+      message.role === "assistant"
+      && message.content.some((part) => part.type === "toolCall"
+        && part.id === body.tool_call_id
+        && part.name === "present_question_card"
+        && part.arguments.artifact_id === body.artifact_id
+        && part.arguments.card_id === body.card_id)
+    );
+    if (!registered) return reply.code(422).send({ error: "card is not registered in this Pi thread" });
+
+    const event = await store.recordCardEvent(principal, {
+      threadId,
+      studentId: record.studentId,
+      toolCallId: body.tool_call_id,
+      artifactId: body.artifact_id,
+      cardId: body.card_id,
+      responseType: body.response_type as "submitted" | "skipped" | "bypassed_free_text",
+      payload: body.payload as Record<string, unknown>,
+    });
+    if (!event.created) return reply.code(409).send({ error: "card event already recorded" });
+    return reply.code(201).send({ event_id: event.eventId, response_type: body.response_type });
   });
 
   app.post("/pi/threads/:threadId/files", async (request, reply) => {
