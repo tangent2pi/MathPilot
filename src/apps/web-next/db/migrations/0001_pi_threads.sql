@@ -42,6 +42,7 @@ create index if not exists pi_thread_acl_user_idx
 alter table pi_threads enable row level security;
 alter table pi_threads force row level security;
 
+drop policy if exists pi_threads_select on pi_threads;
 create policy pi_threads_select on pi_threads for select using (
   tenant_id = current_setting('mathpilot.tenant_id', true)
   and (
@@ -57,6 +58,7 @@ create policy pi_threads_select on pi_threads for select using (
   )
 );
 
+drop policy if exists pi_threads_insert on pi_threads;
 create policy pi_threads_insert on pi_threads for insert with check (
   tenant_id = current_setting('mathpilot.tenant_id', true)
   and owner_user_id = current_setting('mathpilot.user_id', true)
@@ -66,6 +68,7 @@ create policy pi_threads_insert on pi_threads for insert with check (
   )
 );
 
+drop policy if exists pi_threads_update on pi_threads;
 create policy pi_threads_update on pi_threads for update using (
   tenant_id = current_setting('mathpilot.tenant_id', true)
   and (
@@ -82,6 +85,7 @@ create policy pi_threads_update on pi_threads for update using (
   )
 );
 
+drop policy if exists pi_threads_delete on pi_threads;
 create policy pi_threads_delete on pi_threads for delete using (
   tenant_id = current_setting('mathpilot.tenant_id', true)
   and (
@@ -100,6 +104,7 @@ create policy pi_threads_delete on pi_threads for delete using (
 
 alter table pi_thread_acl enable row level security;
 alter table pi_thread_acl force row level security;
+drop policy if exists pi_thread_acl_tenant_scope on pi_thread_acl;
 create policy pi_thread_acl_tenant_scope on pi_thread_acl for all
   using (tenant_id = current_setting('mathpilot.tenant_id', true))
   with check (tenant_id = current_setting('mathpilot.tenant_id', true));

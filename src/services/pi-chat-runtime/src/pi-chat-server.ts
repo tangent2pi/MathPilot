@@ -14,8 +14,8 @@ const EXTENSIONS_NODE_MODULES = fileURLToPath(new URL("../node_modules", import.
 const SKILLS_SOURCE = process.env.PI_CHAT_SKILLS_SOURCE
   ?? fileURLToPath(new URL("../skills", import.meta.url));
 
-// Pi 对话 runtime 沿用 Claude 原型中已验证的 DeepSeek 配置；它与 agent-runtime
-// 既有批处理任务的主/辅模型配置相互独立，不能读取 MODEL_ID_MAIN 回退到 Qwen。
+// Pi 对话 runtime 沿用已验证的 DeepSeek 配置；它与旧批处理 runtime
+// 的主/辅模型配置相互独立，不能读取 MODEL_ID_MAIN 回退到 Qwen。
 const PROVIDER = "mathpilot-deepseek";
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL_ID = "deepseek-v4-flash-vision-exp";
@@ -56,7 +56,7 @@ export interface PiChatRuntime {
  * 不修改 Pi；沙盒、respond 与后续能力均通过 extensions/skills 注入。
  */
 export async function createPiChatRuntime(): Promise<PiChatRuntime> {
-  // 默认放在 agent-runtime 包内，使复制后的插件可向上解析该包锁定的依赖；
+  // 默认放在独立的 Pi chat runtime 目录，使复制后的插件解析本服务锁定的依赖；
   // 启动过程不执行 npm install，也不需要修改 Pi 的插件加载器。
   const runtimeRoot = process.env.PI_CHAT_RUNTIME_ROOT
     ?? process.env.MATHPILOT_RUNTIME

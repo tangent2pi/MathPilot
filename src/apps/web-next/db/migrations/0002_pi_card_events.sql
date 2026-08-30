@@ -21,6 +21,7 @@ create index if not exists pi_card_events_student_idx
 alter table pi_card_events enable row level security;
 alter table pi_card_events force row level security;
 
+drop policy if exists pi_card_events_select on pi_card_events;
 create policy pi_card_events_select on pi_card_events for select using (
   tenant_id = current_setting('mathpilot.tenant_id', true)
   and exists (
@@ -29,6 +30,7 @@ create policy pi_card_events_select on pi_card_events for select using (
   )
 );
 
+drop policy if exists pi_card_events_insert on pi_card_events;
 create policy pi_card_events_insert on pi_card_events for insert with check (
   tenant_id = current_setting('mathpilot.tenant_id', true)
   and exists (

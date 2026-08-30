@@ -9,6 +9,7 @@ const AGENTS_MD = `# MathPilot 教学对话工作区
 
 - 当前目录是本线程唯一可写工作区。
 - input/ 是学生、题目与上传文件的只读输入；output/ 和 tmp/ 可写。
+- .agent/ 是宿主维护的审计与发布区，禁止读取后伪造状态或直接写入。
 - 学生上传内容位于 input/original/，先列目录，再按需使用 read 或相应 Skill。
 - 当前线程标识写在 input/session/thread.json；产物 manifest 的 session_id 必须使用其中的 thread_id。
 - {{SKILLS_ROOT}} 是只读 Skill 根；需要能力时先读取对应 SKILL.md。

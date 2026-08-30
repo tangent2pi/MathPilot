@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronUp, CircleHelp, LogOut, Moon, Settings, Sun } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -26,8 +26,36 @@ const roleName = (roles: string[]): string => {
 
 export function AccountMenu() {
   const { principal, requireAuth, refreshAccount, signOut } = useAuth();
-  const [panel, setPanel] = useState<AccountPanel | null>(null);
+  const [panel, setPanel] = useState<AccountPanel | null>(readPanelFromLocation);
+  const panelHistoryEntry = useRef(false);
   const [avatarUrl, setAvatarUrl] = useState(`/api/account/avatar?v=${Date.now()}`);
+
+  useEffect(() => {
+    const restoreFromHistory = () => {
+      panelHistoryEntry.current = false;
+      setPanel(readPanelFromLocation());
+    };
+    window.addEventListener("popstate", restoreFromHistory);
+    return () => window.removeEventListener("popstate", restoreFromHistory);
+  }, []);
+
+  const openPanel = useCallback((nextPanel: AccountPanel) => {
+    if (panel === nextPanel) return;
+    window.history.pushState({ mathpilotPanel: nextPanel }, "", urlWithPanel(nextPanel));
+    panelHistoryEntry.current = true;
+    setPanel(nextPanel);
+  }, [panel]);
+
+  const closePanel = useCallback(() => {
+    if (panelHistoryEntry.current) {
+      panelHistoryEntry.current = false;
+      window.history.back();
+      return;
+    }
+    window.history.replaceState(window.history.state, "", urlWithPanel(null));
+    setPanel(null);
+  }, []);
+
   if (!principal) {
     return (
       <div className="grid grid-cols-2 gap-2 p-1">
@@ -67,8 +95,8 @@ export function AccountMenu() {
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={toggleTheme}><Moon className="dark:hidden" /><Sun className="hidden dark:block" />外观</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setPanel("settings")}><Settings />设置</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setPanel("help")}><CircleHelp />帮助</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openPanel("settings")}><Settings />设置</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openPanel("help")}><CircleHelp />帮助</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={() => void signOut()}><LogOut />退出登录</DropdownMenuItem>
           </DropdownMenuContent>
@@ -79,10 +107,22 @@ export function AccountMenu() {
       panel={panel}
       principal={principal}
       avatarUrl={avatarUrl}
-      onOpenChange={(open) => { if (!open) setPanel(null); }}
+      onOpenChange={(open) => { if (!open) closePanel(); }}
       onAvatarChange={setAvatarUrl}
       onAccountChange={refreshAccount}
     />
     </>
   );
+}
+
+function readPanelFromLocation(): AccountPanel | null {
+  const panel = new URLSearchParams(window.location.search).get("panel");
+  return panel === "settings" || panel === "help" ? panel : null;
+}
+
+function urlWithPanel(panel: AccountPanel | null): string {
+  const url = new URL(window.location.href);
+  if (panel) url.searchParams.set("panel", panel);
+  else url.searchParams.delete("panel");
+  return `${url.pathname}${url.search}${url.hash}`;
 }

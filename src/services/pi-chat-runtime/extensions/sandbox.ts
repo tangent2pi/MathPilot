@@ -34,7 +34,8 @@ const strictConfig = (cwd: string): SandboxRuntimeConfig => ({
     denyRead: [USER_HOME],
     allowRead: [cwd, skillsRoot(), SANDBOX_RUNTIME_VENDOR],
     allowWrite: [cwd],
-    denyWrite: [],
+    // Evidence and host-owned audit/publication state are never model-writable.
+    denyWrite: [path.join(cwd, "input"), path.join(cwd, ".agent")],
   },
 });
 

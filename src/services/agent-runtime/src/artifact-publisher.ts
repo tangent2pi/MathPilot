@@ -109,7 +109,7 @@ function validateQuestionCard(raw: string, artifactId: string): void {
   const card = JSON.parse(raw) as Record<string, unknown>;
   if (card.schema !== "mathpilot.question-card/v1" || card.artifact_id !== artifactId) throw new Error("invalid question card identity");
   if (typeof card.card_id !== "string" || !/^card_[A-Za-z0-9]+$/.test(card.card_id)) throw new Error("invalid question card id");
-  if (!["single_choice", "multiple_choice", "fill_blank", "true_false", "short_answer"].includes(String(card.type))) throw new Error("invalid question card type");
+  if (!["single_choice", "multiple_choice", "fill_blank", "true_false"].includes(String(card.type))) throw new Error("invalid question card type");
   if (typeof card.prompt !== "string" || !card.prompt.trim()) throw new Error("question card prompt required");
   if (!["teaching_only", "eligible_if_independent"].includes(String(card.evidence_policy))) throw new Error("invalid question card evidence policy");
   validateResponsePolicy(card.response_policy as ArtifactManifest["response_policy"]);

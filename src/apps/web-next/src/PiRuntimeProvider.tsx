@@ -2,7 +2,8 @@
 
 import { AssistantRuntimeProvider, AuiConfig, Tools, useAui, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react";
 import { createPiHttpClient, usePiRuntime } from "@assistant-ui/react-pi";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { Loader2Icon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { UnifiedAttachmentAdapter } from "./AttachmentAdapter";
 import { AUTH_DRAFT_KEY, useAuth } from "./auth";
 import { learningToolkit } from "@/components/assistant-ui/learning-toolkit";
@@ -14,12 +15,12 @@ import { learningToolkit } from "@/components/assistant-ui/learning-toolkit";
  */
 export function PiRuntimeProvider({ children }: { children: ReactNode }) {
   const { principal, loading } = useAuth();
-  if (loading) return (
+  // Better Auth may refetch the session when this tab regains focus. Keep the
+  // established runtime mounted during that background refresh; otherwise the
+  // whole conversation visibly reloads every time the user returns to the tab.
+  if (loading && !principal) return (
     <div className="grid h-dvh place-items-center" role="status" aria-live="polite">
-      <div className="relative size-14">
-        <img className="size-14 rounded-2xl" src="/mathpilot-icon.png" width="56" height="56" alt="" />
-        <span className="border-primary/20 border-t-primary absolute -inset-2 animate-spin rounded-[1.35rem] border-2 motion-reduce:animate-none" aria-hidden="true" />
-      </div>
+      <Loader2Icon className="text-muted-foreground size-6 animate-spin motion-reduce:animate-none" aria-hidden="true" />
       <span className="sr-only">正在读取账户</span>
     </div>
   );
@@ -29,6 +30,7 @@ export function PiRuntimeProvider({ children }: { children: ReactNode }) {
 }
 
 function AuthenticatedPiRuntimeProvider({ children }: { children: ReactNode }) {
+  const [threadId, setThreadId] = useState(readThreadIdFromLocation);
   const attachmentAdapter = useMemo(() => new UnifiedAttachmentAdapter(), []);
   const client = useMemo(() => {
     const base = createPiHttpClient();
@@ -47,8 +49,26 @@ function AuthenticatedPiRuntimeProvider({ children }: { children: ReactNode }) {
     };
   }, [attachmentAdapter]);
   const adapters = useMemo(() => ({ attachments: attachmentAdapter }), [attachmentAdapter]);
-  const runtime = usePiRuntime({ client, adapters });
+  const handleThreadIdChange = useCallback((nextThreadId: string | undefined) => {
+    setThreadId(nextThreadId);
+    const nextUrl = threadUrl(nextThreadId);
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
+      window.history.pushState({ mathpilotThreadId: nextThreadId ?? null }, "", nextUrl);
+    }
+  }, []);
+  const runtime = usePiRuntime({
+    client,
+    adapters,
+    threadId,
+    onThreadIdChange: handleThreadIdChange,
+  });
   const config = AuiConfig({ tools: Tools({ toolkit: learningToolkit }) });
+
+  useEffect(() => {
+    const restoreFromHistory = () => setThreadId(readThreadIdFromLocation());
+    window.addEventListener("popstate", restoreFromHistory);
+    return () => window.removeEventListener("popstate", restoreFromHistory);
+  }, []);
 
   return (
     <AssistantRuntimeProvider runtime={runtime} config={config}>
@@ -56,6 +76,22 @@ function AuthenticatedPiRuntimeProvider({ children }: { children: ReactNode }) {
       {children}
     </AssistantRuntimeProvider>
   );
+}
+
+const THREAD_PATH = /^\/c\/([^/]+)\/?$/;
+
+function readThreadIdFromLocation(): string | undefined {
+  const match = THREAD_PATH.exec(window.location.pathname);
+  if (!match?.[1]) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+function threadUrl(threadId: string | undefined): string {
+  return threadId ? `/c/${encodeURIComponent(threadId)}` : "/";
 }
 
 function PendingDraftRestorer() {

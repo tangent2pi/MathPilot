@@ -17,6 +17,15 @@ services:
       timeout: 3s
       retries: 10
 
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+
   db-migrate:
     image: postgres:16-alpine
     depends_on:
@@ -54,6 +63,31 @@ services:
           -v content_password="$$content_password" -v student01_password="$$student01_password" \
           -v student02_password="$$student02_password" -v student03_password="$$student03_password" \
           -f /seed.sql
+    restart: "no"
+
+  # Pi 对话使用独立的最小数据库；身份、租户和师生关系仍只在主库。
+  # 迁移以超级用户执行，runtime 本身只使用 mathpilot_app 并受强制 RLS。
+  pi-db-migrate:
+    image: postgres:16-alpine
+    depends_on:
+      db-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ../../src/apps/web-next/db/migrations:/pi-migrations:ro
+    command:
+      - sh
+      - -ceu
+      - |
+        exists=$$(psql -h postgres -U "${POSTGRES_USER}" -d postgres -Atc "select 1 from pg_database where datname='mathpilot_pi'")
+        if [ "$$exists" != "1" ]; then
+          createdb -h postgres -U "${POSTGRES_USER}" mathpilot_pi
+        fi
+        psql -h postgres -U "${POSTGRES_USER}" -d mathpilot_pi -v ON_ERROR_STOP=1 -f /pi-migrations/0001_pi_threads.sql
+        psql -h postgres -U "${POSTGRES_USER}" -d mathpilot_pi -v ON_ERROR_STOP=1 -f /pi-migrations/0002_pi_card_events.sql
+        psql -h postgres -U "${POSTGRES_USER}" -d postgres -v ON_ERROR_STOP=1 -c "grant connect on database mathpilot_pi to mathpilot_app"
+        psql -h postgres -U "${POSTGRES_USER}" -d mathpilot_pi -v ON_ERROR_STOP=1 -c "grant usage on schema public to mathpilot_app; grant select,insert,update,delete on all tables in schema public to mathpilot_app; grant usage,select,update on all sequences in schema public to mathpilot_app"
     restart: "no"
 
   # 仅供确定性回归/演示使用。默认 `docker compose up` 不执行这批合成题；
@@ -168,6 +202,40 @@ services:
     ports:
       - "127.0.0.1:3005:3005"
 
+  # assistant-ui/react-pi 的独立线程宿主。不能与上面的批处理 runtime 合并。
+  pi-chat-runtime:
+    init: true
+    build:
+      context: ../..
+      dockerfile: src/services/pi-chat-runtime/Dockerfile
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=unconfined
+      - apparmor=unconfined
+      - systempaths=unconfined
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETUID, SETGID]
+    environment:
+      PI_DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/mathpilot_pi
+      PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET}
+      PI_CHAT_RUNTIME_ROOT: /var/lib/mathpilot/pi-chat
+      MODEL_API_BASE: ${PI_MODEL_API_BASE:-https://api.deepseek.com}
+      MODEL_API_KEY: ${PI_MODEL_API_KEY}
+      MODEL_ID: ${PI_MODEL_ID:-deepseek-v4-flash-vision-exp}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-mathpilot-workspaces}
+      MINIO_USE_SSL: "false"
+      PORT: "3105"
+    volumes:
+      - pi_chat_runtime:/var/lib/mathpilot/pi-chat
+    depends_on:
+      pi-db-migrate:
+        condition: service_completed_successfully
+      minio:
+        condition: service_started
+
   content:
     build:
       context: ../..
@@ -207,7 +275,7 @@ services:
   web:
     build:
       context: ../..
-      dockerfile: src/apps/web/Dockerfile
+      dockerfile: src/apps/web-next/Dockerfile
     depends_on:
       - api
     ports:
@@ -216,15 +284,11 @@ services:
   api:
     build:
       context: ../..
-      dockerfile: src/services/Dockerfile
-      args: { SERVICE_NAME: api }
+      dockerfile: src/services/api-next/Dockerfile
     environment:
-      LEARNING_URL: http://learning:3002
-      PROFILE_URL: http://profile:3003
-      CONTENT_URL: http://content:3006
-      REVIEW_URL: http://review:3008
-      AGENT_RUNTIME_URL: http://agent-runtime:3005
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
+      PI_CHAT_RUNTIME_URL: http://pi-chat-runtime:3105
+      PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8080}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-mathpilot-dev-secret-change-me-at-least-32-characters}
       BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
@@ -234,23 +298,22 @@ services:
       BETTER_AUTH_STUDENT_PASSWORD: ${BETTER_AUTH_STUDENT_PASSWORD:-MathPilotStudent123!}
       BETTER_AUTH_TEACHER_EMAIL: ${BETTER_AUTH_TEACHER_EMAIL:-teacher@mathpilot.local}
       BETTER_AUTH_TEACHER_PASSWORD: ${BETTER_AUTH_TEACHER_PASSWORD:-MathPilotTeacher123!}
-      PORT: "3001"
+      PORT: "3101"
     depends_on:
       db-seed:
         condition: service_completed_successfully
-      learning:
-        condition: service_started
-      profile:
-        condition: service_started
-      review:
-        condition: service_started
-      content:
+      pi-chat-runtime:
         condition: service_started
     ports:
-      - "127.0.0.1:3001:3001"
+      - "127.0.0.1:3101:3101"
 
 volumes:
   pgdata:
+    name: ${POSTGRES_VOLUME:-mathpilot_pgdata}
   content_artifacts:
   agent_workspaces:
   pi_sessions:
+  pi_chat_runtime:
+    name: ${PI_CHAT_RUNTIME_VOLUME:-mathpilot_pi_chat_runtime}
+  minio_data:
+    name: ${MINIO_VOLUME:-mathpilot_minio_data}

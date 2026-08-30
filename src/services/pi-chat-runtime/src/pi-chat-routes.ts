@@ -241,7 +241,7 @@ export function registerPiChatRoutes(
     const workspace = workspaceOf(runtime, record);
     try {
       // 正常路径在 agent_end 时已发布；这里的幂等发布覆盖用户立即点击和服务重启恢复。
-      await publishWorkspaceArtifacts(workspace, threadId);
+      await publishWorkspaceArtifacts(workspace, threadId, artifactId);
       const result = await readPublishedArtifact(workspace, artifactId, file);
       if (!result) return reply.code(404).send({ error: "artifact not found" });
       const mime: Record<string, string> = {
@@ -291,15 +291,52 @@ export function registerPiChatRoutes(
     // 不信任浏览器传来的 card/artifact 标识；只有当前 Pi 转录中真实存在且
     // 参数一致的题卡工具调用才能进入结构化审计表。
     const snapshot = await pi.getThread(threadId);
-    const registered = snapshot.messages.some((message) =>
-      message.role === "assistant"
-      && message.content.some((part) => part.type === "toolCall"
-        && part.id === body.tool_call_id
-        && part.name === "present_question_card"
-        && part.arguments.artifact_id === body.artifact_id
-        && part.arguments.card_id === body.card_id)
+    const toolCalls = snapshot.messages.flatMap((message) => {
+      if (message.role !== "assistant" || !("content" in message) || !Array.isArray(message.content)) return [];
+      return message.content.filter((part): part is {
+        type: "toolCall";
+        id: string;
+        name: string;
+        arguments: Record<string, unknown>;
+      } => Boolean(
+        part && typeof part === "object"
+        && "type" in part && part.type === "toolCall"
+        && "id" in part && typeof part.id === "string"
+        && "name" in part && typeof part.name === "string"
+        && "arguments" in part && part.arguments !== null
+        && typeof part.arguments === "object" && !Array.isArray(part.arguments)
+      ));
+    });
+    const directCard = toolCalls.some((part) =>
+      part.id === body.tool_call_id
+      && part.name === "present_question_card"
+      && part.arguments.artifact_id === body.artifact_id
+      && part.arguments.card_id === body.card_id
     );
-    if (!registered) return reply.code(422).send({ error: "card is not registered in this Pi thread" });
+    const artifactTool = toolCalls.find((part) =>
+      part.id === body.tool_call_id
+      && part.name === "present_learning_artifact"
+      && part.arguments.artifact_id === body.artifact_id
+      && part.arguments.renderer === "native_card"
+      && part.arguments.entry === "card.json"
+    );
+    let publishedArtifactCard = false;
+    if (!directCard && artifactTool) {
+      try {
+        const workspace = workspaceOf(runtime, record);
+        await publishWorkspaceArtifacts(workspace, threadId, body.artifact_id);
+        const published = await readPublishedArtifact(workspace, body.artifact_id, "card.json");
+        if (published) {
+          const card = JSON.parse(published.bytes.toString("utf8")) as { card_id?: unknown };
+          publishedArtifactCard = card.card_id === body.card_id;
+        }
+      } catch (error) {
+        request.log.error({ err: error, threadId, artifactId: body.artifact_id }, "Pi question-card artifact verification failed");
+      }
+    }
+    if (!directCard && !publishedArtifactCard) {
+      return reply.code(422).send({ error: "card is not registered in this Pi thread" });
+    }
 
     const event = await store.recordCardEvent(principal, {
       threadId,
@@ -310,8 +347,11 @@ export function registerPiChatRoutes(
       responseType: body.response_type as "submitted" | "skipped" | "bypassed_free_text",
       payload: body.payload as Record<string, unknown>,
     });
-    if (!event.created) return reply.code(409).send({ error: "card event already recorded" });
-    return reply.code(201).send({ event_id: event.eventId, response_type: body.response_type });
+    return reply.code(event.created ? 201 : 200).send({
+      event_id: event.eventId,
+      response_type: body.response_type,
+      duplicate: !event.created,
+    });
   });
 
   app.post("/pi/threads/:threadId/files", async (request, reply) => {

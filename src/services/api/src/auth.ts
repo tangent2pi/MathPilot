@@ -68,12 +68,10 @@ const DOMAIN_ROLES = new Set(["student", "guardian", "teacher", "content_reviewe
 
 export interface Principal {
   userId: string;
-  uid: string;
   tenantId: string;
   roles: string[];
   via: "better_auth";
   authUserId: string;
-  name: string;
   email: string;
 }
 
@@ -96,11 +94,6 @@ export async function authenticate(pool: pg.Pool, headers: IncomingHttpHeaders):
   if (!session) throw new AuthError(401, "authentication required");
   const authUser = session.user as typeof session.user & { role?: string };
   const roles = rolesFor(authUser.role);
-  const account = (await pool.query<{ uid: string }>(
-    `select uid::text from "user" where id=$1`,
-    [authUser.id],
-  )).rows[0];
-  if (!account?.uid) throw new AuthError(401, "account UID is unavailable");
 
   const candidateUserId = newId("usr");
   const domain = await withTenant(pool, DEV_TENANT, async (c) => {
@@ -117,12 +110,10 @@ export async function authenticate(pool: pg.Pool, headers: IncomingHttpHeaders):
 
   return {
     userId: domain.user_id,
-    uid: account.uid,
     tenantId: domain.tenant_id,
     roles,
     via: "better_auth",
     authUserId: authUser.id,
-    name: authUser.name || authUser.email,
     email: authUser.email,
   };
 }

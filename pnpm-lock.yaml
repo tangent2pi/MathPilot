@@ -200,12 +200,6 @@ importers:
 
   src/services/agent-runtime:
     dependencies:
-      '@anthropic-ai/sandbox-runtime':
-        specifier: 0.0.74
-        version: 0.0.74
-      '@assistant-ui/react-pi':
-        specifier: 0.0.20
-        version: 0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1(zod@4.4.3))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
       '@earendil-works/pi-agent-core':
         specifier: 0.84.1
         version: 0.84.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
@@ -218,9 +212,6 @@ importers:
       fastify:
         specifier: ^5.2.0
         version: 5.12.0
-      minio:
-        specifier: ^8.0.7
-        version: 8.0.7
       pg:
         specifier: ^8.13.1
         version: 8.23.0
@@ -230,9 +221,6 @@ importers:
       tsx:
         specifier: 4.20.6
         version: 4.20.6
-      typebox:
-        specifier: ^1.3.19
-        version: 1.3.19
     devDependencies:
       '@types/cross-spawn':
         specifier: 6.0.6
@@ -258,6 +246,28 @@ importers:
       undici:
         specifier: ^8.10.0
         version: 8.10.0
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.21.0
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  src/services/api-next:
+    dependencies:
+      better-auth:
+        specifier: 1.6.23
+        version: 1.6.23(@opentelemetry/api@1.9.0)(pg@8.23.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.11(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(jsdom@30.0.1(@noble/hashes@2.3.0))(vite@8.0.10(@types/node@24.13.3)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.20.6)(yaml@2.9.0)))
+      fastify:
+        specifier: ^5.2.0
+        version: 5.12.0
+      pg:
+        specifier: ^8.13.1
+        version: 8.23.0
+      tsx:
+        specifier: 4.20.6
+        version: 4.20.6
     devDependencies:
       '@types/pg':
         specifier: ^8.11.10
@@ -305,6 +315,46 @@ importers:
       pg:
         specifier: ^8.13.1
         version: 8.23.0
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.21.0
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  src/services/pi-chat-runtime:
+    dependencies:
+      '@anthropic-ai/sandbox-runtime':
+        specifier: 0.0.74
+        version: 0.0.74
+      '@assistant-ui/react-pi':
+        specifier: 0.0.20
+        version: 0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1(zod@4.4.3))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
+      '@earendil-works/pi-agent-core':
+        specifier: 0.84.1
+        version: 0.84.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
+      '@earendil-works/pi-ai':
+        specifier: 0.84.1
+        version: 0.84.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.84.1
+        version: 0.84.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
+      fastify:
+        specifier: ^5.2.0
+        version: 5.12.0
+      minio:
+        specifier: ^8.0.7
+        version: 8.0.7
+      pg:
+        specifier: ^8.13.1
+        version: 8.23.0
+      tsx:
+        specifier: 4.20.6
+        version: 4.20.6
+      typebox:
+        specifier: ^1.3.19
+        version: 1.3.19
     devDependencies:
       '@types/pg':
         specifier: ^8.11.10

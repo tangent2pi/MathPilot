@@ -164,7 +164,13 @@ export class PiThreadStore {
        value.artifactId, value.cardId, value.responseType, JSON.stringify(value.payload)],
     );
     const inserted = result.rows[0]?.event_id;
-    return { eventId: inserted ?? eventId, created: Boolean(inserted) };
+    if (inserted) return { eventId: inserted, created: true };
+    const existing = await this.scopedQuery<{ event_id: string }>(principal,
+      `select event_id from pi_card_events
+       where thread_id=$1 and tool_call_id=$2 and tenant_id=$3`,
+      [value.threadId, value.toolCallId, principal.tenantId],
+    );
+    return { eventId: existing.rows[0]?.event_id ?? eventId, created: false };
   }
 
   async markArchived(principal: PiPrincipal, threadId: string, archived: boolean): Promise<boolean> {

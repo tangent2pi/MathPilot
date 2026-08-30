@@ -1,9 +1,9 @@
 "use client";
 
 import { defineToolkit, useAuiState } from "@assistant-ui/react";
+import { useEffect, useState } from "react";
 import { ArtifactCard } from "@/components/assistant-ui/elements/artifact-card";
 import { QuestionCard, type QuestionCardArgs } from "@/components/assistant-ui/question-card";
-import { TeachingGenerativeUI } from "@/components/assistant-ui/teaching-generative-ui";
 
 type ArtifactArgs = {
   artifact_id?: string;
@@ -29,48 +29,82 @@ export const learningToolkit = defineToolkit({
   present_learning_artifact: {
     type: "backend",
     display: "standalone",
-    render: function LearningArtifactTool({ args, status }) {
-      const threadId = useAuiState((state) => state.threadListItem.remoteId);
-      const artifact = (args ?? {}) as ArtifactArgs;
-      const title = artifact.title || "教学产物";
-      const kind = artifact.kind === "knowledge_visualization"
-        ? "知识可视化"
-        : artifact.kind === "mixed_lesson"
-          ? "混合教学"
-          : "互动题卡";
-      return (
-        <ArtifactCard
-          title={title}
-          meta={`${kind}${artifact.version ? ` · ${artifact.version}` : ""}`}
-          generating={status.type === "running"}
-          words={0}
-          className={threadId && artifact.artifact_id && artifact.entry ? undefined : "cursor-default"}
-          role={threadId && artifact.artifact_id && artifact.entry ? "link" : undefined}
-          tabIndex={threadId && artifact.artifact_id && artifact.entry ? 0 : undefined}
-          onClick={() => {
-            if (!threadId || !artifact.artifact_id || !artifact.entry) return;
-            const uri = `/api/pi/threads/${encodeURIComponent(threadId)}/artifacts/${encodeURIComponent(artifact.artifact_id)}/${artifact.entry.split("/").map(encodeURIComponent).join("/")}`;
-            window.open(uri, "_blank", "noopener,noreferrer");
-          }}
-          onKeyDown={(event) => {
-            if ((event.key === "Enter" || event.key === " ") && threadId && artifact.artifact_id && artifact.entry) {
-              event.preventDefault();
-              const uri = `/api/pi/threads/${encodeURIComponent(threadId)}/artifacts/${encodeURIComponent(artifact.artifact_id)}/${artifact.entry.split("/").map(encodeURIComponent).join("/")}`;
-              window.open(uri, "_blank", "noopener,noreferrer");
-            }
-          }}
-        />
-      );
-    },
+    render: ({ args, status, toolCallId }) => (
+      <LearningArtifactTool
+        artifact={(args ?? {}) as ArtifactArgs}
+        running={status.type === "running"}
+        toolCallId={toolCallId}
+      />
+    ),
   },
   present_teaching_ui: {
     type: "backend",
     display: "standalone",
-    render: ({ args, status }) => (
-      <TeachingGenerativeUI
-        spec={(args as { ui?: unknown } | undefined)?.ui}
-        running={status.type === "running"}
-      />
-    ),
+    // Keep historical tool calls silent while the presentation contract is
+    // being redesigned. The runtime no longer exposes this tool to the model.
+    render: () => null,
   },
 });
+
+function LearningArtifactTool({
+  artifact,
+  running,
+  toolCallId,
+}: {
+  artifact: ArtifactArgs;
+  running: boolean;
+  toolCallId: string;
+}) {
+  const threadId = useAuiState((state) => state.threadListItem.remoteId);
+  const [card, setCard] = useState<QuestionCardArgs | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const uri = threadId && artifact.artifact_id && artifact.entry
+    ? `/api/pi/threads/${encodeURIComponent(threadId)}/artifacts/${encodeURIComponent(artifact.artifact_id)}/${artifact.entry.split("/").map(encodeURIComponent).join("/")}`
+    : null;
+
+  useEffect(() => {
+    if (running || artifact.renderer !== "native_card" || !uri) return;
+    const controller = new AbortController();
+    setLoadError(false);
+    void fetch(uri, { credentials: "include", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("artifact not found");
+        return response.json() as Promise<QuestionCardArgs>;
+      })
+      .then(setCard)
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setLoadError(true);
+      });
+    return () => controller.abort();
+  }, [artifact.renderer, running, uri]);
+
+  if (artifact.renderer === "native_card" && card) {
+    return <QuestionCard args={card} running={false} toolCallId={toolCallId} />;
+  }
+
+  const title = artifact.title || "教学产物";
+  const kind = artifact.kind === "knowledge_visualization"
+    ? "知识可视化"
+    : artifact.kind === "mixed_lesson"
+      ? "混合教学"
+      : "互动题卡";
+  const canOpen = artifact.renderer !== "native_card" && Boolean(uri);
+  return (
+    <ArtifactCard
+      title={title}
+      meta={loadError ? "产物发布失败" : `${kind}${artifact.version ? ` · ${artifact.version}` : ""}`}
+      generating={running || (artifact.renderer === "native_card" && !loadError)}
+      words={0}
+      className={canOpen ? undefined : "cursor-default"}
+      role={canOpen ? "link" : undefined}
+      tabIndex={canOpen ? 0 : undefined}
+      onClick={() => { if (canOpen && uri) window.open(uri, "_blank", "noopener,noreferrer"); }}
+      onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && canOpen && uri) {
+          event.preventDefault();
+          window.open(uri, "_blank", "noopener,noreferrer");
+        }
+      }}
+    />
+  );
+}

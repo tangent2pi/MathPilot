@@ -108,7 +108,10 @@ export function QuestionCard({
         payload,
       }),
     });
-    if (!audit.ok) throw new Error("题卡事件未能写入学习审计");
+    if (!audit.ok) {
+      const problem = await audit.json().catch(() => null) as { error?: unknown } | null;
+      throw new Error(typeof problem?.error === "string" ? problem.error : "题卡事件未能写入学习审计");
+    }
   };
 
   const appendResponse = async (response: "submitted" | "skipped") => {
@@ -127,11 +130,12 @@ export function QuestionCard({
     try {
       await recordAuditEvent(response, payload);
       setSubmitted(true);
+      const responseText = response === "submitted"
+        ? `我提交了题卡 ${cardId} 的回答：\n\n${JSON.stringify(payload, null, 2)}`
+        : `我跳过了题卡 ${cardId}，请继续当前教学对话。`;
       await aui.thread.append({
         role: "user",
-        content: response === "submitted"
-          ? `我提交了题卡 ${cardId} 的回答：\n\n${JSON.stringify(payload, null, 2)}`
-          : `我跳过了题卡 ${cardId}，请继续当前教学对话。`,
+        content: [{ type: "text", text: responseText }],
       });
     } catch (cause) {
       setSubmitError(cause instanceof Error ? cause.message : "提交失败，请重试。");

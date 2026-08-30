@@ -18,7 +18,7 @@ export default defineConfig(({ mode }) => {
     proxy: {
       // 浏览器始终同源访问；Cookie 只由 Better Auth API 网关解释。
       "/api": {
-        target: env.MATHPILOT_API_URL ?? "http://127.0.0.1:3001",
+        target: env.MATHPILOT_API_URL ?? "http://127.0.0.1:3101",
         changeOrigin: false,
       },
     },

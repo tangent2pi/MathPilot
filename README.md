@@ -23,14 +23,16 @@
 ## 架构
 
 ```text
-apps/web（唯一正式前端·统一响应式 App Shell）
-services/api（Better Auth 网关） agent-runtime（完整 Pi 宿主：统一工具/Skill/工作区/Session 投影）
+apps/web-next（正式对话前端：assistant-ui Thread / ThreadList / Generative UI）
+services/api-next（Better Auth 网关与账户/线程授权）
+services/pi-chat-runtime（自托管 react-pi 线程宿主：Pi JSONL/工作区/附件/卡片）
+services/agent-runtime（既有批处理 Pi 宿主；不承载 next 对话线程）
 services/content（原始资料→KTQ→独立 ER→复核；OCR 由 Agent 按原件质量决定）
 services/learning（一题一 Session：判答→错因归因→追问卡→双产物）
 services/profile（画像采集→Dream 三段式（pyBKT Roster 基准+画像大模型）→快照/计划）
 services/review（教师复核：supersede+重放+修订 SLR）
 packages/contracts（21 契约 schema） mastery（OATutor 移植+保持率） selector（选题） providers/{model,ocr}
-db/（PostgreSQL 唯一事实源：RLS+不可变事件触发器+可恢复内容流水线，迁移 0001-0028）
+db/（主 PostgreSQL：身份/学习/审计）+ mathpilot_pi（线程归属/ACL/卡片事件）+ MinIO（归档）
 ```
 
 ## 快速启动（开发环境）
@@ -40,10 +42,12 @@ nix develop            # 进入开发环境（python312+gcc 用于侧车）
 test -d references/qwen-mm-plugins/.git || git clone https://github.com/QwenLM/Qwen-MM-Plugins.git references/qwen-mm-plugins
 git -C references/qwen-mm-plugins checkout dd029da3bcadfe497de4b4ca8976b11177997cf0
 cd deploy/dev && cp .env.example .env   # 配置 MODEL_API_KEY / OCR_API_TOKEN
-docker compose up -d   # postgres+迁移+种子+6 服务+正式 web(8080)
+docker compose up -d   # 主库+Pi 库+MinIO+领域服务+next 对话入口(8080)
 ```
 
-- 前端：http://localhost:8080（唯一正式入口）
+- 前端：http://localhost:8080（assistant-ui 正式对话入口）
+- next 开发与容器数据边界：`docs/pi-chat-development.md`
+- home 切换和旧库保留：`docs/home-next-deployment.md`
 - 无外部调用现状回归：`bash tests/e2e/current-state-smoke.sh`
 - 无外部调用浏览器回归：按 `deploy/dev/README.md` 的命令在 Agent Runtime 中运行 `browser-visual-smoke.mjs`
 - 真实端到端（会调用模型，并可能按 Agent 判断调用 OCR）：`bash tests/e2e/real-smoke.sh`

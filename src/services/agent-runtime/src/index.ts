@@ -28,10 +28,6 @@ import {
   type WorkspaceLifecycle,
 } from "./workspace.ts";
 import { readPublishedArtifact } from "./artifact-publisher.ts";
-import { createPiChatRuntime } from "./pi-chat-server.ts";
-import { registerPiChatRoutes } from "./pi-chat-routes.ts";
-import { PiThreadStore } from "./pi-thread-store.ts";
-import { PiObjectStore } from "./pi-object-store.ts";
 
 // 模型供应商配置实例（架构修订 v4 §1：Qwen3.8-Max / DeepSeek-V4-Flash-0731 只是配置，不是架构名称）
 const providerConfig: ProviderConfig = {
@@ -40,11 +36,6 @@ const providerConfig: ProviderConfig = {
   auxModelId: process.env.MODEL_ID_AUX ?? "DeepSeek-V4-Flash-0731",
 };
 const MODEL_API_KEY = process.env.MODEL_API_KEY ?? "";
-const PI_DATABASE_URL = process.env.PI_DATABASE_URL ?? "";
-const PI_GATEWAY_SECRET = process.env.PI_GATEWAY_SECRET ?? "";
-if (PI_DATABASE_URL && PI_GATEWAY_SECRET.length < 32) {
-  throw new Error("PI_GATEWAY_SECRET (at least 32 characters) is required when PI_DATABASE_URL enables Pi chat");
-}
 
 const modelRuntime = await ModelRuntime.create({ modelsPath: null, allowModelNetwork: false });
 modelRuntime.registerNativeProvider(buildScnetProvider(providerConfig));
@@ -62,30 +53,12 @@ function tenantOf(req: { headers: Record<string, unknown> }): string | null {
 startService({
   name: "agent-runtime",
   port: Number(process.env.PORT ?? 3005),
-  async register(app) {
+  register(app) {
     app.addHook("onReady", async () => {
       await compactExpiredFailedWorkspaces();
       const timer = setInterval(() => void compactExpiredFailedWorkspaces().catch(() => undefined), 60 * 60 * 1000);
       timer.unref();
     });
-
-    // 开发态对话 runtime：只有显式提供独立 Pi 数据库时启用，不影响既有任务 runtime。
-    if (PI_DATABASE_URL) {
-      const chatRuntime = await createPiChatRuntime();
-      const threadStore = new PiThreadStore(PI_DATABASE_URL);
-      const objectStore = process.env.MINIO_ENDPOINT && process.env.MINIO_ACCESS_KEY && process.env.MINIO_SECRET_KEY
-        ? new PiObjectStore({
-            endpoint: process.env.MINIO_ENDPOINT,
-            accessKey: process.env.MINIO_ACCESS_KEY,
-            secretKey: process.env.MINIO_SECRET_KEY,
-            bucket: process.env.MINIO_BUCKET ?? "mathpilot-workspaces",
-            useSSL: process.env.MINIO_USE_SSL === "true",
-          })
-        : undefined;
-      await app.register(async (piApp) => {
-        registerPiChatRoutes(piApp, chatRuntime, threadStore, objectStore);
-      });
-    }
     app.get("/capabilities", async () => ({
       harness: "pi-coding-agent@0.84.1",
       runtime: "MathPilot runtime plugin（持久 Session；同 session_ref 多轮续接）",
