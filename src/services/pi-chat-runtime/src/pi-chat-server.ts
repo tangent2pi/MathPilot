@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
@@ -9,7 +9,7 @@ import type { PiClient } from "@assistant-ui/react-pi";
 const EXTENSIONS_SOURCE = process.env.PI_CHAT_EXTENSIONS_SOURCE
   ?? fileURLToPath(new URL("../extensions", import.meta.url));
 const EXTENSIONS_NODE_MODULES = fileURLToPath(new URL("../node_modules", import.meta.url));
-// 恢复 Claude 已验证的六个 Pi skill：仅通过 agentDir 插件式注入，
+// 注入 Pi 对话所需的 Skills：仅通过 agentDir 插件式注入，
 // 不修改 Pi；不包含“下一题”fork、后台判答或 Dream 编排。
 const SKILLS_SOURCE = process.env.PI_CHAT_SKILLS_SOURCE
   ?? fileURLToPath(new URL("../skills", import.meta.url));
@@ -35,7 +35,7 @@ async function rewriteSkillPaths(root: string, skillsRoot: string): Promise<void
       if (entry.isDirectory()) await walk(file);
       else if (/\.(md|py|sh|json|txt)$/.test(entry.name)) {
         const current = await readFile(file, "utf8").catch(() => "");
-        const next = current.replaceAll("/opt/mathpilot-skills", skillsRoot).replaceAll("/workspace/", "./");
+        const next = current.replaceAll("{{SKILLS_ROOT}}", skillsRoot).replaceAll("/opt/mathpilot-skills", skillsRoot).replaceAll("/workspace/", "./");
         if (next !== current) await writeFile(file, next, "utf8");
       }
     }
@@ -67,6 +67,11 @@ export async function createPiChatRuntime(): Promise<PiChatRuntime> {
   const agentSessionsRoot = path.join(agentDir, "sessions");
   const skillsRoot = path.join(agentDir, "skills");
 
+  // The agent directory contains auth.json and must not be readable by other
+  // users of the host/container.  Pi's AuthStorage also enforces 0600, but
+  // this bootstrap writes the file directly before the SDK is constructed.
+  await mkdir(agentDir, { recursive: true, mode: 0o700 });
+  await chmod(agentDir, 0o700);
   process.env.PI_CODING_AGENT_DIR = agentDir;
   process.env.PI_CODING_AGENT_SESSION_DIR = agentSessionsRoot;
   // extensions/skills 是声明式注入缓存，不是会话事实；启动时重建以免旧插件残留。
@@ -75,10 +80,16 @@ export async function createPiChatRuntime(): Promise<PiChatRuntime> {
     rm(skillsRoot, { recursive: true, force: true }),
   ]);
   await Promise.all([
-    mkdir(sessionsRoot, { recursive: true }),
-    mkdir(agentSessionsRoot, { recursive: true }),
-    mkdir(skillsRoot, { recursive: true }),
+    mkdir(sessionsRoot, { recursive: true, mode: 0o700 }),
+    mkdir(agentSessionsRoot, { recursive: true, mode: 0o700 }),
+    mkdir(skillsRoot, { recursive: true, mode: 0o700 }),
     syncDirectory(EXTENSIONS_SOURCE, extensionsRoot),
+  ]);
+  await Promise.all([
+    chmod(sessionsRoot, 0o700),
+    chmod(agentSessionsRoot, 0o700),
+    chmod(skillsRoot, 0o700),
+    chmod(extensionsRoot, 0o700),
   ]);
   // 插件仍由 Pi 官方 ResourceLoader 从 agentDir 发现；这里只把宿主锁定的依赖
   // 暴露给运行时副本，避免每次启动 npm install，也不让新服务依赖 web-next。
@@ -91,7 +102,8 @@ export async function createPiChatRuntime(): Promise<PiChatRuntime> {
   const apiKey = process.env.MODEL_API_KEY ?? "";
   const baseUrl = process.env.MODEL_API_BASE ?? DEFAULT_BASE_URL;
   const modelId = process.env.MODEL_ID ?? DEFAULT_MODEL_ID;
-  await writeFile(path.join(agentDir, "models.json"), JSON.stringify({
+  const modelsPath = path.join(agentDir, "models.json");
+  await writeFile(modelsPath, JSON.stringify({
     providers: {
       [PROVIDER]: {
         baseUrl,
@@ -101,14 +113,18 @@ export async function createPiChatRuntime(): Promise<PiChatRuntime> {
         models: [{ id: modelId, reasoning: true, input: ["text", "image"] }],
       },
     },
-  }, null, 2));
+  }, null, 2), { encoding: "utf8", mode: 0o600 });
+  await chmod(modelsPath, 0o600);
   const authPath = path.join(agentDir, "auth.json");
-  if (apiKey) await writeFile(authPath, JSON.stringify({ [PROVIDER]: { type: "api_key", key: apiKey } }, null, 2));
+  if (apiKey) {
+    await writeFile(authPath, JSON.stringify({ [PROVIDER]: { type: "api_key", key: apiKey } }, null, 2), { encoding: "utf8", mode: 0o600 });
+    await chmod(authPath, 0o600);
+  }
   else await rm(authPath, { force: true });
 
   const models = await ModelRuntime.create({
     authPath,
-    modelsPath: path.join(agentDir, "models.json"),
+    modelsPath,
     allowModelNetwork: false,
   });
   await models.refresh({ allowNetwork: false });

@@ -1,0 +1,6 @@
+interface:
+  display_name: "原图与 OCR 路由"
+  short_description: "先看原图，再按清晰度与版面复杂度选择高精度 OCR"
+  default_prompt: "Use $ocr-routing to inspect the original and produce validated OCR evidence only when needed."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,6 @@
+interface:
+  display_name: "KTQ 内容抽取"
+  short_description: "从原始教学资料中完整提取并验证知识、题型与题目内容"
+  default_prompt: "Use $ktq-extraction to extract, validate, and submit the exact KTQ result file."
+policy:
+  allow_implicit_invocation: true

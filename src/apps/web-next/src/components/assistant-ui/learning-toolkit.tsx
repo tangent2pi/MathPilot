@@ -3,6 +3,7 @@
 import { defineToolkit, useAuiState } from "@assistant-ui/react";
 import { useEffect, useState } from "react";
 import { ArtifactCard } from "@/components/assistant-ui/elements/artifact-card";
+import { ContentReviewCard, type ContentRespondResult } from "@/components/assistant-ui/content-review-card";
 import { QuestionCard, type QuestionCardArgs } from "@/components/assistant-ui/question-card";
 
 type ArtifactArgs = {
@@ -15,6 +16,22 @@ type ArtifactArgs = {
 };
 
 export const learningToolkit = defineToolkit({
+  respond: {
+    type: "backend",
+    display: "standalone",
+    render: ({ args, result, status }) => {
+      const contentResult = parseContentRespondResult(result);
+      if (!contentResult?.kind && !args?.result_file) return null;
+      return (
+        <ContentReviewCard
+          args={(args ?? {}) as { result_file?: string; validation_file?: string }}
+          result={contentResult}
+          running={status.type === "running"}
+          failed={status.type !== "running" && status.type !== "complete"}
+        />
+      );
+    },
+  },
   present_question_card: {
     type: "backend",
     display: "standalone",
@@ -45,6 +62,34 @@ export const learningToolkit = defineToolkit({
     render: () => null,
   },
 });
+
+function parseContentRespondResult(value: unknown, depth = 0): ContentRespondResult | undefined {
+  if (depth > 3) return undefined;
+  if (value && typeof value === "object") {
+    const candidate = value as { result?: unknown; kind?: unknown; content?: unknown };
+    if (typeof candidate.kind === "string") return value as ContentRespondResult;
+    if (candidate.result !== undefined) return parseContentRespondResult(candidate.result, depth + 1);
+    if (Array.isArray(candidate.content)) {
+      for (const block of candidate.content) {
+        if (!block || typeof block !== "object") continue;
+        const text = (block as { type?: unknown; text?: unknown }).type === "text"
+          ? (block as { text?: unknown }).text
+          : undefined;
+        if (typeof text === "string") {
+          const parsed = parseContentRespondResult(text, depth + 1);
+          if (parsed) return parsed;
+        }
+      }
+    }
+  }
+  if (typeof value !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" ? parsed as ContentRespondResult : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function LearningArtifactTool({
   artifact,

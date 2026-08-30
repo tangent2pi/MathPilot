@@ -5,14 +5,12 @@ export interface PiPrincipal {
   tenantId: string;
   userId: string;
   roles: string[];
-  accessibleStudentIds: string[];
 }
 
 export interface PiThreadRecord {
   threadId: string;
   tenantId: string;
   ownerUserId: string;
-  studentId: string;
   sessionDir: string;
   sessionFile: string;
   minioKey?: string;
@@ -24,7 +22,6 @@ type Row = {
   thread_id: string;
   tenant_id: string;
   owner_user_id: string;
-  student_id: string;
   session_dir: string;
   session_file: string;
   minio_key: string | null;
@@ -36,7 +33,6 @@ const mapRow = (row: Row): PiThreadRecord => ({
   threadId: row.thread_id,
   tenantId: row.tenant_id,
   ownerUserId: row.owner_user_id,
-  studentId: row.student_id,
   sessionDir: row.session_dir,
   sessionFile: row.session_file,
   ...(row.minio_key ? { minioKey: row.minio_key } : {}),
@@ -69,9 +65,8 @@ export class PiThreadStore {
         `select
            set_config('mathpilot.tenant_id',$1,true),
            set_config('mathpilot.user_id',$2,true),
-           set_config('mathpilot.roles',$3,true),
-           set_config('mathpilot.accessible_student_ids',$4,true)`,
-        [principal.tenantId, principal.userId, principal.roles.join(","), principal.accessibleStudentIds.join(",")],
+           set_config('mathpilot.roles',$3,true)`,
+        [principal.tenantId, principal.userId, principal.roles.join(",")],
       );
       const result = await client.query<Row>(text, values);
       await client.query("commit");
@@ -86,13 +81,13 @@ export class PiThreadStore {
 
   async create(
     principal: PiPrincipal,
-    value: { threadId: string; studentId: string; sessionDir: string; sessionFile: string },
+    value: { threadId: string; sessionDir: string; sessionFile: string },
   ): Promise<PiThreadRecord> {
     const result = await this.scopedQuery<Row>(principal,
-      `insert into pi_threads(thread_id,tenant_id,owner_user_id,student_id,session_dir,session_file)
-       values($1,$2,$3,$4,$5,$6)
+      `insert into pi_threads(thread_id,tenant_id,owner_user_id,session_dir,session_file)
+       values($1,$2,$3,$4,$5)
        returning *`,
-      [value.threadId, principal.tenantId, principal.userId, value.studentId, value.sessionDir, value.sessionFile],
+      [value.threadId, principal.tenantId, principal.userId, value.sessionDir, value.sessionFile],
     );
     const row = result.rows[0];
     if (!row) throw new Error("Pi thread mapping insert returned no row");
@@ -105,14 +100,32 @@ export class PiThreadStore {
        where t.thread_id=$1 and t.tenant_id=$2 and (
          t.owner_user_id=$3
          or $4::boolean
-         or t.student_id=any($6::text[])
          or exists (
            select 1 from pi_thread_acl a
            where a.thread_id=t.thread_id and a.tenant_id=t.tenant_id and a.user_id=$3
              and (not $5::boolean or a.access in ('write','admin'))
          )
        )`,
-      [threadId, principal.tenantId, principal.userId, principal.roles.includes("tenant_admin"), write, principal.accessibleStudentIds],
+      [threadId, principal.tenantId, principal.userId, principal.roles.includes("tenant_admin"), write],
+    );
+    return result.rows[0] ? mapRow(result.rows[0]) : undefined;
+  }
+
+  /** Deletion is stricter than ordinary writes: only the owner, tenant admin,
+   * or an explicitly delegated ACL admin may remove a thread mapping. */
+  async deletable(principal: PiPrincipal, threadId: string): Promise<PiThreadRecord | undefined> {
+    const result = await this.scopedQuery<Row>(principal,
+      `select t.* from pi_threads t
+       where t.thread_id=$1 and t.tenant_id=$2 and (
+         t.owner_user_id=$3
+         or $4::boolean
+         or exists (
+           select 1 from pi_thread_acl a
+           where a.thread_id=t.thread_id and a.tenant_id=t.tenant_id
+             and a.user_id=$3 and a.access='admin'
+         )
+       )`,
+      [threadId, principal.tenantId, principal.userId, principal.roles.includes("tenant_admin")],
     );
     return result.rows[0] ? mapRow(result.rows[0]) : undefined;
   }
@@ -121,12 +134,12 @@ export class PiThreadStore {
     const result = await this.scopedQuery<Row>(principal,
       `select t.* from pi_threads t
        where t.tenant_id=$1 and (
-         t.owner_user_id=$2 or $3::boolean or t.student_id=any($4::text[]) or exists (
+         t.owner_user_id=$2 or $3::boolean or exists (
            select 1 from pi_thread_acl a
            where a.thread_id=t.thread_id and a.tenant_id=t.tenant_id and a.user_id=$2
          )
        ) order by t.created_at desc`,
-      [principal.tenantId, principal.userId, principal.roles.includes("tenant_admin"), principal.accessibleStudentIds],
+      [principal.tenantId, principal.userId, principal.roles.includes("tenant_admin")],
     );
     return result.rows.map(mapRow);
   }
@@ -145,7 +158,6 @@ export class PiThreadStore {
     principal: PiPrincipal,
     value: {
       threadId: string;
-      studentId: string;
       toolCallId: string;
       artifactId: string;
       cardId: string;
@@ -153,14 +165,16 @@ export class PiThreadStore {
       payload: Record<string, unknown>;
     },
   ): Promise<{ eventId: string; created: boolean }> {
+    const allowed = await this.accessible(principal, value.threadId, true);
+    if (!allowed) throw new Error("Pi thread is not writable by this principal");
     const eventId = randomUUID();
     const result = await this.scopedQuery<{ event_id: string }>(principal,
       `insert into pi_card_events
-         (event_id,thread_id,tenant_id,student_id,tool_call_id,artifact_id,card_id,response_type,payload)
+         (event_id,thread_id,tenant_id,actor_user_id,tool_call_id,artifact_id,card_id,response_type,payload)
        values($1,$2,$3,$4,$5,$6,$7,$8,$9)
        on conflict(thread_id,tool_call_id) do nothing
        returning event_id`,
-      [eventId, value.threadId, principal.tenantId, value.studentId, value.toolCallId,
+      [eventId, value.threadId, principal.tenantId, principal.userId, value.toolCallId,
        value.artifactId, value.cardId, value.responseType, JSON.stringify(value.payload)],
     );
     const inserted = result.rows[0]?.event_id;
@@ -171,6 +185,31 @@ export class PiThreadStore {
       [value.threadId, value.toolCallId, principal.tenantId],
     );
     return { eventId: existing.rows[0]?.event_id ?? eventId, created: false };
+  }
+
+  async createAttachment(
+    principal: PiPrincipal,
+    value: {
+      attachmentId: string;
+      threadId: string;
+      workspacePath: string;
+      originalName: string;
+      mimeType: string;
+      byteSize: number;
+      sha256?: string;
+      storageObjectId?: string;
+    },
+  ): Promise<void> {
+    const allowed = await this.accessible(principal, value.threadId, true);
+    if (!allowed) throw new Error("Pi thread is not writable by this principal");
+    await this.scopedQuery(principal,
+      `insert into pi_attachments
+         (attachment_id,thread_id,tenant_id,uploaded_by_user_id,storage_object_id,workspace_path,original_name,mime_type,byte_size,sha256)
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [value.attachmentId, value.threadId, principal.tenantId, principal.userId,
+       value.storageObjectId ?? null, value.workspacePath, value.originalName, value.mimeType,
+       value.byteSize, value.sha256 ?? null],
+    );
   }
 
   async markArchived(principal: PiPrincipal, threadId: string, archived: boolean): Promise<boolean> {
@@ -185,7 +224,7 @@ export class PiThreadStore {
   }
 
   async remove(principal: PiPrincipal, threadId: string): Promise<boolean> {
-    const allowed = await this.accessible(principal, threadId, true);
+    const allowed = await this.deletable(principal, threadId);
     if (!allowed) return false;
     const result = await this.scopedQuery(principal,
       `delete from pi_threads where thread_id=$1 and tenant_id=$2`,

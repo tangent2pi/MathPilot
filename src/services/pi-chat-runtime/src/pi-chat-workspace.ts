@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const AGENTS_MD = `# MathPilot 教学对话工作区
@@ -22,6 +22,8 @@ const DIRS = [
 ];
 
 export async function assemblePiChatWorkspace(root: string, skillsRoot: string): Promise<void> {
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  await chmod(root, 0o700);
   for (const dir of DIRS) await mkdir(path.join(root, dir), { recursive: true });
   await writeFile(path.join(root, "AGENTS.md"), AGENTS_MD.replaceAll("{{SKILLS_ROOT}}", skillsRoot), "utf8");
 }

@@ -30,12 +30,6 @@ async function relayPi(principal: Principal, request: FastifyRequest, reply: Fas
   if (gatewaySecret.length < 32) return reply.code(503).send({ error: "Pi gateway is not configured" });
   const suffix = request.url.replace(/^\/api\/pi(?=\/|$)/, "") || "/";
   const isEvents = request.method === "GET" && suffix.includes("/events");
-  const studentIds = principal.roles.includes("teacher")
-    ? await withTenant(pool, principal.tenantId, async (client) => (await client.query<{ student_id: string }>(
-        `select student_id from identity_teacher_student_binding
-         where teacher_id=$1 and status='active' order by student_id limit 500`, [principal.userId],
-      )).rows.map((row) => row.student_id))
-    : [];
   const response = await fetch(`${runtimeUrl}/pi${suffix}`, {
     method: request.method,
     headers: {
@@ -43,7 +37,6 @@ async function relayPi(principal: Principal, request: FastifyRequest, reply: Fas
       "x-tenant-id": principal.tenantId,
       "x-user-id": principal.userId,
       "x-user-roles": principal.roles.join(","),
-      "x-accessible-student-ids": studentIds.join(","),
       "x-mathpilot-gateway-secret": gatewaySecret,
     },
     ...(request.body !== undefined && !["GET", "HEAD"].includes(request.method) ? { body: JSON.stringify(request.body) } : {}),

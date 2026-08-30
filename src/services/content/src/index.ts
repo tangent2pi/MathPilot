@@ -94,6 +94,12 @@ function isTenantAdmin(req: { headers: Record<string, unknown> }): boolean {
   return rolesOf(req).includes("tenant_admin");
 }
 
+function isTrustedPiLibraryRequest(req: { headers: Record<string, unknown> }): boolean {
+  const expected = process.env.CONTENT_LIBRARY_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
+  const actual = req.headers["x-mathpilot-runtime-secret"];
+  return expected.length >= 32 && actual === expected;
+}
+
 /**
  * 题目框启发式（确定性导航，非语义判定，设计 §6.2 的程序先导航思想）：
  * 为 OCR 段落标注候选题块；语义判定由 KTQ 抽取 Agent 完成。
@@ -306,12 +312,281 @@ type LibraryProjection = {
   diagnosis_rules: { id: string; payload: unknown }[];
 };
 
+type AgentLibraryKind = "knowledge" | "question_type" | "question" | "error_cause" | "diagnosis_rule";
+
+const AGENT_LIBRARY_KINDS: readonly AgentLibraryKind[] = [
+  "knowledge", "question_type", "question", "error_cause", "diagnosis_rule",
+];
+
+const isAgentLibraryKind = (value: unknown): value is AgentLibraryKind =>
+  typeof value === "string" && (AGENT_LIBRARY_KINDS as readonly string[]).includes(value);
+
+type AgentLibraryItem = {
+  entity_kind: AgentLibraryKind;
+  entity_id: string;
+  entity_ref: string;
+  label: string;
+  summary?: string;
+  chapter_id?: string;
+};
+
+/**
+ * The legacy tables keep a broad JSON payload for historical reasons.  It is
+ * not a safe model-facing contract: old payloads may contain tenant/user
+ * fields, review task ids, storage paths, or even a copied scope object.  Do
+ * the projection at this boundary until the normalized content repository is
+ * live.  This is intentionally a deny-list for metadata (rather than a
+ * recursive JSON passthrough); content fields and stable K/T/Q/E/R ids remain
+ * available to the extraction and research Skills.
+ */
+const AGENT_LIBRARY_PRIVATE_KEYS = new Set([
+  "tenant", "tenantid", "userid", "user", "owner", "ownerid", "owneruserid", "ownerteacherid", "ownerteacheruserid",
+  "creator", "creatorid", "author", "authorid", "email", "phone", "mobile", "avatar",
+  "createdby", "createdbyuserid", "uploadedby", "uploadedbyuserid", "publishedby", "publishedbyuserid",
+  "assignedto", "assigneduserid", "assigneeid", "assigneeuserid", "reviewerid", "reviewedby", "reviewedbyuserid",
+  "studentid", "teacherid", "classid", "classroomid",
+  "organizationid", "orgid", "scope", "visibility", "permissions", "permission", "acl",
+  "membership", "binding", "classmembers", "accessiblestudentids", "tenantcontext",
+  "sql", "where", "table", "database", "db", "password", "token", "secret",
+  "sessionid", "threadid", "workflowid", "pipelineid", "agentrunid", "reviewtaskid",
+  "candidatesetid", "sourcepipelineid", "storageref", "artifactref", "imagebase64",
+  "imagebytes", "filebase64", "authorization", "cookie", "headers",
+]);
+
+const AGENT_IDENTITY_ROLES = new Set([
+  "student", "teacher", "guardian", "content_reviewer", "tenant_admin", "platform_ops",
+]);
+
+const normalizeAgentLibraryKey = (key: string): string => key.replaceAll(/[^A-Za-z0-9]/g, "").toLowerCase();
+
+const containsIdentityRole = (value: unknown): boolean => {
+  if (typeof value === "string") {
+    return value.split(/[\s,;|]+/).some((role) => AGENT_IDENTITY_ROLES.has(role.trim().toLowerCase()));
+  }
+  if (Array.isArray(value)) return value.some(containsIdentityRole);
+  return false;
+};
+
+function projectAgentLibraryValue(value: unknown, depth = 0): unknown {
+  if (depth > 8) return undefined;
+  if (typeof value === "string") return value.length > 24_000 ? `${value.slice(0, 24_000)}…` : value;
+  if (typeof value === "number" || typeof value === "boolean" || value === null) return value;
+  if (Array.isArray(value)) return value.slice(0, 250).map((item) => projectAgentLibraryValue(item, depth + 1)).filter((item) => item !== undefined);
+  if (!value || typeof value !== "object") return undefined;
+  const output: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 500)) {
+    const normalizedKey = normalizeAgentLibraryKey(key);
+    if (AGENT_LIBRARY_PRIVATE_KEYS.has(normalizedKey)
+      || ((normalizedKey === "role" || normalizedKey === "roles") && containsIdentityRole(item))) continue;
+    const projected = projectAgentLibraryValue(item, depth + 1);
+    if (projected !== undefined) output[key] = projected;
+  }
+  return output;
+}
+
+function projectAgentLibraryRow(row: Record<string, unknown>): Record<string, unknown> {
+  const projected = projectAgentLibraryValue(row);
+  return projected && typeof projected === "object" && !Array.isArray(projected)
+    ? projected as Record<string, unknown>
+    : {};
+}
+
+/**
+ * Transitional host-facing projection for the Pi content tools.
+ *
+ * It deliberately returns summaries for search and one entity at a time for
+ * get. The model never receives scope predicates, SQL, or the old visibility
+ * tables. The underlying tables are still the pre-normalization store until
+ * the reviewed content migration is approved.
+ */
+async function searchAgentLibrary(
+  tenantId: string,
+  viewerId: string,
+  admin: boolean,
+  roles: string[],
+  requestedKinds: AgentLibraryKind[] | undefined,
+  query: string,
+  offset: number,
+  limit: number,
+): Promise<{ items: AgentLibraryItem[]; nextOffset: number | null }> {
+  return withTenant(pool, tenantId, async (c) => {
+    const kinds = requestedKinds?.length ? requestedKinds : [...AGENT_LIBRARY_KINDS];
+    // A numeric cursor is meaningful only for one deterministic entity
+    // stream. For a mixed-kind request we take a bounded first page and do not
+    // manufacture a cursor whose ordering could change when another kind is
+    // added; the route rejects subsequent mixed-kind cursors explicitly.
+    const canPage = kinds.length === 1;
+    const queryOffset = canPage ? offset : 0;
+    const all: AgentLibraryItem[] = [];
+    const visible = agentVisibleScopeSql("s", "$1", admin, roles);
+    const canReadOwnUnpublished = admin || roles.some((role) => ["teacher", "content_reviewer"].includes(role));
+    for (const current of kinds) {
+      const tenantGuard = "s.tenant_id = current_setting('app.current_tenant', true)";
+      const pattern = `%${query}%`;
+      const rows = current === "knowledge"
+        ? (await c.query(
+          `select c.dimension_id as entity_id,c.name as label,
+                  left(coalesce(c.payload->>'description',''),240) as summary
+             from content_knowledge_component c
+             join content_entity_scope s on s.tenant_id=c.tenant_id and s.entity_type='knowledge_component' and s.entity_id=c.dimension_id
+            where ${tenantGuard} and ${visible} and ($2='' or c.name ilike $3 or c.payload::text ilike $3)
+            order by c.dimension_id limit $4 offset $5`, [viewerId, query, pattern, limit + 1, queryOffset])).rows.map((row) => ({ entity_kind: current, ...row }))
+        : current === "question_type"
+          ? (await c.query(
+            `select t.dimension_id as entity_id,t.name as label,
+                    left(coalesce(t.payload->>'description',''),240) as summary
+               from content_question_type t
+               join content_entity_scope s on s.tenant_id=t.tenant_id and s.entity_type='question_type' and s.entity_id=t.dimension_id
+              where ${tenantGuard} and ${visible} and ($2='' or t.name ilike $3 or t.payload::text ilike $3)
+              order by t.dimension_id limit $4 offset $5`, [viewerId, query, pattern, limit + 1, queryOffset])).rows.map((row) => ({ entity_kind: current, ...row }))
+          : current === "question"
+            ? (await c.query(
+              `select q.question_id as entity_id,
+                      coalesce(q.payload->>'stem_markdown',q.question_id) as label,
+                      left(coalesce(q.payload->>'explanation',''),240) as summary,
+                      q.chapter_id
+                 from content_question q
+                 join content_entity_scope s on s.tenant_id=q.tenant_id and s.entity_type='question' and s.entity_id=q.question_id
+                where ${canReadOwnUnpublished ? "(q.published or s.owner_teacher_id=$1)" : "q.published"}
+                  and ${tenantGuard} and ${visible}
+                  and ($2='' or q.question_id ilike $3 or q.payload::text ilike $3)
+                order by q.question_id limit $4 offset $5`, [viewerId, query, pattern, limit + 1, queryOffset])).rows.map((row) => ({ entity_kind: current, ...row }))
+            : current === "error_cause"
+              ? (await c.query(
+                `select e.dimension_id as entity_id,e.name as label,
+                        left(coalesce(e.payload->>'description',''),240) as summary
+                   from content_error_cause e
+                   join content_entity_scope s on s.tenant_id=e.tenant_id and s.entity_type='error_cause' and s.entity_id=e.dimension_id
+                  where ${tenantGuard} and ${visible} and ($2='' or e.name ilike $3 or e.payload::text ilike $3)
+                  order by e.dimension_id limit $4 offset $5`, [viewerId, query, pattern, limit + 1, queryOffset])).rows.map((row) => ({ entity_kind: current, ...row }))
+        : (await c.query(
+                `select r.rule_id as entity_id,
+                        coalesce(r.payload->>'name',r.rule_id) as label,
+                        left(coalesce(r.payload->>'trigger',''),240) as summary
+                   from content_diagnosis_rule r
+                   join content_entity_scope s on s.tenant_id=r.tenant_id and s.entity_type='diagnosis_rule' and s.entity_id=r.rule_id
+                  where ${tenantGuard} and ${visible} and ($2='' or r.rule_id ilike $3 or r.payload::text ilike $3)
+                  order by r.rule_id limit $4 offset $5`, [viewerId, query, pattern, limit + 1, queryOffset])).rows.map((row) => ({ entity_kind: current, ...row }));
+      all.push(...(rows as AgentLibraryItem[]).map((row) => ({
+        ...row,
+        entity_ref: `${row.entity_kind}:${row.entity_id}`,
+      })));
+    }
+    all.sort((a, b) => `${a.entity_kind}:${a.entity_id}`.localeCompare(`${b.entity_kind}:${b.entity_id}`));
+    const page = all.slice(0, limit);
+    return { items: page, nextOffset: canPage && all.length > limit ? offset + limit : null };
+  });
+}
+
+async function getAgentLibraryEntity(
+  tenantId: string,
+  viewerId: string,
+  admin: boolean,
+  roles: string[],
+  kind: AgentLibraryKind,
+  entityId: string,
+): Promise<Record<string, unknown> | null> {
+  return withTenant(pool, tenantId, async (c) => {
+    const visible = agentVisibleScopeSql("s", "$2", admin, roles);
+    const tenantGuard = "s.tenant_id = current_setting('app.current_tenant', true)";
+    const canReadOwnUnpublished = admin || roles.some((role) => ["teacher", "content_reviewer"].includes(role));
+    const result = kind === "knowledge"
+      ? await c.query(
+        `select c.dimension_id as entity_id,c.name,c.payload
+           from content_knowledge_component c join content_entity_scope s
+             on s.tenant_id=c.tenant_id and s.entity_type='knowledge_component' and s.entity_id=c.dimension_id
+          where c.dimension_id=$1 and ${tenantGuard} and ${visible}`,
+        [entityId, viewerId],
+      )
+      : kind === "question_type"
+        ? await c.query(
+          `select t.dimension_id as entity_id,t.name,t.payload
+             from content_question_type t join content_entity_scope s
+               on s.tenant_id=t.tenant_id and s.entity_type='question_type' and s.entity_id=t.dimension_id
+            where t.dimension_id=$1 and ${tenantGuard} and ${visible}`,
+          [entityId, viewerId],
+        )
+        : kind === "question"
+          ? await c.query(
+            `select q.question_id as entity_id,q.chapter_id,q.published,q.stem_format,q.measurement_dims,q.payload
+               from content_question q join content_entity_scope s
+                 on s.tenant_id=q.tenant_id and s.entity_type='question' and s.entity_id=q.question_id
+              where q.question_id=$1 and ${canReadOwnUnpublished ? "(q.published or s.owner_teacher_id=$2)" : "q.published"}
+                and ${tenantGuard} and ${visible}`,
+            [entityId, viewerId],
+          )
+          : kind === "error_cause"
+            ? await c.query(
+              `select e.dimension_id as entity_id,e.name,e.payload
+                 from content_error_cause e join content_entity_scope s
+                   on s.tenant_id=e.tenant_id and s.entity_type='error_cause' and s.entity_id=e.dimension_id
+                where e.dimension_id=$1 and ${tenantGuard} and ${visible}`,
+              [entityId, viewerId],
+            )
+            : await c.query(
+              `select r.rule_id as entity_id,r.rule_version,r.payload
+                 from content_diagnosis_rule r join content_entity_scope s
+                   on s.tenant_id=r.tenant_id and s.entity_type='diagnosis_rule' and s.entity_id=r.rule_id
+                where r.rule_id=$1 and ${tenantGuard} and ${visible}`,
+              [entityId, viewerId],
+            );
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    if (!row) return null;
+    const { entity_id: id, ...data } = row;
+    return { entity_kind: kind, entity_id: id, data: projectAgentLibraryRow(data), source: "legacy-adapter" };
+  });
+}
+
+async function getAgentLibraryPackage(
+  tenantId: string,
+  viewerId: string,
+  admin: boolean,
+  roles: string[],
+  packageId: string,
+): Promise<Record<string, unknown> | null> {
+  return withTenant(pool, tenantId, async (c) => {
+    const visible = agentVisibleScopeSql("s", "$2", admin, roles);
+    const row = (await c.query(
+      `select p.package_id,p.chapter_id,p.version,p.manifest_hash,p.published_at,p.payload
+         from content_chapter_package p
+         join content_entity_scope s
+           on s.tenant_id=p.tenant_id and s.entity_type='chapter_package' and s.entity_id=p.package_id
+        where p.package_id=$1 and p.published_at is not null
+          and s.tenant_id=current_setting('app.current_tenant', true) and ${visible}`,
+      [packageId, viewerId],
+    )).rows[0] as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      entity_kind: "package",
+      entity_ref: `package:${packageId}`,
+      entity_id: packageId,
+      data: projectAgentLibraryRow(row),
+      source: "legacy-adapter",
+    };
+  });
+}
+
 function visibleScopeSql(scopeAlias: string, viewerParam: string, admin: boolean): string {
   if (admin) return "true";
   return `(${scopeAlias}.visibility='public' or ${scopeAlias}.owner_teacher_id=${viewerParam}
     or exists(select 1 from identity_teacher_student_binding b
       where b.tenant_id=${scopeAlias}.tenant_id and b.student_id=${viewerParam}
         and b.teacher_id=${scopeAlias}.owner_teacher_id and b.status='active'))`;
+}
+
+/**
+ * Model-facing projection is narrower than the browser library projection:
+ * teacher agents receive official/public rows plus their own rows, while a
+ * student agent keeps the legacy class-binding visibility until class
+ * membership is normalized. Unknown roles receive public rows only.
+ */
+function agentVisibleScopeSql(scopeAlias: string, viewerParam: string, admin: boolean, roles: string[]): string {
+  if (admin) return "true";
+  if (roles.some((role) => ["teacher", "content_reviewer"].includes(role))) {
+    return `(${scopeAlias}.visibility='public' or ${scopeAlias}.owner_teacher_id=${viewerParam})`;
+  }
+  if (roles.includes("student")) return visibleScopeSql(scopeAlias, viewerParam, false);
+  return `${scopeAlias}.visibility='public'`;
 }
 
 async function loadQuestionDetail(tenantId: string, viewerId: string, admin: boolean, questionId: string, includeStaging = false): Promise<{
@@ -1410,6 +1685,78 @@ startService({
       const { question_id: questionId } = req.query as { question_id?: string };
       const projection = await loadLibraryProjection(tenantId, actor, isTenantAdmin(req), questionId, false);
       return { ...projection, agent_transport: "postgresql_session_identity" };
+    });
+
+    /**
+     * Restricted host API consumed by the Pi content-library extension.
+     * Parameters intentionally describe only a content kind and a reference;
+     * identity, tenant and visibility come from trusted gateway headers.
+     */
+    app.get("/agent/library/search", async (req, reply) => {
+      if (!isTrustedPiLibraryRequest(req)) return reply.code(401).send({ error: "trusted Pi runtime required" });
+      const tenantId = tenantOf(req);
+      const actor = actorOf(req);
+      if (!tenantId || !actor) return reply.code(400).send({ error: "missing tenant/actor headers" });
+      const input = req.query as { entity_kinds?: unknown; query?: unknown; cursor?: unknown; limit?: unknown };
+      const rawKinds = input.entity_kinds;
+      const requestedKinds = rawKinds === undefined || rawKinds === ""
+        ? undefined
+        : Array.isArray(rawKinds)
+          ? rawKinds
+          : typeof rawKinds === "string"
+            ? rawKinds.split(",").map((kind) => kind.trim()).filter(Boolean)
+            : undefined;
+      if (rawKinds !== undefined && requestedKinds === undefined) return reply.code(422).send({ error: "entity_kinds must be a string array" });
+      if (requestedKinds && (requestedKinds.length < 1 || requestedKinds.length > 5 || new Set(requestedKinds).size !== requestedKinds.length || requestedKinds.some((kind) => !isAgentLibraryKind(kind)))) {
+        return reply.code(422).send({ error: "invalid entity_kinds" });
+      }
+      if (input.query !== undefined && typeof input.query !== "string") return reply.code(422).send({ error: "query must be a string" });
+      if (input.cursor !== undefined && input.cursor !== "" && typeof input.cursor !== "string") return reply.code(422).send({ error: "cursor must be a string" });
+      if (input.limit !== undefined && input.limit !== "" && typeof input.limit !== "string") return reply.code(422).send({ error: "limit must be a string" });
+      const query = typeof input.query === "string" ? input.query.trim() : "";
+      if (query.length > 240) return reply.code(422).send({ error: "query is too long" });
+      const offset = input.cursor === undefined || input.cursor === "" ? 0 : Number(input.cursor);
+      const limit = input.limit === undefined || input.limit === "" ? 20 : Number(input.limit);
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100_000 || !Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
+        return reply.code(422).send({ error: "cursor and limit are out of range" });
+      }
+      if (!requestedKinds && offset > 0) {
+        return reply.code(422).send({ error: "entity_kinds is required when using cursor" });
+      }
+      if (requestedKinds && requestedKinds.length > 1 && offset > 0) {
+        return reply.code(422).send({ error: "a cursor requires exactly one entity kind" });
+      }
+      const result = await searchAgentLibrary(tenantId, actor, isTenantAdmin(req), rolesOf(req), requestedKinds as AgentLibraryKind[] | undefined, query, offset, limit);
+      return {
+        items: result.items,
+        next_cursor: result.nextOffset === null ? null : String(result.nextOffset),
+        transport: "host-scoped-content-library",
+      };
+    });
+
+    app.get("/agent/library/get", async (req, reply) => {
+      if (!isTrustedPiLibraryRequest(req)) return reply.code(401).send({ error: "trusted Pi runtime required" });
+      const tenantId = tenantOf(req);
+      const actor = actorOf(req);
+      if (!tenantId || !actor) return reply.code(400).send({ error: "missing tenant/actor headers" });
+      const input = req.query as { entity_ref?: unknown; package_ref?: unknown };
+      const entityReference = typeof input.entity_ref === "string" ? input.entity_ref : undefined;
+      const packageReference = typeof input.package_ref === "string" ? input.package_ref : undefined;
+      if ((entityReference ? 1 : 0) + (packageReference ? 1 : 0) !== 1) {
+        return reply.code(422).send({ error: "exactly one entity_ref or package_ref is required" });
+      }
+      if (packageReference) {
+        const packageMatch = /^package:([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})$/.exec(packageReference);
+        if (!packageMatch) return reply.code(422).send({ error: "invalid package_ref" });
+        const entity = await getAgentLibraryPackage(tenantId, actor, isTenantAdmin(req), rolesOf(req), packageMatch[1]!);
+        if (!entity) return reply.code(404).send({ error: "package not found or not visible" });
+        return { entity, transport: "host-scoped-content-library" };
+      }
+      const match = /^([a-z_]+):([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})$/.exec(entityReference!);
+      if (!match || !isAgentLibraryKind(match[1])) return reply.code(422).send({ error: "invalid entity_ref" });
+      const entity = await getAgentLibraryEntity(tenantId, actor, isTenantAdmin(req), rolesOf(req), match[1]!, match[2]!);
+      if (!entity) return reply.code(404).send({ error: "entity not found or not visible" });
+      return { entity, transport: "host-scoped-content-library" };
     });
 
     /** 教师可浏览的已发布内容包。列表与详情都沿用公共库/本人教师库范围。 */

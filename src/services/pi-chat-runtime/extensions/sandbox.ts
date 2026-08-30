@@ -4,6 +4,7 @@
  */
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
@@ -22,7 +23,7 @@ import {
 const USER_HOME = os.homedir();
 const skillsRoot = () => process.env.PI_CODING_AGENT_DIR
   ? path.join(process.env.PI_CODING_AGENT_DIR, "skills")
-  : "/opt/mathpilot-skills";
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../skills");
 const SANDBOX_RUNTIME_VENDOR = path.join(
   path.dirname(createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime/package.json")),
   "vendor",

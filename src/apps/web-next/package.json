@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc -b --pretty false",
-    "db:migrate": "psql -v ON_ERROR_STOP=1 \"$PI_DATABASE_URL\" -f db/migrations/0001_pi_threads.sql -f db/migrations/0002_pi_card_events.sql"
+    "db:migrate": "sh db/migrate.sh"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.15.17",

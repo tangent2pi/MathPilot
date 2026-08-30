@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const ATTACHMENT_CONTEXT_TYPE = "mathpilot.turn-attachments";
@@ -34,18 +34,27 @@ const jsonPath = (directory: string, id: string): string => {
   return path.join(directory, `${id}.json`);
 };
 
+const ensurePrivateDirectory = async (directory: string): Promise<void> => {
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await chmod(directory, 0o700);
+};
+
 const readJson = async <T>(file: string): Promise<T> =>
   JSON.parse(await readFile(file, "utf8")) as T;
 
 export const isAttachmentId = (value: string): boolean => ID_PATTERN.test(value);
 
 export async function savePendingAttachment(cwd: string, attachment: WorkspaceAttachment): Promise<void> {
-  await mkdir(pendingRoot(cwd), { recursive: true });
-  await writeFile(
-    jsonPath(pendingRoot(cwd), attachment.id),
-    JSON.stringify(attachment, null, 2),
-    { encoding: "utf8", flag: "wx" },
-  );
+  await ensurePrivateDirectory(stateRoot(cwd));
+  await ensurePrivateDirectory(pendingRoot(cwd));
+  const file = jsonPath(pendingRoot(cwd), attachment.id);
+  await writeFile(file, JSON.stringify(attachment, null, 2), { encoding: "utf8", flag: "wx", mode: 0o600 });
+  await chmod(file, 0o600);
+}
+
+/** Remove a pending record when persisting its durable metadata fails. */
+export async function removePendingAttachment(cwd: string, attachmentId: string): Promise<void> {
+  await rm(jsonPath(pendingRoot(cwd), attachmentId), { force: true });
 }
 
 /**
@@ -53,18 +62,17 @@ export async function savePendingAttachment(cwd: string, attachment: WorkspaceAt
  * records prevents a browser from replaying an id in another message.
  */
 export async function bindAttachmentTurn(cwd: string, turn: AttachmentTurn): Promise<void> {
-  await Promise.all([mkdir(boundRoot(cwd), { recursive: true }), mkdir(turnsRoot(cwd), { recursive: true })]);
+  await ensurePrivateDirectory(stateRoot(cwd));
+  await Promise.all([ensurePrivateDirectory(boundRoot(cwd)), ensurePrivateDirectory(turnsRoot(cwd))]);
   const moved: string[] = [];
   try {
     for (const id of turn.attachmentIds) {
       await rename(jsonPath(pendingRoot(cwd), id), jsonPath(boundRoot(cwd), id));
       moved.push(id);
     }
-    await writeFile(
-      jsonPath(turnsRoot(cwd), turn.id),
-      JSON.stringify(turn, null, 2),
-      { encoding: "utf8", flag: "wx" },
-    );
+    const file = jsonPath(turnsRoot(cwd), turn.id);
+    await writeFile(file, JSON.stringify(turn, null, 2), { encoding: "utf8", flag: "wx", mode: 0o600 });
+    await chmod(file, 0o600);
   } catch (error) {
     await Promise.all(moved.map((id) =>
       rename(jsonPath(boundRoot(cwd), id), jsonPath(pendingRoot(cwd), id)).catch(() => undefined),
@@ -85,7 +93,7 @@ const validAttachment = (value: WorkspaceAttachment): boolean =>
   && isAttachmentId(value.id)
   && typeof value.originalName === "string"
   && typeof value.workspacePath === "string"
-  && value.workspacePath.startsWith("input/original/")
+  && /^input\/original\/[^/\\\u0000]+$/.test(value.workspacePath)
   && typeof value.mimeType === "string"
   && Number.isSafeInteger(value.byteSize) && value.byteSize >= 0
   && typeof value.uploadedAt === "string";
@@ -97,6 +105,7 @@ const validTurn = (value: AttachmentTurn): boolean =>
   && typeof value.prompt === "string"
   && Array.isArray(value.attachmentIds)
   && value.attachmentIds.length > 0
+  && new Set(value.attachmentIds).size === value.attachmentIds.length
   && value.attachmentIds.every((id) => typeof id === "string" && isAttachmentId(id))
   && typeof value.createdAt === "string";
 

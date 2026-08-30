@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -12,10 +12,12 @@ import type { PiChatRuntime } from "./pi-chat-server.ts";
 import {
   bindAttachmentTurn,
   isAttachmentId,
+  removePendingAttachment,
   releaseAttachmentTurn,
   savePendingAttachment,
   type AttachmentTurn,
 } from "../extensions/attachments/manifest.ts";
+import { clearHostPrincipal, writeHostPrincipal } from "../extensions/lib/host-principal.ts";
 
 const principalOf = (request: FastifyRequest): PiPrincipal | undefined => {
   const expectedSecret = process.env.PI_GATEWAY_SECRET;
@@ -24,13 +26,29 @@ const principalOf = (request: FastifyRequest): PiPrincipal | undefined => {
   const tenantId = request.headers["x-tenant-id"];
   const userId = request.headers["x-user-id"];
   const roles = request.headers["x-user-roles"];
-  const accessibleStudents = request.headers["x-accessible-student-ids"];
-  if (typeof tenantId !== "string" || typeof userId !== "string") return undefined;
+  if (typeof tenantId !== "string" || !tenantId || typeof userId !== "string" || !userId) return undefined;
   return {
     tenantId,
     userId,
-    roles: typeof roles === "string" ? roles.split(",").filter(Boolean) : [],
-    accessibleStudentIds: typeof accessibleStudents === "string" ? accessibleStudents.split(",").filter(Boolean) : [],
+    roles: typeof roles === "string"
+      ? roles.split(",").map((role) => role.trim()).filter(Boolean).slice(0, 32)
+      : [],
+  };
+};
+
+// The host principal is deliberately persisted outside the model workspace so
+// extensions can read it without exposing it to Bash. A thread must therefore
+// have at most one in-flight turn: otherwise two HTTP callers could overwrite
+// that file while Pi is still executing the first turn. The browser already
+// serializes normal sends; this map is the server-side safety net for retries
+// and alternate clients.
+const principalKey = (principal: PiPrincipal): string => `${principal.tenantId}\u0000${principal.userId}`;
+const reserveThread = (active: Map<string, string>, threadId: string, principal: PiPrincipal): (() => void) | undefined => {
+  if (active.has(threadId)) return undefined;
+  const key = principalKey(principal);
+  active.set(threadId, key);
+  return () => {
+    if (active.get(threadId) === key) active.delete(threadId);
   };
 };
 
@@ -73,8 +91,11 @@ const owned = async (
   threadId: string,
   reply: FastifyReply,
   write = false,
+  adminOnly = false,
 ): Promise<PiThreadRecord | undefined> => {
-  const record = await store.accessible(principal, threadId, write);
+  const record = adminOnly
+    ? await store.deletable(principal, threadId)
+    : await store.accessible(principal, threadId, write);
   if (!record) reply.code(404).send({ error: "thread not found" });
   return record;
 };
@@ -86,6 +107,7 @@ export function registerPiChatRoutes(
   objectStore?: PiObjectStore,
 ): void {
   const pi: PiClient = runtime.client;
+  const activePrincipalByThread = new Map<string, string>();
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, "Pi request failed");
@@ -100,7 +122,10 @@ export function registerPiChatRoutes(
     });
   });
 
-  app.addHook("onClose", async () => store.close());
+  app.addHook("onClose", async () => {
+    activePrincipalByThread.clear();
+    await store.close();
+  });
 
   app.get("/pi/models", async (request, reply) => {
     if (!principalOf(request)) return reply.code(401).send({ error: "trusted principal required" });
@@ -143,7 +168,6 @@ export function registerPiChatRoutes(
     try {
       await store.create(principal, {
         threadId: snapshot.metadata.id,
-        studentId: principal.userId,
         sessionDir,
         sessionFile,
       });
@@ -161,7 +185,7 @@ export function registerPiChatRoutes(
       const principal = principalOf(request);
       if (!principal) return reply.code(401).send({ error: "trusted principal required" });
       const { threadId } = request.params as { threadId: string };
-      const record = await owned(store, principal, threadId, reply, request.method !== "GET");
+      const record = await owned(store, principal, threadId, reply, request.method !== "GET", request.method === "DELETE");
       if (!record) return;
       if (request.method === "GET") {
         await restoreArchivedThread(runtime, record, objectStore);
@@ -175,6 +199,8 @@ export function registerPiChatRoutes(
       }
       await pi.deleteThread(threadId);
       await store.remove(principal, threadId);
+      activePrincipalByThread.delete(threadId);
+      await clearHostPrincipal(workspaceOf(runtime, record)).catch(() => undefined);
       return reply.code(204).send();
     },
   });
@@ -185,8 +211,13 @@ export function registerPiChatRoutes(
     const { threadId } = request.params as { threadId: string };
     const record = await owned(store, principal, threadId, reply, true);
     if (!record) return;
-    const { input } = request.body as { input: PiSendMessageInput & { mathpilotAttachmentIds?: unknown } };
-    if (!input || typeof input.content !== "string") return reply.code(422).send({ error: "message input required" });
+    const releasePrincipal = reserveThread(activePrincipalByThread, threadId, principal);
+    if (!releasePrincipal) return reply.code(409).send({ error: "thread is busy" });
+    const { input } = (request.body ?? {}) as { input?: PiSendMessageInput & { mathpilotAttachmentIds?: unknown } };
+    if (!input || typeof input.content !== "string") {
+      releasePrincipal();
+      return reply.code(422).send({ error: "message input required" });
+    }
     const rawAttachmentIds = input.mathpilotAttachmentIds;
     if (rawAttachmentIds !== undefined && (
       !Array.isArray(rawAttachmentIds)
@@ -194,37 +225,48 @@ export function registerPiChatRoutes(
       || rawAttachmentIds.length > 16
       || rawAttachmentIds.some((id) => typeof id !== "string" || !isAttachmentId(id))
       || new Set(rawAttachmentIds).size !== rawAttachmentIds.length
-    )) return reply.code(422).send({ error: "invalid attachment ids" });
+    )) {
+      releasePrincipal();
+      return reply.code(422).send({ error: "invalid attachment ids" });
+    }
     const attachmentIds = (rawAttachmentIds ?? []) as string[];
     const { mathpilotAttachmentIds: _attachmentIds, ...piInput } = input;
+    try {
+      await writeHostPrincipal(workspaceOf(runtime, record), principal);
+    } catch (error) {
+      releasePrincipal();
+      throw error;
+    }
     // Keep the canonical user prompt byte-for-byte identical to the input sent by
     // react-pi. Its optimistic-message reconciliation keys on this text; adding a
     // workspace manifest here creates a second user message after the Pi echo.
     // Uploaded files are already available in input/original/, whose discovery
     // contract lives in the workspace AGENTS.md rather than in user-visible text.
     let turn: AttachmentTurn | undefined;
-    if (attachmentIds.length > 0) {
-      turn = {
-        version: 1,
-        id: randomUUID(),
-        prompt: piInput.content,
-        attachmentIds,
-        createdAt: new Date().toISOString(),
-      };
-      await bindAttachmentTurn(workspaceOf(runtime, record), turn);
-    }
     let unsubscribe: (() => void) | undefined;
-    unsubscribe = pi.subscribe(threadId, (event) => {
-      if (event.type !== "agent_end" || event.willRetry) return;
-      unsubscribe?.();
-      void publishWorkspaceArtifacts(workspaceOf(runtime, record), threadId).catch((error) => {
-        request.log.error({ err: error, threadId }, "Pi learning artifact publication failed");
-      });
-    });
     try {
+      if (attachmentIds.length > 0) {
+        turn = {
+          version: 1,
+          id: randomUUID(),
+          prompt: piInput.content,
+          attachmentIds,
+          createdAt: new Date().toISOString(),
+        };
+        await bindAttachmentTurn(workspaceOf(runtime, record), turn);
+      }
+      unsubscribe = pi.subscribe(threadId, (event) => {
+        if (event.type !== "agent_end" || event.willRetry) return;
+        unsubscribe?.();
+        releasePrincipal();
+        void publishWorkspaceArtifacts(workspaceOf(runtime, record), threadId).catch((error) => {
+          request.log.error({ err: error, threadId }, "Pi learning artifact publication failed");
+        });
+      });
       await pi.sendMessage(threadId, piInput);
     } catch (error) {
       unsubscribe?.();
+      releasePrincipal();
       if (turn) await releaseAttachmentTurn(workspaceOf(runtime, record), turn);
       throw error;
     }
@@ -340,7 +382,6 @@ export function registerPiChatRoutes(
 
     const event = await store.recordCardEvent(principal, {
       threadId,
-      studentId: record.studentId,
       toolCallId: body.tool_call_id,
       artifactId: body.artifact_id,
       cardId: body.card_id,
@@ -354,20 +395,29 @@ export function registerPiChatRoutes(
     });
   });
 
-  app.post("/pi/threads/:threadId/files", async (request, reply) => {
+  // Legacy browser clients still send base64. Keep the larger limit local to
+  // this compatibility route; ordinary Pi messages retain the 32 MiB global
+  // body limit until direct MinIO upload is enabled.
+  app.post("/pi/threads/:threadId/files", { bodyLimit: 48 * 1024 * 1024 }, async (request, reply) => {
     const principal = principalOf(request);
     if (!principal) return reply.code(401).send({ error: "trusted principal required" });
     const { threadId } = request.params as { threadId: string };
     const record = await owned(store, principal, threadId, reply, true);
     if (!record) return;
-    const { name, data, mimeType } = request.body as { name?: string; data?: string; mimeType?: string };
-    if (!name || !data || data.length > 32 * 1024 * 1024) return reply.code(422).send({ error: "valid file required" });
+    const { name, data, mimeType } = request.body as { name?: unknown; data?: unknown; mimeType?: unknown };
+    if (typeof name !== "string" || !name.trim() || name.length > 255 || typeof data !== "string" || !data || data.length > 48 * 1024 * 1024) return reply.code(422).send({ error: "valid file required" });
     const safeName = path.basename(name).replace(/[^\p{L}\p{N}._-]+/gu, "_");
     const workspace = workspaceOf(runtime, record);
     const directory = path.join(workspace, "input", "original");
     await mkdir(directory, { recursive: true });
     const encoded = data.includes(",") ? data.slice(data.indexOf(",") + 1) : data;
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 === 1) {
+      return reply.code(422).send({ error: "invalid base64 file" });
+    }
     const bytes = Buffer.from(encoded, "base64");
+    if (!bytes.length || bytes.byteLength > 32 * 1024 * 1024) {
+      return reply.code(422).send({ error: "file must be between 1 byte and 32 MiB" });
+    }
     const extension = path.extname(safeName);
     const stem = path.basename(safeName, extension) || "attachment";
     let storedName = safeName || "attachment";
@@ -394,8 +444,18 @@ export function registerPiChatRoutes(
         byteSize: bytes.byteLength,
         uploadedAt: new Date().toISOString(),
       });
+      await store.createAttachment(principal, {
+        attachmentId: uploadId,
+        threadId,
+        workspacePath,
+        originalName: name,
+        mimeType: resolvedMimeType,
+        byteSize: bytes.byteLength,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      });
     } catch (error) {
       await rm(path.join(directory, storedName), { force: true }).catch(() => undefined);
+      await removePendingAttachment(workspace, uploadId).catch(() => undefined);
       throw error;
     }
     return { id: uploadId, path: workspacePath, mimeType: resolvedMimeType };

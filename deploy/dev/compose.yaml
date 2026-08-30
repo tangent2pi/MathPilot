@@ -73,21 +73,21 @@ services:
       db-seed:
         condition: service_completed_successfully
     environment:
+      POSTGRES_USER: ${POSTGRES_USER}
       PGPASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - ../../src/apps/web-next/db/migrations:/pi-migrations:ro
+      - ../../src/apps/web-next/db:/pi-migrations:ro
     command:
       - sh
       - -ceu
       - |
-        exists=$$(psql -h postgres -U "${POSTGRES_USER}" -d postgres -Atc "select 1 from pg_database where datname='mathpilot_pi'")
+        exists=$$(psql -h postgres -U "$${POSTGRES_USER}" -d postgres -Atc "select 1 from pg_database where datname='mathpilot_pi'")
         if [ "$$exists" != "1" ]; then
-          createdb -h postgres -U "${POSTGRES_USER}" mathpilot_pi
+          createdb -h postgres -U "$${POSTGRES_USER}" mathpilot_pi
         fi
-        psql -h postgres -U "${POSTGRES_USER}" -d mathpilot_pi -v ON_ERROR_STOP=1 -f /pi-migrations/0001_pi_threads.sql
-        psql -h postgres -U "${POSTGRES_USER}" -d mathpilot_pi -v ON_ERROR_STOP=1 -f /pi-migrations/0002_pi_card_events.sql
-        psql -h postgres -U "${POSTGRES_USER}" -d postgres -v ON_ERROR_STOP=1 -c "grant connect on database mathpilot_pi to mathpilot_app"
-        psql -h postgres -U "${POSTGRES_USER}" -d mathpilot_pi -v ON_ERROR_STOP=1 -c "grant usage on schema public to mathpilot_app; grant select,insert,update,delete on all tables in schema public to mathpilot_app; grant usage,select,update on all sequences in schema public to mathpilot_app"
+        PI_DATABASE_URL="postgres://$${POSTGRES_USER}:$${PGPASSWORD}@postgres:5432/mathpilot_pi" sh /pi-migrations/migrate.sh
+        psql -h postgres -U "$${POSTGRES_USER}" -d postgres -v ON_ERROR_STOP=1 -c "grant connect on database mathpilot_pi to mathpilot_app"
+        psql -h postgres -U "$${POSTGRES_USER}" -d mathpilot_pi -v ON_ERROR_STOP=1 -c "grant usage on schema public to mathpilot_app; grant select,insert,update,delete on all tables in schema public to mathpilot_app; grant usage,select,update on all sequences in schema public to mathpilot_app; alter default privileges in schema public grant select,insert,update,delete on tables to mathpilot_app; alter default privileges in schema public grant usage,select,update on sequences to mathpilot_app"
     restart: "no"
 
   # 仅供确定性回归/演示使用。默认 `docker compose up` 不执行这批合成题；
@@ -223,6 +223,7 @@ services:
       MODEL_API_BASE: ${PI_MODEL_API_BASE:-https://api.deepseek.com}
       MODEL_API_KEY: ${PI_MODEL_API_KEY}
       MODEL_ID: ${PI_MODEL_ID:-deepseek-v4-flash-vision-exp}
+      CONTENT_LIBRARY_URL: http://content:3006
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
@@ -234,6 +235,8 @@ services:
     depends_on:
       pi-db-migrate:
         condition: service_completed_successfully
+      content:
+        condition: service_started
       minio:
         condition: service_started
 
@@ -251,6 +254,7 @@ services:
       OCR_API_TOKEN: ${OCR_API_TOKEN:-}
       OCR_MODEL: ${OCR_MODEL:-PaddleOCR-VL-1.6}
       CONTENT_ARTIFACT_ROOT: /var/lib/mathpilot/content-artifacts
+      CONTENT_LIBRARY_SECRET: ${PI_GATEWAY_SECRET}
       PORT: "3006"
     volumes:
       - content_artifacts:/var/lib/mathpilot/content-artifacts
