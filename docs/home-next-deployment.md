@@ -65,3 +65,31 @@ PostgreSQL、MinIO 与 `pi-chat-runtime` 不向公网映射端口。Nginx 对 SS
 - 切换前远端旧数据库卷：`mathpilot_pgdata`，只含数据库 `mathpilot`。
 - 开发机 Pi 库：9 条线程记录、0 条 MinIO 归档引用。
 - 开发机 Pi runtime 目录约 7 MiB；因此本次迁移以数据库与 runtime 文件联合快照为准。
+
+## 2026-08-30 实际执行结果
+
+- 部署代码提交：`b84ce21`（`next` 分支已推送到 `origin`）。
+- 旧展开源码保存为 `/srv/stacks/mathpilot-source-pre-next-20260830`。
+- 旧数据库卷 `mathpilot_pgdata` 仍存在，切换后挂载容器数为 0。
+- 新 PostgreSQL 实际挂载 `mathpilot_pgdata_next`；主库迁移收敛到 30 条，领域用户 4 个。
+- 新 Pi 库保留 9 条线程；`pi_card_events` 由 `pi-db-migrate` 创建，初始事件数为 0。
+- `mathpilot_app` 注入租户/用户 GUC 后可通过强制 RLS 读取 9 条所属线程。
+- Pi runtime 实际挂载 `mathpilot_pi_chat_runtime`，恢复约 6.9 MiB、23 个工作区目录。
+- MinIO 实际挂载 `mathpilot_minio_data`，镜像固定为
+  `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`。
+- `web`、`api-next`、`pi-chat-runtime`、MinIO 与 PostgreSQL 均为 running；首页和
+  `/api/auth/get-session` 均返回 HTTP 200。
+- 两端包含 dump、Pi 会话副本和开发凭据的临时迁移目录已删除。
+
+## home 构建使用本机 7897 代理
+
+只有远端下载明显停滞时才建立临时反向隧道：
+
+```sh
+ssh -N -o ExitOnForwardFailure=yes \
+  -R 127.0.0.1:17897:127.0.0.1:7897 home
+```
+
+Docker 构建使用 host 网络访问这个仅绑定远端 loopback 的端口，并通过 build args 注入
+`HTTP_PROXY/HTTPS_PROXY=http://127.0.0.1:17897`。代理仅用于构建层，禁止写入 Compose
+运行环境。构建结束立即终止 SSH 隧道。
