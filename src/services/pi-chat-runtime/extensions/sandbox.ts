@@ -139,6 +139,11 @@ const sandboxedEditOps = (cwd: string): EditOperations => ({
 });
 
 export default async (pi: ExtensionAPI) => {
+  await SandboxManager.initialize({
+    ...strictConfig(process.cwd()),
+    enableWeakerNestedSandbox: process.env.MATHPILOT_PI_SANDBOX_NESTED === "true",
+  });
+
   pi.registerTool({
     ...createBashTool(process.cwd(), { operations: sandboxedBashOps() }),
     execute: (id, params, signal, onUpdate, ctx) =>
