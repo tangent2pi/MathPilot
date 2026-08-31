@@ -16,7 +16,8 @@ import { Type } from "typebox";
 import { parseSelectionDecision } from "./selection-core.ts";
 import { parseAnnotationChangeSet, parseLightAtomProposal, parseRemOutput } from "./dream-core.ts";
 import { parseBoundedLearningAction, parseForegroundTeachingOutput } from "./foreground-core.ts";
-import type { PiExecutorRequest, PiExecutorResult, PiTaskExecutor } from "./runtime-types.ts";
+import type { PiExecutorRequest, PiExecutorResult, PiTaskExecutor, WorkspaceObjectReader } from "./runtime-types.ts";
+import { StorageNextObjectReader } from "./storage-object-reader.ts";
 
 const PROVIDER = "mathpilot-deepseek";
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
@@ -43,10 +44,12 @@ const projectionTarget = (root: string, relativePath: string): string => {
 const materializeProjection = async (
   root: string,
   projection: NonNullable<PiExecutorRequest["workspaceProjection"]>,
-): Promise<void> => {
+  readObject?: (object: NonNullable<PiExecutorRequest["workspaceProjection"]>["objects"][number]) => Promise<Buffer>,
+): Promise<Map<string, string>> => {
   await mkdir(root, { recursive: true, mode: 0o700 });
   const seen = new Set<string>();
   const directories = new Set<string>([root]);
+  const imageMimeByPath = new Map<string, string>();
   let totalBytes = 0;
   for (const file of projection.files) {
     const target = projectionTarget(root, file.path);
@@ -63,9 +66,31 @@ const materializeProjection = async (
     await writeFile(target, file.content, { encoding: "utf8", mode: 0o400, flag: "wx" });
     await chmod(target, 0o400);
   }
+  for (const object of projection.objects) {
+    const target = projectionTarget(root, object.path);
+    if (seen.has(target)) throw new Error(`duplicate WorkspaceProjection path: ${object.path}`);
+    seen.add(target);
+    totalBytes += object.byteSize;
+    if (totalBytes > 64 * 1024 * 1024) throw new Error("WorkspaceProjection exceeds 64 MiB");
+    if (!readObject) throw new Error("WorkspaceProjection object reader is unavailable");
+    const parent = path.dirname(target);
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+    for (let current = parent; isWithin(root, current); current = path.dirname(current)) {
+      directories.add(current);
+      if (current === root) break;
+    }
+    const content = await readObject(object);
+    if (content.byteLength !== object.byteSize) throw new Error("WorkspaceProjection object size mismatch");
+    await writeFile(target, content, { mode: 0o400, flag: "wx" });
+    await chmod(target, 0o400);
+    if (["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"].includes(object.mimeType)) {
+      imageMimeByPath.set(target, object.mimeType);
+    }
+  }
   for (const directory of [...directories].sort((left, right) => right.length - left.length)) {
     await chmod(directory, 0o500);
   }
+  return imageMimeByPath;
 };
 
 const resolveProjectionPath = async (root: string, absolutePath: string): Promise<string> => {
@@ -109,6 +134,7 @@ export interface PiSdkTaskExecutorOptions {
   model: NonNullable<ReturnType<ModelRuntime["getModel"]>>;
   runtimeRoot: string;
   skillsRoot: string;
+  workspaceObjectReader?: WorkspaceObjectReader;
 }
 
 export class PiSdkTaskExecutor implements PiTaskExecutor {
@@ -137,7 +163,18 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
     await rm(workspace, { recursive: true, force: true });
     await mkdir(workspace, { recursive: true, mode: 0o700 });
     const projectionRoot = path.join(workspace, "workspace");
-    if (request.workspaceProjection) await materializeProjection(projectionRoot, request.workspaceProjection);
+    const imageMimeByPath = request.workspaceProjection
+      ? await materializeProjection(projectionRoot, request.workspaceProjection, (object) => {
+        if (!this.options.workspaceObjectReader) throw new Error("WorkspaceProjection object reader is unavailable");
+        return this.options.workspaceObjectReader.read({
+          tenantId: request.tenantId,
+          accountUserId: request.workspaceProjection!.accountUserId,
+          roles: request.workspaceProjection!.roles,
+          object,
+          signal: request.signal,
+        });
+      })
+      : new Map<string, string>();
     const agentCwd = request.workspaceProjection ? projectionRoot : workspace;
     const taskSkill = await readFile(path.join(this.options.skillsRoot, skillName(request.taskSpec.skill_ref), "SKILL.md"), "utf8");
     let structuredOutput: unknown;
@@ -261,13 +298,16 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
     if (request.taskSpec.allowed_capability_tools.includes("learning_action")) tools.push(learningAction);
     if (request.taskSpec.allowed_capability_tools.includes("read")) {
       tools.push(createReadToolDefinition(projectionRoot, {
-        autoResizeImages: false,
+        autoResizeImages: true,
         operations: {
           async access(absolutePath) {
             await access(await resolveProjectionPath(projectionRoot, absolutePath), constants.R_OK);
           },
           async readFile(absolutePath) {
             return readFile(await resolveProjectionPath(projectionRoot, absolutePath));
+          },
+          async detectImageMimeType(absolutePath) {
+            return imageMimeByPath.get(await resolveProjectionPath(projectionRoot, absolutePath)) ?? null;
           },
         },
       }));
@@ -378,5 +418,9 @@ export async function createPiSdkTaskExecutorFromEnvironment(): Promise<PiSdkTas
   await modelRuntime.refresh({ allowNetwork: false });
   const model = modelRuntime.getModel(PROVIDER, modelId);
   if (!model) throw new Error(`configured model ${PROVIDER}/${modelId} was not loaded`);
-  return new PiSdkTaskExecutor({ modelRuntime, model, runtimeRoot, skillsRoot });
+  const workspaceObjectReader = new StorageNextObjectReader(
+    process.env.STORAGE_NEXT_URL ?? "",
+    process.env.STORAGE_NEXT_SECRET ?? "",
+  );
+  return new PiSdkTaskExecutor({ modelRuntime, model, runtimeRoot, skillsRoot, workspaceObjectReader });
 }

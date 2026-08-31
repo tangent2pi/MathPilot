@@ -6,6 +6,7 @@ interface ProjectionRequest {
   operationId: string;
   conversationThreadId: string;
   foregroundEpochId?: string;
+  triggeringMessageId?: string;
   taskSpec: TaskSpec;
 }
 
@@ -44,10 +45,28 @@ interface MessageRow {
   version: string;
 }
 
+interface StorageObjectRow {
+  object_id: string;
+  original_name: string;
+  mime_type: string;
+  byte_size: string;
+  sha256: string;
+}
+
 const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 const jsonl = (values: readonly unknown[]): string => `${values.map((value) => JSON.stringify(value)).join("\n")}\n`;
 const iso = (value: Date | string): string => new Date(value).toISOString();
 const number = (value: string | number): number => Number(value);
+const MATERIALIZABLE_MIME = new Set([
+  "application/json", "application/ld+json", "application/xml", "application/yaml",
+  "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp",
+]);
+const workspaceObjectName = (value: string): string => {
+  const basename = value.replaceAll("\\", "/").split("/").pop() ?? "attachment";
+  const safe = basename.replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^\.+$/, "");
+  return (safe || "attachment").slice(0, 180);
+};
+const materializableMime = (value: string): boolean => value.startsWith("text/") || MATERIALIZABLE_MIME.has(value);
 
 const textFromParts = (parts: readonly unknown[]): string => parts
   .flatMap((part) => {
@@ -120,6 +139,11 @@ export async function compileWorkspaceProjection(
       where tenant_id=$1 and user_id=$2 order by role`,
     [request.tenantId, thread.user_id],
   )).rows.map((row) => row.role);
+  const effectiveRoles: Array<"student" | "teacher"> = roles.length ? roles : ["student"];
+  await client.query(
+    "select set_config('app.current_user',$1,true),set_config('app.current_roles',$2,true)",
+    [thread.user_id, effectiveRoles.join(",")],
+  );
   const authorizedThreads = (await client.query<ThreadRow>(
     `select candidate.conversation_thread_id,candidate.student_id,student.user_id,
             user_account.display_name,tenant.name as tenant_name,candidate.status,
@@ -150,6 +174,53 @@ export async function compileWorkspaceProjection(
       [request.tenantId, thread.user_id],
     )).rows
     : [];
+
+  const attachmentRefs = new Map<string, { name: string; mimeType: string }>();
+  const attachmentMessages = [...messages].sort((left, right) => {
+    if (left.message_id === request.triggeringMessageId) return -1;
+    if (right.message_id === request.triggeringMessageId) return 1;
+    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+  });
+  for (const message of attachmentMessages) {
+    for (const part of message.parts) {
+      if (!part || typeof part !== "object" || Array.isArray(part)) continue;
+      const value = part as Record<string, unknown>;
+      if (value.type !== "attachment" || typeof value.attachment_ref !== "string") continue;
+      const match = /^storage-object:(obj_[A-Za-z0-9]{8,})$/.exec(value.attachment_ref);
+      if (!match || attachmentRefs.has(match[1]!)) continue;
+      attachmentRefs.set(match[1]!, {
+        name: typeof value.name === "string" ? value.name : match[1]!,
+        mimeType: typeof value.mime_type === "string" ? value.mime_type : "application/octet-stream",
+      });
+    }
+  }
+  const storedObjects = attachmentRefs.size ? (await client.query<StorageObjectRow>(
+    `select object_id,original_name,mime_type,byte_size,sha256
+       from storage_object
+      where tenant_id=$1 and owner_user_id=$2 and purpose='thread' and state='ready'
+        and sha256 is not null and object_id=any($3::text[])`,
+    [request.tenantId, thread.user_id, [...attachmentRefs.keys()]],
+  )).rows : [];
+  const storedObjectById = new Map(storedObjects.map((row) => [row.object_id, row]));
+  const objectPathByRef = new Map<string, string>();
+  const projectionObjects: WorkspaceProjection["objects"][number][] = [];
+  let projectedObjectBytes = 0;
+  for (const objectId of attachmentRefs.keys()) {
+    const row = storedObjectById.get(objectId);
+    if (!row || !materializableMime(row.mime_type)) continue;
+    const byteSize = Number(row.byte_size);
+    if (!Number.isSafeInteger(byteSize) || byteSize < 1 || projectedObjectBytes + byteSize > 48 * 1024 * 1024) continue;
+    const objectPath = `objects/${objectId}/${workspaceObjectName(row.original_name)}`;
+    projectionObjects.push({
+      path: objectPath,
+      objectId,
+      mimeType: row.mime_type,
+      byteSize,
+      sha256: row.sha256,
+    });
+    objectPathByRef.set(`storage-object:${objectId}`, objectPath);
+    projectedObjectBytes += byteSize;
+  }
 
   const currentQuestion = epoch.active_question_session_id
     ? (await client.query<Record<string, unknown>>(
@@ -336,7 +407,17 @@ export async function compileWorkspaceProjection(
       const value = part as Record<string, unknown>;
       const ref = value.type === "attachment" ? value.attachment_ref
         : value.type === "teaching_artifact" ? value.artifact_ref : undefined;
-      return typeof ref === "string" ? [{ ref, message_id: message.message_id, type: value.type }] : [];
+      return typeof ref === "string" ? [{
+        ref,
+        message_id: message.message_id,
+        type: value.type,
+        ...(value.type === "attachment" ? {
+          name: typeof value.name === "string" ? value.name : undefined,
+          mime_type: typeof value.mime_type === "string" ? value.mime_type : undefined,
+          workspace_path: objectPathByRef.get(ref) ?? null,
+          available_in_workspace: objectPathByRef.has(ref),
+        } : {}),
+      }] : [];
     }));
     files.push({
       path: `sessions/${value.conversation_thread_id}/SUMMARY.md`,
@@ -461,5 +542,12 @@ export async function compileWorkspaceProjection(
     }),
   });
 
-  return { snapshotVersion, generatedAt, files };
+  return {
+    snapshotVersion,
+    generatedAt,
+    accountUserId: thread.user_id,
+    roles: effectiveRoles,
+    files,
+    objects: projectionObjects,
+  };
 }

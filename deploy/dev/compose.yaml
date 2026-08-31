@@ -154,6 +154,8 @@ services:
       MODEL_API_BASE: ${PI_MODEL_API_BASE:-https://api.deepseek.com}
       MODEL_API_KEY: ${PI_MODEL_API_KEY}
       MODEL_ID: ${PI_MODEL_ID:-deepseek-v4-flash-vision-exp}
+      STORAGE_NEXT_URL: http://storage-next:3017
+      STORAGE_NEXT_SECRET: ${STORAGE_NEXT_SECRET:-${PI_GATEWAY_SECRET}}
     volumes:
       - learning_next_runtime:/var/lib/mathpilot/learning-next
     depends_on:
@@ -161,6 +163,8 @@ services:
         condition: service_completed_successfully
       temporal:
         condition: service_healthy
+      storage-next:
+        condition: service_started
     restart: unless-stopped
 
   learning:

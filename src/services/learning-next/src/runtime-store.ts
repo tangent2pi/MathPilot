@@ -137,17 +137,24 @@ export class PostgresRuntimeStore implements RuntimeStore {
     const foregroundEpochId = typeof bundle.foreground_epoch_id === "string"
       ? bundle.foreground_epoch_id
       : typeof context.foreground_epoch_id === "string" ? context.foreground_epoch_id : undefined;
+    const triggeringMessageId = typeof bundle.triggering_message_id === "string"
+      ? bundle.triggering_message_id
+      : typeof context.triggering_message_id === "string" ? context.triggering_message_id : undefined;
     if (!conversationThreadId || !/^thr_[A-Za-z0-9]{8,}$/.test(conversationThreadId)) {
       throw new Error("foreground task input is missing a valid conversation_thread_id");
     }
     if (foregroundEpochId && !/^fge_[A-Za-z0-9]{8,}$/.test(foregroundEpochId)) {
       throw new Error("foreground task input has an invalid foreground_epoch_id");
     }
+    if (triggeringMessageId && !/^msg_[A-Za-z0-9]{8,}$/.test(triggeringMessageId)) {
+      throw new Error("foreground task input has an invalid triggering_message_id");
+    }
     return this.withTenant(input.tenantId, (client) => compileWorkspaceProjection(client, {
       tenantId: input.tenantId,
       operationId: input.operationId,
       conversationThreadId,
       ...(foregroundEpochId ? { foregroundEpochId } : {}),
+      ...(triggeringMessageId ? { triggeringMessageId } : {}),
       taskSpec,
     }));
   }

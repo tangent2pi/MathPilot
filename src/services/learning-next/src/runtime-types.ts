@@ -353,10 +353,31 @@ export interface WorkspaceProjectionFile {
   content: string;
 }
 
+export interface WorkspaceProjectionObject {
+  path: string;
+  objectId: string;
+  mimeType: string;
+  byteSize: number;
+  sha256: string;
+}
+
 export interface WorkspaceProjection {
   snapshotVersion: number;
   generatedAt: string;
+  accountUserId: string;
+  roles: readonly ("student" | "teacher")[];
   files: readonly WorkspaceProjectionFile[];
+  objects: readonly WorkspaceProjectionObject[];
+}
+
+export interface WorkspaceObjectReader {
+  read(input: {
+    tenantId: string;
+    accountUserId: string;
+    roles: readonly ("student" | "teacher")[];
+    object: WorkspaceProjectionObject;
+    signal: AbortSignal;
+  }): Promise<Buffer>;
 }
 
 export interface PiExecutorRequest {
