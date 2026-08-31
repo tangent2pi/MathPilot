@@ -1,0 +1,31 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "status": "ready",
+    "dream_run_id": "drm_light0001",
+    "student_id": "stu_light0001",
+    "question_session_id": "qsn_light0001",
+    "dimensions": ["krev_light0001"],
+    "error_causes": [],
+    "observed_behaviors": ["未使用提示完成面积分解。"],
+    "method_signals": ["先分割再求和。"],
+    "hint_dependency": "none",
+    "self_correction": "none",
+    "transfer_context": { "representation": "composite_shape" },
+    "supports": ["observation://obs_light0001"],
+    "counters": [],
+    "unresolved": [],
+    "source_refs": ["observation://obs_light0001", "judgment://jdg_light0001"],
+    "summary": "本题形成一条独立的面积分解成功材料。"
+  },
+  "missing_field": { "schema_version": 3 },
+  "rejected": [{
+    "_reason": "Light 不能提交科学数值",
+    "schema_version": 3, "status": "ready", "dream_run_id": "drm_light0001",
+    "student_id": "stu_light0001", "question_session_id": "qsn_light0001",
+    "dimensions": [], "error_causes": [], "observed_behaviors": [], "method_signals": [],
+    "hint_dependency": "unknown", "self_correction": "unknown", "transfer_context": {},
+    "supports": [], "counters": [], "unresolved": [], "source_refs": ["session://qsn_light0001"],
+    "summary": "越权结果", "p_mastery": 0.9
+  }]
+}

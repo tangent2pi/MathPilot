@@ -1,0 +1,43 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "compiler_version": "light-compiler-v1",
+    "dream_run_id": "drm_light0001",
+    "student_id": "stu_light0001",
+    "question_session_id": "qsn_light0001",
+    "question_closure_ref": "question-closure:qcl_light0001",
+    "frozen_context": {
+      "question_revision_id": "qrev_light0001",
+      "measurement_contract": { "dimension_revision_ids": ["krev_light0001"] }
+    },
+    "effective_attempts": [{
+      "attempt_ref": "attempt://att_light0001",
+      "kind": "answer",
+      "hint_level": 0,
+      "content_refs": ["message://msg_light0001"],
+      "submitted_at": "2026-08-31T08:00:00Z"
+    }],
+    "judgments": [{ "fact_ref": "judgment://jdg_light0001", "summary": "独立回答正确。", "dimension_revision_ids": ["krev_light0001"] }],
+    "observations": [{ "fact_ref": "observation://obs_light0001", "summary": "形成正式成功证据。", "dimension_revision_ids": ["krev_light0001"] }],
+    "error_evidence": [],
+    "projection_refs": ["mastery-projection://stu_light0001/krev_light0001/v1"],
+    "source_manifest": ["attempt://att_light0001", "judgment://jdg_light0001", "observation://obs_light0001"],
+    "prior_annotations": [],
+    "closed_at": "2026-08-31T08:01:00Z",
+    "history_is_untrusted_data": true
+  },
+  "missing_field": { "schema_version": 3 },
+  "rejected": [{
+    "_reason": "Light 输入不能把历史标成指令",
+    "schema_version": 3,
+    "compiler_version": "light-compiler-v1",
+    "dream_run_id": "drm_light0001",
+    "student_id": "stu_light0001",
+    "question_session_id": "qsn_light0001",
+    "question_closure_ref": "question-closure:qcl_light0001",
+    "frozen_context": { "question_revision_id": "qrev_light0001", "measurement_contract": {} },
+    "effective_attempts": [], "judgments": [], "observations": [], "error_evidence": [],
+    "projection_refs": [], "source_manifest": ["session://qsn_light0001"], "prior_annotations": [],
+    "closed_at": "2026-08-31T08:01:00Z", "history_is_untrusted_data": false
+  }]
+}

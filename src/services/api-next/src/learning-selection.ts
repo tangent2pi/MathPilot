@@ -292,6 +292,55 @@ export async function reviseSelectionIntent(
       state: row.state,
       summary: `支持 ${row.support_count}；反证 ${row.counter_count}；复发 ${row.recurrence_count}${row.verification_due_at ? `；复核 ${toIso(row.verification_due_at)}` : ""}`,
     }));
+    const relevantAnnotations = (await client.query<{
+      annotation_id: string;
+      target_kind: string;
+      target_ref: string;
+      claim: string;
+      scope: Record<string,string>;
+      support_count: number;
+      counter_count: number;
+    }>(
+      `select annotation.annotation_id,annotation.target_kind,annotation.target_ref,
+              annotation.claim,annotation.scope,cardinality(annotation.support_refs) as support_count,
+              cardinality(annotation.counter_refs) as counter_count
+         from science_v3_semantic_annotation annotation
+        where annotation.tenant_id=$1 and annotation.student_id=$2
+          and not exists(select 1 from science_v3_annotation_supersession supersession
+                          where supersession.tenant_id=annotation.tenant_id
+                            and supersession.superseded_annotation_id=annotation.annotation_id)
+          and not exists(select 1 from science_v3_annotation_stale_fact stale
+                          where stale.tenant_id=annotation.tenant_id and stale.annotation_id=annotation.annotation_id)
+          and (annotation.review_due_at is null or annotation.review_due_at>now())
+          and coalesce((select preference.enabled from science_v3_annotation_usage_preference_event preference
+                         where preference.tenant_id=annotation.tenant_id and preference.student_id=annotation.student_id
+                           and preference.annotation_id=annotation.annotation_id
+                         order by preference.created_at desc,preference.preference_event_id desc limit 1),true)
+          and coalesce((select preference.enabled from science_v3_annotation_usage_preference_event preference
+                         where preference.tenant_id=annotation.tenant_id and preference.student_id=annotation.student_id
+                           and preference.annotation_id is null
+                         order by preference.created_at desc,preference.preference_event_id desc limit 1),true)
+          and (
+            annotation.target_kind='student_trait'
+            or annotation.target_ref in(
+              select 'dimension:' || lineage.dimension_revision_id
+                from science_v3_dimension_lineage lineage join science_v3_mastery_projection mastery
+                  on mastery.tenant_id=lineage.tenant_id and mastery.dimension_id=lineage.dimension_id
+                 and mastery.lineage_version=lineage.lineage_version
+               where mastery.tenant_id=$1 and mastery.student_id=$2
+            )
+            or annotation.target_ref in(
+              select 'error-cause:' || pattern.active_definition_revision_id
+                from science_v3_error_pattern_projection pattern
+               where pattern.tenant_id=$1 and pattern.student_id=$2 and pattern.state<>'superseded'
+            )
+          )
+        order by annotation.set_version desc,annotation.annotation_id limit 32`,
+      [principal.tenantId,thread.student_id],
+    )).rows.map((row) => ({
+      annotation_ref: `annotation://${row.annotation_id}`,
+      summary: `${row.claim}；范围 ${JSON.stringify(row.scope)}；支持 ${row.support_count}，反证 ${row.counter_count}`.slice(0,1000),
+    }));
     const recentQuestions = (await client.query<{
       question_session_id: string;
       question_revision_id: string;
@@ -332,7 +381,7 @@ export async function reviseSelectionIntent(
         evidence_refs: evidenceRefs,
       },
       recent_questions: recentQuestions,
-      relevant_annotations: [],
+      relevant_annotations: relevantAnnotations,
       catalog_policy: {
         tool: "question_catalog",
         source: "normalized_content_next",

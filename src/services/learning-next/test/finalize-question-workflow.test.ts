@@ -47,9 +47,15 @@ test("FinalizeQuestion turns exhausted grading into unresolved and still closes 
     async markOperationFailed() {
       throw new Error("child grade must not fail the parent operation");
     },
+    async beginDreamRun() { throw new Error("unexpected Dream Activity"); },
+    async commitLightDream() { throw new Error("unexpected Dream Activity"); },
+    async commitRemDream() { throw new Error("unexpected Dream Activity"); },
+    async commitDeepDream() { throw new Error("unexpected Dream Activity"); },
+    async failDreamRun() { throw new Error("unexpected Dream Activity"); },
     async enqueueScheduledDream() {
       throw new Error("unexpected Dream Activity");
     },
+    async rollbackAnnotationChangeSet() { throw new Error("unexpected Dream Activity"); },
     async prepareQuestionFinalization() {
       return {
         tenantId: "tnt_test00001",

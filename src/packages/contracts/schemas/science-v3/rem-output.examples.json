@@ -1,0 +1,31 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "dream_run_id": "drm_rem000001",
+    "window_id": "rwin_rem000001",
+    "student_id": "stu_rem000001",
+    "candidates": [{
+      "candidate_id": "remc_rem000001",
+      "target_kind": "dimension",
+      "target_ref": "dimension:krev_rem000001",
+      "proposed_claim": "给定结构时稳定，自行构造时仍有启动困难。",
+      "proposed_scope": { "representation": "implicit_structure" },
+      "support_atom_refs": ["light-atom://lat_rem000001", "light-atom://lat_rem000002"],
+      "counter_atom_refs": ["light-atom://lat_rem000003"],
+      "contradictions": ["有一次自行构造成功。"],
+      "actionability": "安排不同图形的自行构造验证。",
+      "distinct_session_count": 3,
+      "context_diversity": 2,
+      "recency": "recent",
+      "source_trust": "verified_facts",
+      "recommended_action": "deep_review"
+    }],
+    "summary": "形成一个带反例的情境边界候选。"
+  },
+  "missing_field": { "schema_version": 3 },
+  "rejected": [{
+    "_reason": "REM 不能写 Annotation 或 ErrorPattern state",
+    "schema_version": 3, "dream_run_id": "drm_rem000001", "window_id": "rwin_rem000001",
+    "student_id": "stu_rem000001", "candidates": [], "summary": "越权", "error_pattern_state": "confirmed"
+  }]
+}

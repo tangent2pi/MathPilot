@@ -211,11 +211,11 @@
 本节是可更新的恢复记录，不是完成声明。
 
 ```text
-conceptual phase: P0-P5 complete on the Next path; P6 three-phase Dream
-completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime; atomic question facts, Cut and finalization; versioned EvidencePolicy compiler; replayable OATutor BKT and TS-FSRS projections; replayable ErrorEvidence/ErrorPattern loop; teacher-correction replay; stale-safe model selection and intent revision
-current: implement QuestionSession Light, REM compilation and gated Deep Annotation changes without scientific-state write authority
-next action: trace the P6 Annotation contracts through the existing Temporal runtime and implement only the missing Light/REM/Deep facts, gates and rollback surfaces
-implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime; P2 — canonical messages, QuestionSession isolation, atomic Cut and bounded finalization; P3 — eligible evidence compilation, versioned M/R algorithms and correction replay; P4 — per-candidate diagnostic evidence, replayable C_e and bounded consumer actions on the sole Next application path; P5 — one normalized question_catalog capability, revision-signalled Selector and host-revalidated atomic QuestionOpened commit
+conceptual phase: P0-P6 complete on the Next path; P7 read models and user frontend
+completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime; atomic question facts, Cut and finalization; versioned EvidencePolicy compiler; replayable OATutor BKT and TS-FSRS projections; replayable ErrorEvidence/ErrorPattern loop; teacher-correction replay; stale-safe model selection and intent revision; gated Light/REM/Deep semantic memory and same-account read-only WorkspaceProjection
+current: implement the P7 LearningView/read-model commands and connect the existing assistant-ui Next frontend to those sole science-v3 authorities
+next action: inventory the current web-next/API-next learning surfaces against document 07, then implement only the missing P7 read models, commands and user-visible views on the Next path
+implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime; P2 — canonical messages, QuestionSession isolation, atomic Cut and bounded finalization; P3 — eligible evidence compilation, versioned M/R algorithms and correction replay; P4 — per-candidate diagnostic evidence, replayable C_e and bounded consumer actions on the sole Next application path; P5 — one normalized question_catalog capability, revision-signalled Selector and host-revalidated atomic QuestionOpened commit; P6 — QuestionSession Light, host-compiled REM windows, gated/versioned Deep AnnotationChangeSet, Diary/preimage/rollback/stale handling and official Pi read/grep over a same-account read-only WorkspaceProjection
 external blockers: none recorded
 ```
 
@@ -225,7 +225,7 @@ external blockers: none recorded
 - 设计 Markdown 已通过 ReactMarkdown + GFM 渲染和本地链接检查；
 - `src/packages/contracts/schemas/science-v3/` 已冻结事实、投影、题级流、Annotation、
   LearningView、DomainUIPart、Command、TaskSpec、policy 与 operation 契约；
-- `nix develop -c pnpm contracts:validate` 当前验证 35 组 examples / 36 个
+- `nix develop -c pnpm contracts:validate` 当前验证 40 组 examples / 41 个
   schemas，并通过 science-v3 权限、写权威、身份分离和禁旧 mode contract tests；
 - `0032_science_v3_runtime.sql` 已从 PostgreSQL 16 干净库按 0001→0032 全量应用，
   并通过 tenant RLS、重复 outbox ack、数据库响应丢失、跨 Continue-As-New run 的
@@ -261,7 +261,20 @@ external blockers: none recorded
 - 独立 PostgreSQL 集成测试证明 SelectionDecision、QuestionSession、ForegroundAgentEpoch、
   QuestionOpened 与权威 QuestionCard 原子提交且响应重放幂等；契约校验、两个服务类型检查及
   learning-next 19 项测试均通过（16 通过，3 项需显式数据库变量的集成项按设计跳过）；
-- 以上证明 Next 路径的 P0–P5，不证明 P6–P7 或真实服务 E2E 完成；
+- `0037_science_v3_semantic_dream.sql` 已从 PostgreSQL 16 干净库按 0001→0037 全量应用；
+  QuestionClosure 在同一事务冻结 Light 输入并排队，三个独立 QuestionSession 的 Light 原子触发
+  REM window，宿主复算正反证据、scope、session/context diversity 后只把 accepted candidate 交给 Deep；
+- 独立 PostgreSQL 闭环已验证 Light→REM→Deep 提交、Annotation set 版本、preimage、Diary、最新
+  ChangeSet rollback 与失败保旧边界；纯函数拒绝测试证明 Light/REM/Deep 不能夹带掌握概率、科学状态
+  或其他额外权威字段，高风险 student trait/content insight 只进入教师 review；
+- 教师纠正会把依赖被替代题级事实的 Annotation 标为 stale；Selector 和 Workspace 只消费未 supersede、
+  未 stale、未 mute 且未过复核期的 relevant annotations，Dream Diary 永不作为证据；
+- WorkspaceProjection 只从 `science_v3_*` 规范 Thread、用户可见 canonical messages、当前题、科学投影
+  和有效 Annotation 编译；独立隔离测试证明跨账号 Thread、题目答案/解析、后台 AgentAttempt 与 Diary
+  不可见，并用 Pi SDK 官方 `read`/`grep` definitions 与真实路径校验提供只读访问，没有手写 Bubblewrap；
+- P6 提交前契约校验、`api-next`/`learning-next` 类型检查及 learning-next 24 项测试通过
+  （19 通过，5 项显式数据库变量集成项按设计跳过）；三条关键数据库集成项另在临时干净库显式通过；
+- 以上证明 Next 路径的 P0–P6，不证明 P7 或真实服务 E2E 完成；
 - 旧 `learning/profile/agent-runtime` 服务定义与 `web-next/api-next/learning-next` 断开，保留到最终
   组合切换时退役；它们不作为 Next 实现来源、兼容目标或科学状态写入依赖。
 

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import pg from "pg";
 import { compileAndProjectQuestion } from "./scientific-store.ts";
+import { DEEP_GATE_POLICY_VERSION, LIGHT_COMPILER_VERSION } from "./dream-core.ts";
 import type {
   AgentTaskWorkflowInput,
   CommitQuestionClosureInput,
@@ -23,10 +24,18 @@ const jsonArtifact = (value: unknown): { json: string; sha256: string } => {
   return { json, sha256: createHash("sha256").update(json).digest("hex") };
 };
 
+const toIso = (value: Date | string): string => new Date(value).toISOString();
+
 const artifactIdFromRef = (ref: string): string => {
   const match = /^agent-artifact:(art_[A-Za-z0-9]{8,})$/.exec(ref);
   if (!match) throw new Error("outputRef must be an agent-artifact reference");
   return match[1]!;
+};
+
+const projectionEvidenceRef = (ref: string): string => {
+  const [kind,...parts] = ref.split(":");
+  if (!kind || !parts.length) throw new Error("scientific projection reference is invalid");
+  return `${kind}://${parts.join("/")}`;
 };
 
 const recordValue = (value: unknown, name: string): Record<string, unknown> => {
@@ -456,9 +465,15 @@ export class PostgresQuestionStore implements QuestionStore {
         frozen_attempt_sequence: string;
         lifecycle: string;
         session_version: string;
+        student_id: string;
+        question_revision_id: string | null;
+        external_question_ref: string | null;
+        frozen_measurement_contract: Record<string,unknown>;
+        learning_activity_id: string | null;
       }>(
         `select c.operation_id,o.status as operation_status,c.idempotency_key,c.reason,
-                c.frozen_attempt_sequence,q.lifecycle,q.version as session_version
+                c.frozen_attempt_sequence,q.lifecycle,q.version as session_version,q.student_id,
+                q.question_revision_id,q.external_question_ref,q.frozen_measurement_contract,q.learning_activity_id
            from science_v3_cut_request c
            join science_v3_question_session q
              on q.tenant_id=c.tenant_id and q.question_session_id=c.question_session_id
@@ -500,8 +515,33 @@ export class PostgresQuestionStore implements QuestionStore {
         projectedAt: closedAt.toISOString(),
       });
 
-      const judgments = await client.query<{ ref: string }>(
-        `select 'judgment://' || j.judgment_id as ref
+      const attempts = await client.query<{
+        attempt_id: string;
+        kind: string;
+        hint_level: number;
+        content_refs: string[];
+        submitted_at: Date | string;
+      }>(
+        `select a.attempt_id,a.kind,a.hint_level,a.content_refs,a.submitted_at
+           from science_v3_attempt a
+          where a.tenant_id=$1 and a.question_session_id=$2 and a.session_sequence <= $3
+            and not exists(select 1 from science_v3_attempt newer
+                            where newer.tenant_id=a.tenant_id and newer.supersedes_attempt_id=a.attempt_id)
+          order by a.session_sequence`,
+        [input.tenantId,input.questionSessionId,cut.frozen_attempt_sequence],
+      );
+      const judgments = await client.query<{
+        ref: string;
+        summary: string;
+        dimension_revision_ids: string[];
+        evidence_refs: string[];
+      }>(
+        `select 'judgment://' || j.judgment_id as ref,j.decision_summary as summary,j.evidence_refs,
+                coalesce(array(
+                  select distinct proposal->>'dimension_revision_id'
+                    from jsonb_array_elements(j.dimension_proposals) proposal
+                   where proposal ? 'dimension_revision_id'
+                ),'{}'::text[]) as dimension_revision_ids
            from science_v3_judgment j join science_v3_attempt a
              on a.tenant_id=j.tenant_id and a.attempt_id=j.attempt_id
           where j.tenant_id=$1 and a.question_session_id=$2 and a.session_sequence <= $3
@@ -509,11 +549,22 @@ export class PostgresQuestionStore implements QuestionStore {
               select 1 from science_v3_judgment newer
                where newer.tenant_id=j.tenant_id and newer.supersedes_judgment_id=j.judgment_id
             )
+            and not exists (
+              select 1 from science_v3_attempt newer_a
+               where newer_a.tenant_id=a.tenant_id and newer_a.supersedes_attempt_id=a.attempt_id
+            )
           order by a.session_sequence,j.fact_version`,
         [input.tenantId, input.questionSessionId, cut.frozen_attempt_sequence],
       );
-      const observations = await client.query<{ ref: string }>(
-        `select 'observation://' || o.observation_id as ref
+      const observations = await client.query<{
+        ref: string;
+        summary: string;
+        dimension_revision_ids: string[];
+        evidence_refs: string[];
+      }>(
+        `select 'observation://' || o.observation_id as ref,
+                ('Observed ' || o.outcome || ' for ' || o.dimension_revision_id) as summary,
+                array[o.dimension_revision_id]::text[] as dimension_revision_ids,o.evidence_refs
            from science_v3_observation o join science_v3_judgment j
              on j.tenant_id=o.tenant_id and j.judgment_id=o.judgment_id
            join science_v3_attempt a on a.tenant_id=j.tenant_id and a.attempt_id=j.attempt_id
@@ -533,26 +584,107 @@ export class PostgresQuestionStore implements QuestionStore {
           order by o.occurred_at,o.observation_id`,
         [input.tenantId, input.questionSessionId, cut.frozen_attempt_sequence],
       );
+      const errorEvidence = await client.query<{
+        ref: string;
+        summary: string;
+        error_cause_revision_ids: string[];
+        evidence_refs: string[];
+      }>(
+        `select 'error-evidence://' || evidence.error_evidence_id as ref,
+                ('Error evidence ' || evidence.relation || ' (' || evidence.kind || ', ' || evidence.quality || ')') as summary,
+                array[evidence.error_cause_revision_id]::text[] as error_cause_revision_ids,
+                evidence.evidence_refs
+           from science_v3_error_evidence evidence
+          where evidence.tenant_id=$1 and evidence.question_session_id=$2
+            and not exists(select 1 from science_v3_error_evidence newer
+                            where newer.tenant_id=evidence.tenant_id
+                              and newer.supersedes_error_evidence_id=evidence.error_evidence_id)
+          order by evidence.created_at,evidence.error_evidence_id`,
+        [input.tenantId,input.questionSessionId],
+      );
+      const priorAnnotations = await client.query<{
+        annotation_id: string;
+        claim: string;
+        scope: Record<string,string>;
+      }>(
+        `select annotation.annotation_id,annotation.claim,annotation.scope
+           from science_v3_semantic_annotation annotation
+          where annotation.tenant_id=$1 and annotation.student_id=$2
+            and not exists(select 1 from science_v3_annotation_supersession supersession
+                            where supersession.tenant_id=annotation.tenant_id
+                              and supersession.superseded_annotation_id=annotation.annotation_id)
+            and not exists(select 1 from science_v3_annotation_stale_fact stale
+                            where stale.tenant_id=annotation.tenant_id and stale.annotation_id=annotation.annotation_id)
+            and coalesce((select preference.enabled from science_v3_annotation_usage_preference_event preference
+                           where preference.tenant_id=annotation.tenant_id and preference.student_id=annotation.student_id
+                             and preference.annotation_id=annotation.annotation_id
+                           order by preference.created_at desc,preference.preference_event_id desc limit 1),true)
+            and coalesce((select preference.enabled from science_v3_annotation_usage_preference_event preference
+                           where preference.tenant_id=annotation.tenant_id and preference.student_id=annotation.student_id
+                             and preference.annotation_id is null
+                           order by preference.created_at desc,preference.preference_event_id desc limit 1),true)
+          order by annotation.set_version desc,annotation.annotation_id limit 32`,
+        [input.tenantId,cut.student_id],
+      );
       const judgmentRefs = judgments.rows.map((row) => row.ref);
       const observationRefs = observations.rows.map((row) => row.ref);
       const closureId = idFrom("qcl", input.cutRequestId);
       const artifactId = idFrom("art", `${input.cutRequestId}\0question-closed`);
       const closedEventId = idFrom("evt", `${input.cutRequestId}\0question-closed`);
+      const dreamRunId = idFrom("drm",`${input.questionSessionId}\0${LIGHT_COMPILER_VERSION}`);
       const sessionVersion = Number(cut.session_version) + 1;
       const status = cut.reason === "abandoned" ? "abandoned" : "closed";
       const diagnosticStatus = cut.reason === "skipped" || cut.reason === "abandoned" ? "skipped" : "unclassified";
+      const projectionRefs = [
+        ...scientific.masteryProjectionRefs,
+        ...scientific.retentionProjectionRefs,
+        ...scientific.errorPatternProjectionRefs,
+      ].map(projectionEvidenceRef);
+      const sourceManifest = [...new Set([
+        `question-session://${input.questionSessionId}`,
+        `question-closure://${closureId}`,
+        ...attempts.rows.flatMap((row) => [`attempt://${row.attempt_id}`,...row.content_refs]),
+        ...judgments.rows.flatMap((row) => [row.ref,...row.evidence_refs]),
+        ...observations.rows.flatMap((row) => [row.ref,...row.evidence_refs]),
+        ...errorEvidence.rows.flatMap((row) => [row.ref,...row.evidence_refs]),
+        ...projectionRefs,
+      ])].slice(0,512);
       const payload = {
         schema_version: 3,
+        compiler_version: LIGHT_COMPILER_VERSION,
+        dream_run_id: dreamRunId,
+        student_id: cut.student_id,
+        question_session_id: input.questionSessionId,
         question_closure_ref: `question-closure:${closureId}`,
-        question_session_ref: `question-session:${input.questionSessionId}`,
-        close_reason: cut.reason,
-        judgment_refs: judgmentRefs,
-        observation_refs: observationRefs,
-        mastery_projection_refs: scientific.masteryProjectionRefs,
-        retention_projection_refs: scientific.retentionProjectionRefs,
-        error_evidence_refs: scientific.errorEvidenceRefs,
-        error_pattern_projection_refs: scientific.errorPatternProjectionRefs,
+        frozen_context: {
+          ...(cut.question_revision_id ? { question_revision_id: cut.question_revision_id }
+            : { external_question_ref: cut.external_question_ref }),
+          measurement_contract: cut.frozen_measurement_contract,
+          ...(cut.learning_activity_id ? { learning_activity_ref: `learning-activity:${cut.learning_activity_id}` } : {}),
+        },
+        effective_attempts: attempts.rows.map((row) => ({
+          attempt_ref: `attempt://${row.attempt_id}`,
+          kind: row.kind,
+          hint_level: row.hint_level,
+          content_refs: row.content_refs,
+          submitted_at: toIso(row.submitted_at),
+        })),
+        judgments: judgments.rows.map((row) => ({
+          fact_ref: row.ref,summary: row.summary,dimension_revision_ids: row.dimension_revision_ids,
+        })),
+        observations: observations.rows.map((row) => ({
+          fact_ref: row.ref,summary: row.summary,dimension_revision_ids: row.dimension_revision_ids,
+        })),
+        error_evidence: errorEvidence.rows.map((row) => ({
+          fact_ref: row.ref,summary: row.summary,error_cause_revision_ids: row.error_cause_revision_ids,
+        })),
+        projection_refs: projectionRefs,
+        source_manifest: sourceManifest,
+        prior_annotations: priorAnnotations.rows.map((row) => ({
+          annotation_ref: `annotation://${row.annotation_id}`,claim: row.claim,scope: row.scope,freshness: "current",
+        })),
         closed_at: closedAt.toISOString(),
+        history_is_untrusted_data: true,
       };
       const artifact = jsonArtifact(payload);
 
@@ -603,6 +735,15 @@ export class PostgresQuestionStore implements QuestionStore {
          ) values ($1,$2,'question-session',$3,'question.closed','{}'::jsonb,
                    $4,$5,$6,$7,$8,$4)`,
         [closedEventId, input.tenantId, input.questionSessionId, input.operationId, input.eventId, closedAt, sessionVersion, `agent-artifact:${artifactId}`],
+      );
+      await client.query(
+        `insert into science_v3_dream_run(
+           dream_run_id,tenant_id,student_id,operation_id,source_event_id,phase,window_ref,
+           compiler_version,policy_version,input_artifact_id
+         ) values($1,$2,$3,$4,$5,'light',$6,$7,$8,$9)
+         on conflict (tenant_id,phase,window_ref,compiler_version) do nothing`,
+        [dreamRunId,input.tenantId,cut.student_id,input.operationId,closedEventId,
+          `question-session:${input.questionSessionId}`,LIGHT_COMPILER_VERSION,DEEP_GATE_POLICY_VERSION,artifactId],
       );
       return {
         questionClosureId: closureId,
@@ -684,6 +825,63 @@ export class PostgresQuestionStore implements QuestionStore {
         frozenAttemptSequence: Number(row.frozen_attempt_sequence),
         projectedAt: new Date(row.requested_at).toISOString(),
       });
+      const sessionRefs = (await client.query<{ ref: string }>(
+        `select 'attempt://' || attempt.attempt_id as ref
+           from science_v3_attempt attempt where attempt.tenant_id=$1 and attempt.question_session_id=$2
+         union
+         select unnest(attempt.content_refs) as ref
+           from science_v3_attempt attempt where attempt.tenant_id=$1 and attempt.question_session_id=$2
+         union
+         select 'judgment://' || judgment.judgment_id as ref
+           from science_v3_judgment judgment join science_v3_attempt attempt
+             on attempt.tenant_id=judgment.tenant_id and attempt.attempt_id=judgment.attempt_id
+          where judgment.tenant_id=$1 and attempt.question_session_id=$2
+         union
+         select 'observation://' || observation.observation_id as ref
+           from science_v3_observation observation where observation.tenant_id=$1 and observation.question_session_id=$2
+         union
+         select 'error-evidence://' || evidence.error_evidence_id as ref
+           from science_v3_error_evidence evidence where evidence.tenant_id=$1 and evidence.question_session_id=$2`,
+        [input.tenantId,row.question_session_id],
+      )).rows.map((item) => item.ref);
+      const affectedAnnotations = sessionRefs.length ? (await client.query<{ annotation_id: string }>(
+        `select annotation.annotation_id from science_v3_semantic_annotation annotation
+          where annotation.tenant_id=$1 and annotation.student_id=$2
+            and (annotation.support_refs && $3::text[] or annotation.counter_refs && $3::text[])
+            and not exists(select 1 from science_v3_annotation_supersession supersession
+                            where supersession.tenant_id=annotation.tenant_id
+                              and supersession.superseded_annotation_id=annotation.annotation_id)
+            and not exists(select 1 from science_v3_annotation_stale_fact stale
+                            where stale.tenant_id=annotation.tenant_id and stale.annotation_id=annotation.annotation_id)
+          order by annotation.annotation_id`,
+        [input.tenantId,row.student_id,sessionRefs],
+      )).rows : [];
+      let staleInserted = 0;
+      for (const annotation of affectedAnnotations) {
+        const inserted = await client.query(
+          `insert into science_v3_annotation_stale_fact(
+             annotation_stale_id,tenant_id,student_id,annotation_id,caused_by_ref,reason
+           ) values($1,$2,$3,$4,$5,$6)
+           on conflict (tenant_id,annotation_id) do nothing returning 1`,
+          [idFrom("ast",`${row.teacher_correction_id}\0${annotation.annotation_id}`),input.tenantId,row.student_id,
+            annotation.annotation_id,`teacher-correction:${row.teacher_correction_id}`,
+            "Teacher correction superseded a QuestionSession fact used by this annotation."],
+        );
+        staleInserted += inserted.rowCount ?? 0;
+      }
+      if (staleInserted) {
+        await client.query(
+          `insert into science_v3_annotation_set_head(tenant_id,student_id,version)
+           values($1,$2,0) on conflict (tenant_id,student_id) do nothing`,
+          [input.tenantId,row.student_id],
+        );
+        await client.query(
+          `update science_v3_annotation_set_head
+              set version=version+1,updated_at=clock_timestamp()
+            where tenant_id=$1 and student_id=$2`,
+          [input.tenantId,row.student_id],
+        );
+      }
       const resourceRefs = [
         `teacher-correction:${row.teacher_correction_id}`,
         ...scientific.masteryProjectionRefs,

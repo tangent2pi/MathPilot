@@ -96,19 +96,15 @@ test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-
     async markOperationFailed(input) {
       failedOperations.push({ operationId: input.operationId, cancelled: input.cancelled });
     },
+    async beginDreamRun() {},
+    async commitLightDream() { throw new Error("unexpected Dream commit in generic runtime test"); },
+    async commitRemDream() { throw new Error("unexpected Dream commit in generic runtime test"); },
+    async commitDeepDream() { throw new Error("unexpected Dream commit in generic runtime test"); },
+    async failDreamRun() {},
     async enqueueScheduledDream(input) {
-      return {
-        schemaVersion: 3,
-        eventId: `evt_${input.phase}00000001`,
-        tenantId: input.tenantId,
-        operationId: `op_${input.phase}00000001`,
-        eventType: input.phase === "rem" ? "dream.rem_requested" : "dream.deep_requested",
-        aggregateRef: `dream-sweep:${input.tenantId}:${input.phase}`,
-        aggregateVersion: 1,
-        payloadRef: `agent-artifact:art_${input.phase}00000001`,
-        occurredAt: input.scheduledAt,
-      };
+      return { phase: input.phase,enqueued: 0 };
     },
+    async rollbackAnnotationChangeSet() { throw new Error("unexpected Dream rollback in generic runtime test"); },
     async prepareQuestionFinalization() {
       throw new Error("unexpected FinalizeQuestion Activity in generic runtime test");
     },

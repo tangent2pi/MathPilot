@@ -3,6 +3,7 @@ import { ApplicationFailure } from "@temporalio/common";
 import { agentAttemptId, type RuntimeStore } from "./runtime-store.ts";
 import type { QuestionStore } from "./question-store.ts";
 import type { SelectionStore } from "./selection-store.ts";
+import type { DreamStore } from "./dream-store.ts";
 import { getTaskSpec } from "./task-registry.ts";
 import type { LearningNextActivities, PiTaskExecutor } from "./runtime-types.ts";
 
@@ -10,12 +11,13 @@ export interface ActivityDependencies {
   store: RuntimeStore;
   questionStore: QuestionStore;
   selectionStore: SelectionStore;
+  dreamStore: DreamStore;
   executor: PiTaskExecutor;
 }
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
-export function createActivities({ store, questionStore, selectionStore, executor }: ActivityDependencies): LearningNextActivities {
+export function createActivities({ store, questionStore, selectionStore, dreamStore, executor }: ActivityDependencies): LearningNextActivities {
   return {
     async executePiTask(input) {
       const context = Context.current();
@@ -38,6 +40,9 @@ export function createActivities({ store, questionStore, selectionStore, executo
       context.heartbeat({ stage: "input", attemptId });
       try {
         const inputBundle = await store.loadInputBundle(input, taskSpec);
+        const workspaceProjection = taskSpec.workspace_projection_policy.enabled
+          ? await store.loadWorkspaceProjection(input, taskSpec, inputBundle)
+          : undefined;
         const result = await executor.execute({
           agentAttemptId: attemptId,
           tenantId: input.tenantId,
@@ -46,6 +51,7 @@ export function createActivities({ store, questionStore, selectionStore, executo
           inputRef: input.inputRef,
           inputBundle,
           taskSpec,
+          ...(workspaceProjection ? { workspaceProjection } : {}),
           ...(input.taskType === "select_question" ? {
             questionCatalog: {
               search: (toolCallId, params) => selectionStore.searchCatalog({
@@ -82,7 +88,13 @@ export function createActivities({ store, questionStore, selectionStore, executo
 
     commitOperationResult: (input) => store.commitOperationResult(input),
     markOperationFailed: (input) => store.markOperationFailed(input),
-    enqueueScheduledDream: (input) => store.enqueueScheduledDream(input),
+    beginDreamRun: (input) => dreamStore.beginRun(input),
+    commitLightDream: (input) => dreamStore.commitLight(input),
+    commitRemDream: (input) => dreamStore.commitRem(input),
+    commitDeepDream: (input) => dreamStore.commitDeep(input),
+    failDreamRun: (input) => dreamStore.failRun(input),
+    enqueueScheduledDream: (input) => dreamStore.enqueueScheduled(input),
+    rollbackAnnotationChangeSet: (input) => dreamStore.rollbackChangeSet(input),
     prepareQuestionFinalization: (input) => questionStore.prepareFinalization(input),
     recordFinalJudgment: (input) => questionStore.recordFinalJudgment(input),
     recordUnresolvedJudgment: (input) => questionStore.recordUnresolvedJudgment(input),

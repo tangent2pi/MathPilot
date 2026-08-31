@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/rem-input/v1",
+  "title": "Dream REM Window Bundle",
+  "type": "object",
+  "required": [
+    "schema_version", "compiler_version", "dream_run_id", "window_id", "student_id",
+    "topic_key", "annotation_set_version", "light_atoms", "scientific_state",
+    "current_annotations", "authorization_manifest", "window", "history_is_untrusted_data"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+    "compiler_version": { "const": "rem-window-compiler-v1" },
+    "dream_run_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/DreamRunId" },
+    "window_id": { "type": "string", "pattern": "^rwin_[A-Za-z0-9]{8,}$" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StudentId" },
+    "topic_key": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "annotation_set_version": { "type": "integer", "minimum": 0 },
+    "light_atoms": {
+      "type": "array", "minItems": 1, "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["atom_ref", "question_session_ref", "dimensions", "error_causes", "supports", "counters", "summary", "created_at"],
+        "properties": {
+          "atom_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+          "question_session_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+          "dimensions": { "type": "array", "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/DimensionRevisionId" }, "uniqueItems": true, "maxItems": 32 },
+          "error_causes": { "type": "array", "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ErrorCauseRevisionId" }, "uniqueItems": true, "maxItems": 32 },
+          "supports": { "$ref": "#/$defs/Refs" },
+          "counters": { "$ref": "#/$defs/Refs" },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "context": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StringMap" },
+          "created_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "scientific_state": { "type": "array", "items": { "$ref": "#/$defs/Summary" }, "maxItems": 256 },
+    "current_annotations": { "type": "array", "items": { "$ref": "#/$defs/Summary" }, "maxItems": 64 },
+    "authorization_manifest": { "type": "array", "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" }, "minItems": 1, "uniqueItems": true, "maxItems": 512 },
+    "window": {
+      "type": "object",
+      "required": ["opened_at", "closed_at", "distinct_session_count", "context_diversity"],
+      "properties": {
+        "opened_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+        "closed_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+        "distinct_session_count": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "context_diversity": { "type": "integer", "minimum": 1, "maximum": 64 }
+      },
+      "additionalProperties": false
+    },
+    "history_is_untrusted_data": { "const": true }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Refs": { "type": "array", "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" }, "uniqueItems": true, "maxItems": 256 },
+    "Summary": {
+      "type": "object", "required": ["resource_ref", "summary"],
+      "properties": {
+        "resource_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

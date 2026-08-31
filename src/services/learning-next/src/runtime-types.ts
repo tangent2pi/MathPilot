@@ -127,6 +127,53 @@ export interface ScheduledDreamTickInput {
   phase: "rem" | "deep";
 }
 
+export type DreamPhase = "light" | "rem" | "deep";
+
+export interface BeginDreamRunInput {
+  tenantId: string;
+  operationId: string;
+  eventId: string;
+  inputRef: string;
+  phase: DreamPhase;
+}
+
+export interface CommitDreamRunInput extends BeginDreamRunInput {
+  outputRef: string;
+}
+
+export interface DreamRunCommitResult {
+  dreamRunId: string;
+  phase: DreamPhase;
+  status: "completed" | "incomplete" | "rejected" | "stale";
+  resourceRefs: readonly string[];
+}
+
+export interface FailDreamRunInput extends BeginDreamRunInput {
+  cancelled: boolean;
+  message: string;
+}
+
+export interface ScheduledDreamEnqueueResult {
+  phase: "rem" | "deep";
+  enqueued: number;
+}
+
+export interface RollbackAnnotationChangeSetInput {
+  tenantId: string;
+  changeSetId: string;
+  actorUserId: string;
+  reason: string;
+}
+
+export interface RollbackAnnotationChangeSetResult {
+  rollbackId: string;
+  studentId: string;
+  fromSetVersion: number;
+  toSetVersion: number;
+  restoredAnnotationIds: readonly string[];
+  retiredAnnotationIds: readonly string[];
+}
+
 export interface PiTaskActivityInput extends AgentTaskWorkflowInput {
   workflowId: string;
 }
@@ -274,6 +321,17 @@ export interface QuestionCatalogCapability {
   search(toolCallId: string, input: QuestionCatalogToolInput): Promise<unknown>;
 }
 
+export interface WorkspaceProjectionFile {
+  path: string;
+  content: string;
+}
+
+export interface WorkspaceProjection {
+  snapshotVersion: number;
+  generatedAt: string;
+  files: readonly WorkspaceProjectionFile[];
+}
+
 export interface PiExecutorRequest {
   agentAttemptId: string;
   tenantId: string;
@@ -283,6 +341,7 @@ export interface PiExecutorRequest {
   inputBundle: unknown;
   taskSpec: TaskSpec;
   questionCatalog?: QuestionCatalogCapability;
+  workspaceProjection?: WorkspaceProjection;
   signal: AbortSignal;
   heartbeat: (detail?: unknown) => void;
 }
@@ -302,7 +361,13 @@ export interface LearningNextActivities {
   executePiTask(input: PiTaskActivityInput): Promise<PiTaskActivityResult>;
   commitOperationResult(input: CommitOperationResultInput): Promise<PersistedOperationResult>;
   markOperationFailed(input: { tenantId: string; operationId: string; cancelled: boolean; message: string }): Promise<void>;
-  enqueueScheduledDream(input: { tenantId: string; phase: "rem" | "deep"; scheduledAt: string }): Promise<OutboxWorkflowStart>;
+  beginDreamRun(input: BeginDreamRunInput): Promise<void>;
+  commitLightDream(input: CommitDreamRunInput): Promise<DreamRunCommitResult>;
+  commitRemDream(input: CommitDreamRunInput): Promise<DreamRunCommitResult>;
+  commitDeepDream(input: CommitDreamRunInput): Promise<DreamRunCommitResult>;
+  failDreamRun(input: FailDreamRunInput): Promise<void>;
+  enqueueScheduledDream(input: { tenantId: string; phase: "rem" | "deep"; scheduledAt: string }): Promise<ScheduledDreamEnqueueResult>;
+  rollbackAnnotationChangeSet(input: RollbackAnnotationChangeSetInput): Promise<RollbackAnnotationChangeSetResult>;
   prepareQuestionFinalization(input: FinalizeQuestionWorkflowInput): Promise<PreparedQuestionFinalization>;
   recordFinalJudgment(input: RecordFinalJudgmentInput): Promise<void>;
   recordUnresolvedJudgment(input: RecordUnresolvedJudgmentInput): Promise<void>;

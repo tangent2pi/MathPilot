@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import pg from "pg";
 import type {
   CommitOperationResultInput,
-  OutboxWorkflowStart,
   PersistedOperationResult,
   PiTaskActivityInput,
   PiTaskActivityResult,
   TaskSpec,
+  WorkspaceProjection,
 } from "./runtime-types.ts";
+import { compileWorkspaceProjection } from "./workspace-projection.ts";
 
 export interface AttemptStart {
   agentAttemptId: string;
@@ -28,13 +29,13 @@ export interface AttemptCompletion {
 export interface RuntimeStore {
   findOperationResult(input: PiTaskActivityInput): Promise<PiTaskActivityResult | undefined>;
   loadInputBundle(input: PiTaskActivityInput, taskSpec: TaskSpec): Promise<unknown>;
+  loadWorkspaceProjection(input: PiTaskActivityInput, taskSpec: TaskSpec, inputBundle: unknown): Promise<WorkspaceProjection>;
   startAttempt(value: AttemptStart): Promise<void>;
   storeStructuredOutput(value: AttemptStart, output: unknown, schemaUri: string): Promise<string>;
   completeAttempt(agentAttemptId: string, tenantId: string, completion: AttemptCompletion): Promise<void>;
   failAttempt(agentAttemptId: string, tenantId: string, error: { code: string; detail: string; cancelled: boolean }): Promise<void>;
   commitOperationResult(input: CommitOperationResultInput): Promise<PersistedOperationResult>;
   markOperationFailed(input: { tenantId: string; operationId: string; cancelled: boolean; message: string }): Promise<void>;
-  enqueueScheduledDream(input: { tenantId: string; phase: "rem" | "deep"; scheduledAt: string }): Promise<OutboxWorkflowStart>;
   close(): Promise<void>;
 }
 
@@ -114,6 +115,41 @@ export class PostgresRuntimeStore implements RuntimeStore {
       safeJson(artifact.payload);
       return artifact.payload;
     });
+  }
+
+  async loadWorkspaceProjection(
+    input: PiTaskActivityInput,
+    taskSpec: TaskSpec,
+    inputBundle: unknown,
+  ): Promise<WorkspaceProjection> {
+    if (!taskSpec.workspace_projection_policy.enabled) {
+      throw new Error("TaskSpec does not authorize a WorkspaceProjection");
+    }
+    const bundle = inputBundle && typeof inputBundle === "object" && !Array.isArray(inputBundle)
+      ? inputBundle as Record<string, unknown>
+      : {};
+    const context = bundle.context && typeof bundle.context === "object" && !Array.isArray(bundle.context)
+      ? bundle.context as Record<string, unknown>
+      : {};
+    const conversationThreadId = typeof bundle.conversation_thread_id === "string"
+      ? bundle.conversation_thread_id
+      : typeof context.conversation_thread_id === "string" ? context.conversation_thread_id : undefined;
+    const foregroundEpochId = typeof bundle.foreground_epoch_id === "string"
+      ? bundle.foreground_epoch_id
+      : typeof context.foreground_epoch_id === "string" ? context.foreground_epoch_id : undefined;
+    if (!conversationThreadId || !/^thr_[A-Za-z0-9]{8,}$/.test(conversationThreadId)) {
+      throw new Error("foreground task input is missing a valid conversation_thread_id");
+    }
+    if (foregroundEpochId && !/^fge_[A-Za-z0-9]{8,}$/.test(foregroundEpochId)) {
+      throw new Error("foreground task input has an invalid foreground_epoch_id");
+    }
+    return this.withTenant(input.tenantId, (client) => compileWorkspaceProjection(client, {
+      tenantId: input.tenantId,
+      operationId: input.operationId,
+      conversationThreadId,
+      ...(foregroundEpochId ? { foregroundEpochId } : {}),
+      taskSpec,
+    }));
   }
 
   async startAttempt(value: AttemptStart): Promise<void> {
@@ -261,60 +297,6 @@ export class PostgresRuntimeStore implements RuntimeStore {
         ],
       );
     });
-  }
-
-  async enqueueScheduledDream(input: { tenantId: string; phase: "rem" | "deep"; scheduledAt: string }): Promise<OutboxWorkflowStart> {
-    const identity = `${input.tenantId}\0${input.phase}\0${input.scheduledAt}`;
-    const operationId = idFrom("op", identity);
-    const eventId = idFrom("evt", identity);
-    const artifactId = idFrom("art", identity);
-    const eventType = input.phase === "rem" ? "dream.rem_requested" : "dream.deep_requested";
-    const aggregateRef = `dream-sweep:${input.tenantId}:${input.phase}`;
-    const payload = { schema_version: 3, tenant_ref: `tenant:${input.tenantId}`, phase: input.phase, scheduled_at: input.scheduledAt };
-    const json = safeJson(payload);
-    const sha256 = createHash("sha256").update(json).digest("hex");
-    await this.withTenant(input.tenantId, async (client) => {
-      const teacher = await client.query<{ user_id: string }>(
-        `select user_id from identity_user_role
-          where tenant_id=$1 and role='teacher'
-          order by assigned_at,user_id limit 2`,
-        [input.tenantId],
-      );
-      if (teacher.rows.length !== 1) throw new Error("scheduled Dream requires the tenant's sole teacher owner");
-      await client.query(
-        `insert into science_v3_operation (
-           operation_id,tenant_id,requested_by_user_id,kind,status,user_message
-         ) values ($1,$2,$3,'dream','accepted',$4)
-         on conflict (operation_id) do nothing`,
-        [operationId, input.tenantId, teacher.rows[0]!.user_id, `${input.phase.toUpperCase()} 整理已排队`],
-      );
-      await client.query(
-        `insert into science_v3_agent_artifact (
-           artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
-         ) values ($1,$2,$3,'input_bundle',$4,$5::jsonb,$6)
-         on conflict (artifact_id) do nothing`,
-        [artifactId, input.tenantId, operationId, `https://schemas.mathpilot.dev/science-v3/${input.phase}-input/v1`, json, sha256],
-      );
-      await client.query(
-        `insert into infra_outbox (
-           event_id,tenant_id,aggregate_type,aggregate_id,event_type,payload,
-           correlation_id,occurred_at,aggregate_version,payload_ref,operation_id
-         ) values ($1,$2,'dream-sweep',$3,$4,'{}'::jsonb,$5,$6,1,$7,$5)
-         on conflict (event_id) do nothing`,
-        [eventId, input.tenantId, `${input.tenantId}:${input.phase}`, eventType, operationId, input.scheduledAt, `agent-artifact:${artifactId}`],
-      );
-    });
-    return {
-      schemaVersion: 3,
-      eventId,
-      tenantId: input.tenantId,
-      operationId,
-      eventType,
-      aggregateRef,
-      aggregateVersion: 1,
-      payloadRef: `agent-artifact:${artifactId}`,
-      occurredAt: input.scheduledAt,
-    };
   }
 
   async close(): Promise<void> {

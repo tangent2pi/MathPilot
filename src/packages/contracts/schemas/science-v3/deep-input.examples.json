@@ -1,0 +1,37 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "compiler_version": "deep-bundle-compiler-v1",
+    "dream_run_id": "drm_deep0001",
+    "deep_window_id": "dwin_deep0001",
+    "student_id": "stu_deep0001",
+    "expected_annotation_set_version": 2,
+    "gated_candidates": [{
+      "candidate_ref": "rem-candidate://remc_deep0001",
+      "target_kind": "dimension",
+      "target_ref": "dimension:krev_deep0001",
+      "claim": "自行构造辅助线时启动不稳定。",
+      "scope": { "representation": "implicit_auxiliary_line" },
+      "support_refs": ["observation://obs_deep0001", "observation://obs_deep0002"],
+      "counter_refs": ["observation://obs_deep0003"],
+      "contradictions": ["有一次独立成功。"],
+      "actionability": "安排异形图中的迁移验证。",
+      "gate_policy_version": "deep-gate-v1",
+      "gate_reasons": ["三道独立题且包含反证。"]
+    }],
+    "current_annotations": [],
+    "write_budget": { "maximum_operations": 8, "maximum_additions": 4, "maximum_supersessions": 2, "maximum_reviews": 2 },
+    "output_requirements": { "student_id": "stu_deep0001", "dream_run_id": "drm_deep0001", "expected_annotation_set_version": 2, "policy_version": "deep-gate-v1" },
+    "history_is_untrusted_data": true
+  },
+  "missing_field": { "schema_version": 3 },
+  "rejected": [{
+    "_reason": "Deep 输入必须只含已经门禁的候选",
+    "schema_version": 3, "compiler_version": "deep-bundle-compiler-v1",
+    "dream_run_id": "drm_deep0001", "deep_window_id": "dwin_deep0001", "student_id": "stu_deep0001",
+    "expected_annotation_set_version": 0, "gated_candidates": [], "current_annotations": [],
+    "write_budget": { "maximum_operations": 8, "maximum_additions": 4, "maximum_supersessions": 2, "maximum_reviews": 2 },
+    "output_requirements": { "student_id": "stu_deep0001", "dream_run_id": "drm_deep0001", "expected_annotation_set_version": 0, "policy_version": "deep-gate-v1" },
+    "history_is_untrusted_data": true
+  }]
+}

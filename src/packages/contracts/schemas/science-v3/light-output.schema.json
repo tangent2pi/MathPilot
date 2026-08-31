@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/light-output/v1",
+  "title": "Dream Light Evidence Atom Proposal",
+  "type": "object",
+  "required": [
+    "schema_version", "status", "dream_run_id", "student_id", "question_session_id",
+    "dimensions", "error_causes", "observed_behaviors", "method_signals",
+    "hint_dependency", "self_correction", "transfer_context", "supports",
+    "counters", "unresolved", "source_refs", "summary"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+    "status": { "enum": ["ready", "incomplete"] },
+    "dream_run_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/DreamRunId" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StudentId" },
+    "question_session_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/QuestionSessionId" },
+    "dimensions": { "type": "array", "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/DimensionRevisionId" }, "uniqueItems": true, "maxItems": 32 },
+    "error_causes": { "type": "array", "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ErrorCauseRevisionId" }, "uniqueItems": true, "maxItems": 32 },
+    "observed_behaviors": { "$ref": "#/$defs/ShortTexts" },
+    "method_signals": { "$ref": "#/$defs/ShortTexts" },
+    "hint_dependency": { "enum": ["none", "low", "medium", "high", "unknown"] },
+    "self_correction": { "enum": ["none", "successful", "partial", "failed", "unknown"] },
+    "transfer_context": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StringMap" },
+    "supports": { "$ref": "#/$defs/Refs" },
+    "counters": { "$ref": "#/$defs/Refs" },
+    "unresolved": { "$ref": "#/$defs/Refs" },
+    "source_refs": { "$ref": "#/$defs/Refs" },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 2000 }
+  },
+  "additionalProperties": false,
+  "allOf": [{
+    "if": { "properties": { "status": { "const": "ready" } } },
+    "then": { "properties": { "source_refs": { "minItems": 1 } } }
+  }],
+  "$defs": {
+    "Refs": { "type": "array", "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" }, "uniqueItems": true, "maxItems": 256 },
+    "ShortTexts": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "uniqueItems": true, "maxItems": 32 }
+  }
+}

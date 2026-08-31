@@ -1,0 +1,38 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "compiler_version": "rem-window-compiler-v1",
+    "dream_run_id": "drm_rem000001",
+    "window_id": "rwin_rem000001",
+    "student_id": "stu_rem000001",
+    "topic_key": "student",
+    "annotation_set_version": 1,
+    "light_atoms": [{
+      "atom_ref": "light-atom://lat_rem000001",
+      "question_session_ref": "session://qsn_rem000001",
+      "dimensions": ["krev_rem000001"],
+      "error_causes": [],
+      "supports": ["observation://obs_rem000001"],
+      "counters": [],
+      "summary": "给出结构图时独立成功。",
+      "context": { "representation": "given_structure" },
+      "created_at": "2026-08-30T08:00:00Z"
+    }],
+    "scientific_state": [{ "resource_ref": "mastery-projection://stu_rem000001/krev_rem000001/v1", "summary": "程序投影只读。" }],
+    "current_annotations": [],
+    "authorization_manifest": ["light-atom://lat_rem000001", "observation://obs_rem000001"],
+    "window": { "opened_at": "2026-08-30T08:00:00Z", "closed_at": "2026-08-31T08:00:00Z", "distinct_session_count": 1, "context_diversity": 1 },
+    "history_is_untrusted_data": true
+  },
+  "missing_field": { "schema_version": 3 },
+  "rejected": [{
+    "_reason": "REM 只能消费 Light atom，不能把 diary 当证据",
+    "schema_version": 3, "compiler_version": "rem-window-compiler-v1",
+    "dream_run_id": "drm_rem000001", "window_id": "rwin_rem000001", "student_id": "stu_rem000001",
+    "topic_key": "student", "annotation_set_version": 0,
+    "light_atoms": [], "scientific_state": [], "current_annotations": [],
+    "authorization_manifest": ["dream-diary://dia_rem000001"],
+    "window": { "opened_at": "2026-08-30T08:00:00Z", "closed_at": "2026-08-31T08:00:00Z", "distinct_session_count": 1, "context_diversity": 1 },
+    "history_is_untrusted_data": true
+  }]
+}

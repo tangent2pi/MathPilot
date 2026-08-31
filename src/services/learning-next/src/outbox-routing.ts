@@ -53,7 +53,8 @@ export function workflowInputFromOutbox(event: OutboxWorkflowStart, taskType: Ta
     inputRef: event.payloadRef,
     idempotencyKey: event.eventId,
     revision: event.aggregateVersion,
-    ...(event.eventType === "question.closed" ? { resultOwnership: "parent" as const } : {}),
+    ...(["question.closed","dream.rem_requested","dream.deep_requested"].includes(event.eventType)
+      ? { resultOwnership: "parent" as const } : {}),
   };
 }
 

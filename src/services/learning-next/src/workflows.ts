@@ -29,6 +29,8 @@ import type {
   SelectionWorkflowResult,
   SelectionWorkflowState,
   ScheduledDreamTickInput,
+  DreamPhase,
+  DreamRunCommitResult,
   TaskRevision,
   TaskType,
 } from "./runtime-types.ts";
@@ -504,18 +506,72 @@ export async function selectQuestionWorkflow(initial: AgentTaskWorkflowInput): P
 }
 
 export async function lightWorkflow(input: AgentTaskWorkflowInput): Promise<AgentTaskWorkflowResult> {
-  enforceTaskType(input, "light");
-  return agentTaskWorkflow(input);
+  return dreamPhaseWorkflow(input,"light","commitLightDream");
 }
 
 export async function remSweepWorkflow(input: AgentTaskWorkflowInput): Promise<AgentTaskWorkflowResult> {
-  enforceTaskType(input, "rem");
-  return agentTaskWorkflow(input);
+  return dreamPhaseWorkflow(input,"rem","commitRemDream");
 }
 
 export async function deepConsolidationWorkflow(input: AgentTaskWorkflowInput): Promise<AgentTaskWorkflowResult> {
-  enforceTaskType(input, "deep");
-  return agentTaskWorkflow(input);
+  return dreamPhaseWorkflow(input,"deep","commitDeepDream");
+}
+
+async function dreamPhaseWorkflow(
+  input: AgentTaskWorkflowInput,
+  phase: DreamPhase,
+  commitActivity: "commitLightDream" | "commitRemDream" | "commitDeepDream",
+): Promise<AgentTaskWorkflowResult> {
+  assertWorkflowInput(input);
+  enforceTaskType(input,phase);
+  if (!input.eventId || !idempotencyPattern.test(input.eventId)) {
+    throw ApplicationFailure.nonRetryable("Dream event ID is invalid","invalid_workflow_input");
+  }
+  const base = {
+    tenantId: input.tenantId,
+    operationId: input.operationId,
+    eventId: input.eventId,
+    inputRef: input.inputRef,
+    phase,
+  };
+  await scheduleActivity<Awaited<ReturnType<LearningNextActivities["beginDreamRun"]>>>(
+    "beginDreamRun",[base],durableActivityOptions(`begin-${phase}`),
+  );
+  try {
+    const result = await scheduleActivity<PiTaskActivityResult>(
+      "executePiTask",
+      [{
+        ...input,
+        workflowId: workflowInfo().workflowId,
+        resultOwnership: "parent",
+        idempotencyKey: idempotencyForRevision(input.idempotencyKey,input.revision),
+      }],
+      taskActivityOptions(phase,input.taskSpecVersion,`${phase}-pi-r${input.revision}`),
+    );
+    await scheduleActivity<DreamRunCommitResult>(
+      commitActivity,[{ ...base,outputRef: result.outputRef }],questionCommitActivityOptions(`commit-${phase}`),
+    );
+    return {
+      operationId: input.operationId,
+      taskType: phase,
+      status: "succeeded",
+      outputRef: result.outputRef,
+      aggregateRef: input.aggregateRef,
+      aggregateVersion: input.aggregateVersion,
+      revision: input.revision,
+    };
+  } catch (error) {
+    await CancellationScope.nonCancellable(() => scheduleActivity<Awaited<ReturnType<LearningNextActivities["failDreamRun"]>>>(
+      "failDreamRun",
+      [{
+        ...base,
+        cancelled: isCancellation(error),
+        message: isCancellation(error) ? "Dream task cancelled" : "Dream task failed after bounded retries",
+      }],
+      durableActivityOptions(`fail-${phase}`),
+    ));
+    throw error;
+  }
 }
 
 export async function allowedChildTasksWorkflow(input: AllowedChildWorkflowInput): Promise<AgentTaskWorkflowResult[]> {

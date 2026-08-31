@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/rem-output/v1",
+  "title": "Dream REM Theme Candidates",
+  "type": "object",
+  "required": ["schema_version", "dream_run_id", "window_id", "student_id", "candidates", "summary"],
+  "properties": {
+    "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+    "dream_run_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/DreamRunId" },
+    "window_id": { "type": "string", "pattern": "^rwin_[A-Za-z0-9]{8,}$" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StudentId" },
+    "candidates": {
+      "type": "array", "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "candidate_id", "target_kind", "target_ref", "proposed_claim", "proposed_scope",
+          "support_atom_refs", "counter_atom_refs", "contradictions", "actionability",
+          "distinct_session_count", "context_diversity", "recency", "source_trust", "recommended_action"
+        ],
+        "properties": {
+          "candidate_id": { "type": "string", "pattern": "^remc_[A-Za-z0-9]{8,}$" },
+          "target_kind": { "enum": ["dimension", "error_cause", "student_trait", "content_insight"] },
+          "target_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+          "proposed_claim": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "proposed_scope": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StringMap" },
+          "support_atom_refs": { "$ref": "#/$defs/AtomRefs" },
+          "counter_atom_refs": { "$ref": "#/$defs/AtomRefs" },
+          "contradictions": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1000 }, "uniqueItems": true, "maxItems": 32 },
+          "actionability": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "distinct_session_count": { "type": "integer", "minimum": 1, "maximum": 64 },
+          "context_diversity": { "type": "integer", "minimum": 1, "maximum": 64 },
+          "recency": { "enum": ["current", "recent", "historical", "mixed"] },
+          "source_trust": { "enum": ["verified_facts", "mixed", "insufficient"] },
+          "recommended_action": { "enum": ["hold", "deep_review", "collect_more", "content_review"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 2000 }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "AtomRefs": {
+      "type": "array", "items": { "type": "string", "pattern": "^light-atom://lat_[A-Za-z0-9]{8,}$" },
+      "uniqueItems": true, "maxItems": 64
+    }
+  }
+}

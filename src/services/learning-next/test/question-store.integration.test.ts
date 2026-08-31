@@ -57,6 +57,8 @@ test("QuestionStore records bounded unresolved grading and commits one closure",
       closed_events: string;
       operation_results: string;
       operation_status: string;
+      light_runs: string;
+      light_input_schema: string | null;
     }>(
       `select q.lifecycle,
               (select count(*) from science_v3_foreground_agent_epoch e
@@ -68,6 +70,14 @@ test("QuestionStore records bounded unresolved grading and commits one closure",
               (select count(*) from science_v3_operation_result r
                 where r.operation_id='op_flowcut0001') as operation_results,
               (select status from science_v3_operation where operation_id='op_flowcut0001') as operation_status
+              ,(select count(*) from science_v3_dream_run dream
+                  where dream.tenant_id=q.tenant_id and dream.phase='light'
+                    and dream.window_ref='question-session:qsn_flowtest01') as light_runs
+              ,(select artifact.schema_uri from science_v3_dream_run dream
+                  join science_v3_agent_artifact artifact
+                    on artifact.tenant_id=dream.tenant_id and artifact.artifact_id=dream.input_artifact_id
+                 where dream.tenant_id=q.tenant_id and dream.phase='light'
+                   and dream.window_ref='question-session:qsn_flowtest01' limit 1) as light_input_schema
          from science_v3_question_session q where q.question_session_id='qsn_flowtest01'`,
     );
     const row = evidence.rows[0]!;
@@ -77,6 +87,8 @@ test("QuestionStore records bounded unresolved grading and commits one closure",
     assert.equal(Number(row.closed_events), 1);
     assert.equal(Number(row.operation_results), 1);
     assert.equal(row.operation_status, "succeeded");
+    assert.equal(Number(row.light_runs), 1);
+    assert.equal(row.light_input_schema, "https://schemas.mathpilot.dev/science-v3/light-input/v1");
   } finally {
     await Promise.allSettled([store.close(), pool.end()]);
   }

@@ -91,6 +91,12 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskSpec>> = Object.freeze
     output_schema: "https://schemas.mathpilot.dev/science-v3/light-output/v1",
     skill_ref: "skill:dream-light@v1",
     model_policy: { policy_id: "light-model-v1", model_family: "fast", allow_fallback: true },
+    data_access_policy: {
+      policy_id: "dream-light-data-v1",
+      read_scopes: ["frozen_closed_question_bundle"],
+      write_scopes: ["light_atom_proposal"],
+      history_is_untrusted_data: true,
+    },
   }),
   rem: spec("rem", {
     purpose: "只从门禁后的 Light 原子中形成带正反证据的 REM candidates。",
@@ -98,6 +104,12 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskSpec>> = Object.freeze
     output_schema: "https://schemas.mathpilot.dev/science-v3/rem-output/v1",
     skill_ref: "skill:dream-rem@v1",
     timeout_policy: { start_to_close_seconds: 900, heartbeat_seconds: 30 },
+    data_access_policy: {
+      policy_id: "dream-rem-data-v1",
+      read_scopes: ["frozen_rem_window","effective_light_atoms","current_annotation_snapshot"],
+      write_scopes: ["rem_candidate_proposals"],
+      history_is_untrusted_data: true,
+    },
   }),
   deep: spec("deep", {
     purpose: "从 gated REM candidates 提议 AnnotationChangeSet，不写科学数值状态。",
@@ -105,6 +117,12 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskSpec>> = Object.freeze
     output_schema: "https://schemas.mathpilot.dev/science-v3/annotation-change-set/v1",
     skill_ref: "skill:dream-deep@v1",
     timeout_policy: { start_to_close_seconds: 1200, heartbeat_seconds: 30 },
+    data_access_policy: {
+      policy_id: "dream-deep-data-v1",
+      read_scopes: ["frozen_gated_rem_candidates","current_annotation_snapshot"],
+      write_scopes: ["annotation_change_set_proposal"],
+      history_is_untrusted_data: true,
+    },
   }),
   foreground_teaching: spec("foreground_teaching", {
     purpose: "在当前 ForegroundAgentEpoch 内进行题目教学并提交有界 learning_action。",
