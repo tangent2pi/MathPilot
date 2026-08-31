@@ -97,13 +97,18 @@ async function defaultTeacher(client: pg.PoolClient): Promise<{ userId: string; 
       where u.tenant_id=$1 and r.role='teacher' order by u.created_at,u.user_id`, [tenantId],
   );
   const configured = process.env.DEFAULT_TEACHER_USER_ID;
-  const userId = configured && result.rows.some((row) => row.user_id === configured) ? configured : result.rows[0]?.user_id;
+  if (configured && !result.rows.some((row) => row.user_id === configured)) {
+    throw new Error(`DEFAULT_TEACHER_USER_ID is not a teacher in tenant ${tenantId}`);
+  }
+  if (!configured && result.rows.length !== 1) {
+    throw new Error(`tenant ${tenantId} must have exactly one teacher or DEFAULT_TEACHER_USER_ID must be configured`);
+  }
+  const userId = configured ?? result.rows[0]?.user_id;
   if (!userId) throw new Error(`no teacher exists for tenant ${tenantId}; set DEFAULT_TEACHER_USER_ID after bootstrapping the sole teacher`);
   return { userId, count: result.rows.length };
 }
 
-async function report(manifest: Awaited<ReturnType<typeof loadManifest>>, client: pg.PoolClient): Promise<Record<string, unknown>> {
-  const teacher = await defaultTeacher(client);
+async function report(manifest: Awaited<ReturnType<typeof loadManifest>>, teacher: { userId: string; count: number }): Promise<Record<string, unknown>> {
   return {
     schema: "mathpilot.official-content-import-report/v1",
     tenant_id: tenantId,
@@ -111,7 +116,7 @@ async function report(manifest: Awaited<ReturnType<typeof loadManifest>>, client
     total_rows: manifest.entries.reduce((sum, item) => sum + item.row_count, 0),
     default_teacher_user_id: teacher.userId,
     teacher_count: teacher.count,
-    owner_fallback: "Manifest rows are official and ownerless; the sole teacher is recorded only as audit uploader/default administrator.",
+    owner_fallback: "Manifest rows without a traceable owner are assigned to the configured default administrator; this deployment has one teacher.",
     execute,
   };
 }
@@ -214,11 +219,19 @@ async function insertRelations(client: pg.PoolClient, kind: Kind, id: string, da
   }
 }
 
-async function insertRevision(client: pg.PoolClient, kind: Kind, id: string, data: Row, packageRevisions: string[], writeRelations = true): Promise<void> {
+async function insertRevision(
+  client: pg.PoolClient,
+  kind: Kind,
+  id: string,
+  data: Row,
+  packageRevisions: string[],
+  ownerTeacherUserId: string,
+  writeRelations = true,
+): Promise<void> {
   const rev = revisionId(kind, id);
   await client.query(
     `insert into content_entity(entity_id,tenant_id,entity_kind,origin,owner_teacher_user_id,created_by_user_id)
-     values($1,$2,$3,'official',null,null) on conflict (entity_id) do nothing`, [id, tenantId, kind],
+     values($1,$2,$3,'official',$4,$4) on conflict (entity_id) do nothing`, [id, tenantId, kind, ownerTeacherUserId],
   );
   await client.query(
     `insert into content_entity_revision(revision_id,entity_id,tenant_id,revision_no,candidate_set_id,lifecycle_status,created_by_thread_id,model_id,prompt_version)
@@ -260,8 +273,11 @@ async function insertRevision(client: pg.PoolClient, kind: Kind, id: string, dat
   packageRevisions.push(rev);
 }
 
-async function executeImport(manifest: Awaited<ReturnType<typeof loadManifest>>, client: pg.PoolClient): Promise<{ package_id: string; revision_count: number; source_count: number }> {
-  const teacher = await defaultTeacher(client);
+async function executeImport(
+  manifest: Awaited<ReturnType<typeof loadManifest>>,
+  client: pg.PoolClient,
+  teacher: { userId: string; count: number },
+): Promise<{ package_id: string; revision_count: number; source_count: number }> {
   const packageRevisions: string[] = [];
   const sources: Array<{ sourceId: string; file: string; digest: string }> = [];
   // Source documents are independent of entity ordering and are created once.
@@ -275,7 +291,7 @@ async function executeImport(manifest: Awaited<ReturnType<typeof loadManifest>>,
       `insert into content_source
          (source_id,tenant_id,origin,owner_teacher_user_id,uploaded_by_user_id,source_kind,
           original_sha256,storage_object_id,source_uri,verified_at)
-       values($1,$2,'official',null,$3,'official-csv',$4,null,$5,now())
+       values($1,$2,'official',$3,$3,'official-csv',$4,null,$5,now())
        on conflict (source_id) do nothing`,
       [id, tenantId, teacher.userId, digest, `manifest://${entry.source_file}`],
     );
@@ -286,7 +302,7 @@ async function executeImport(manifest: Awaited<ReturnType<typeof loadManifest>>,
   for (const kind of kindOrder) {
     for (const entry of manifest.entries.filter((item) => item.entity_kind === kind)) {
       const rows = manifest.files.get(entry.source_file) ?? [];
-      for (const row of rows) await insertRevision(client, kind, row[entry.id_column]!, row, packageRevisions, false);
+      for (const row of rows) await insertRevision(client, kind, row[entry.id_column]!, row, packageRevisions, teacher.userId, false);
     }
   }
   for (const kind of kindOrder) {
@@ -298,8 +314,8 @@ async function executeImport(manifest: Awaited<ReturnType<typeof loadManifest>>,
   const uniqueRevisions = [...new Set(packageRevisions)];
   await client.query(
     `insert into content_package(package_id,tenant_id,origin,owner_teacher_user_id,title,version_no,status,manifest_sha256)
-     values($1,$2,'official',null,'MathPilot 官方初始内容库',1,'ready',$3)
-     on conflict (package_id) do nothing`, [packageId(), tenantId, hash(Buffer.from(JSON.stringify(manifest.entries)))],
+     values($1,$2,'official',$3,'MathPilot 官方初始内容库',1,'ready',$4)
+     on conflict (package_id) do nothing`, [packageId(), tenantId, teacher.userId, hash(Buffer.from(JSON.stringify(manifest.entries)))],
   );
   for (const [position, revision] of uniqueRevisions.entries()) {
     await client.query(`insert into content_package_item(tenant_id,package_id,revision_id,item_order) values($1,$2,$3,$4) on conflict do nothing`, [tenantId, packageId(), revision, position]);
@@ -315,12 +331,14 @@ async function main(): Promise<void> {
     try {
       await client.query("begin");
       await client.query(`select set_config('app.current_tenant',$1,true),set_config('app.current_user',$2,true),set_config('app.current_roles','teacher',true)`, [tenantId, process.env.DEFAULT_TEACHER_USER_ID ?? "official-import"]);
-      const summary = await report(manifest, client);
+      const teacher = await defaultTeacher(client);
+      await client.query(`select set_config('app.current_user',$1,true)`, [teacher.userId]);
+      const summary = await report(manifest, teacher);
       const reportPath = path.resolve(root, reportArg ?? "db/migration-data/official-content-import-report.json");
       await writeFile(reportPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
       console.log(JSON.stringify(summary, null, 2));
       if (!execute) { await client.query("rollback"); console.log(`dry-run only; pass --execute after reviewing ${reportPath}`); return; }
-      const imported = await executeImport(manifest, client);
+      const imported = await executeImport(manifest, client, teacher);
       await client.query("commit");
       console.log(JSON.stringify({ ...imported, executed: true }, null, 2));
     } catch (error) {

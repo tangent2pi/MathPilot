@@ -1,114 +1,84 @@
-# deploy/dev — 全模块组合根（实施规划 §4）
+# deploy/dev — Next 本地组合根
 
-一条命令启动本地组合环境：
+本目录只启动 MathPilot Next / science-v3 正式链路。旧 `learning`、`profile`、
+`content`、`review`、`agent-runtime` 不在组合中，也不会作为回退路径启动。
+
+## 启动
+
+`pi-chat-runtime` 的内容候选工具仍需要仓库内固定版本的 Qwen-MM-Plugins 参考副本：
 
 ```sh
 test -d references/qwen-mm-plugins/.git || git clone https://github.com/QwenLM/Qwen-MM-Plugins.git references/qwen-mm-plugins
 git -C references/qwen-mm-plugins checkout dd029da3bcadfe497de4b4ca8976b11177997cf0
 cd deploy/dev
-cp .env.example .env        # 按需修改
-docker compose up -d
+test -f .env || cp .env.example .env
+docker compose up -d --build
 ```
 
-默认 Web 只监听 `127.0.0.1:8080`。远端部署时在 `.env` 中把
-`WEB_BIND_ADDRESS` 设置为反向代理可达的专用地址；数据库和内部服务仍不对外暴露。
+默认 Web 地址是 <http://127.0.0.1:8080>。开发账号由 `.env` 中的
+`BETTER_AUTH_*_EMAIL/PASSWORD` 创建。
 
-`web` 与 `api` 分别构建 `web-next`、`api-next`；`pi-chat-runtime` 是独立的
-assistant-ui/react-pi 线程宿主。新内容链由 `content-next` 与 `storage-next` 承载；旧
-`content`/`agent-runtime` 仍只服务旧 learning/profile 链，禁止把两套实现重新合并。home 的首次数据切换严格按
-[`docs/home-next-deployment.md`](../../docs/home-next-deployment.md) 执行。
+默认 PostgreSQL 卷是 `mathpilot_pgdata_next`；旧 `mathpilot_pgdata` 不会被打开、
+迁移或删除。启动时会从 `db/migration-data/official-content-manifest.csv` 自动、幂等地
+导入 home 已审核提取的 174 条 K/T/Q/E/R 内容。导入器只读这些 CSV，不读取旧表；
+无法追溯的 owner 统一设为 `DEFAULT_TEACHER_USER_ID`，本地默认是唯一教师
+`usr_teacher01`。
 
-`references/qwen-mm-plugins` 是构建输入，不在镜像构建时联网下载另一份源码。Agent Runtime
-从该固定提交安装 Core/Search，并把上游 Core、Search、Edu Agent 与数学智元的六个产品
-Skill 装配为唯一的 `/opt/mathpilot-skills`。本地克隆提交与固定 revision 不一致时，装配测试会失败。
+## 正式链路
 
-## 当前覆盖
+```text
+browser / assistant-ui
+        │
+        ▼
+web-next ──same-origin──▶ api-next ──▶ PostgreSQL science-v3 facts/read models
+                                  │
+                                  ├─outbox──▶ Temporal ──▶ learning-next ──▶ fixed DeepSeek model
+                                  ├────────▶ content-next ──▶ normalized official/teacher content
+                                  └────────▶ storage-next ──▶ MinIO
 
-- **PostgreSQL**：`mathpilot` 保存身份/学习/审计；`mathpilot_pi` 只保存线程归属、ACL、卡片事件和文件位置。两库在同一 PostgreSQL 实例中，事实边界不合并。
-- **对象与运行时持久化**：Pi JSONL/工作区使用 `PI_CHAT_RUNTIME_VOLUME`；附件、私有内容和候选审计对象使用 MinIO 的 `MINIO_VOLUME`；数据库使用 `POSTGRES_VOLUME`。
-- **正式对话链**：web-next（assistant-ui）→ api-next（Better Auth）→ pi-chat-runtime / content-next / storage-next → PostgreSQL/MinIO。
-- **正式内容初始化**：`db/migration-data/official-content-manifest.csv` 固定 home 已提取的 174 项 K/T/Q/E/R；默认启动不自动导入，审核清单后显式运行 `pnpm --dir src/services/content-next run migrate:official -- --execute`。
-- **既有领域链保留**：learning、profile、review、content 与旧 agent-runtime 维持原职责，本阶段不接“下一题” fork、后台判答或 Dream 到新对话链。
+pi-chat-runtime ──▶ content-next candidate work only
+```
 
-## 鉴权
-
-- 登录、密码哈希、Session Cookie、CSRF 与 Origin 校验由 api-next 中的 Better Auth 负责；领域角色和租户在网关服务端映射。
-- 产品角色只有 `teacher` 与 `student`。学生请求使用本人及班级范围；教师只能复核、发布自己的候选和内容包；当前唯一 teacher 也是历史 owner 的默认管理员。
-- Nginx 覆盖写入 `X-Real-IP`，Better Auth 用该地址执行限流。开发环境的 API、Agent Runtime 和数据库端口只绑定本机。
-- 开发账号由 `.env` 中的 `BETTER_AUTH_*_EMAIL/PASSWORD` 创建。生产部署需要替换 Secret，使用 HTTPS URL、Secure Cookie 和准确的 Trusted Origins，并让领域服务只在私网监听。
-
-## 验证
+学习对话不经过 `pi-chat-runtime`。后台与前台模型调用都固定使用
+`deepseek-v4-flash-vision-exp`；不得改成旧主/辅模型。新的环境变量是：
 
 ```sh
-bash ../../tests/e2e/current-state-smoke.sh     # 不调用模型/OCR，保留当前数据
-bash ../../tests/e2e/draft-file-edit-smoke.sh   # 待确认资料集追加/移除；测试对象自动清理
-bash ../../tests/e2e/content-scope-smoke.sh     # 公共库/教师库隔离
-docker compose exec -T agent-runtime sh /app/tests/e2e/agent-db-sandbox-smoke.sh
-set -a; . ./.env; set +a
-: "${BETTER_AUTH_TEACHER_EMAIL:=teacher@mathpilot.local}"; : "${BETTER_AUTH_TEACHER_PASSWORD:=MathPilotTeacher123!}"
-: "${BETTER_AUTH_STUDENT_EMAIL:=student@mathpilot.local}"; : "${BETTER_AUTH_STUDENT_PASSWORD:=MathPilotStudent123!}"
-docker compose exec -T \
-  -e VISUAL_EMAIL="$BETTER_AUTH_TEACHER_EMAIL" -e VISUAL_PASSWORD="$BETTER_AUTH_TEACHER_PASSWORD" \
-  -e VISUAL_STUDENT_EMAIL="$BETTER_AUTH_STUDENT_EMAIL" -e VISUAL_STUDENT_PASSWORD="$BETTER_AUTH_STUDENT_PASSWORD" \
-  agent-runtime node --input-type=module < ../../tests/e2e/browser-visual-smoke.mjs
-bash ../../tests/e2e/real-smoke.sh              # 真实端到端；会产生模型/OCR费用
+PI_MODEL_API_BASE=https://api.scnet.cn/api/llm/v1
+PI_MODEL_API_KEY=<provider-key>
 ```
 
-真实端到端覆盖：教师确认资料 → KTQ 独立 Session → ER 独立 Session → 复核门；以及教学判答、连续学习摘要、Dream 和计划。OCR 是否调用由 Agent 根据原件质量和版面复杂度决定。
+已有本地 `.env` 若仍保存为 `MODEL_API_BASE`/`MODEL_API_KEY`，Compose 会直接把这两个
+现有值注入 Next 服务，不改写密钥文件；显式 `PI_MODEL_API_BASE`/`PI_MODEL_API_KEY`
+时以新变量为准。模型 ID 在组合中固定，不从本地旧变量读取。
 
-## 模型调用路径
+## MinIO 浏览器端点
 
-```
-learning/content/profile ──HTTP──▶ agent-runtime（Pi 宿主）
-                                     ├─ pi-agent-core：每任务独立 Agent Session（一任务一 Session，租户绑定）
-                                     │   ├─ task prompt = policies/ 版本化任务目标（tasks.manifest.json 注册）
-                                     │   ├─ Skills = 标准 SKILL.md 树（由 ResourceLoader 自动发现）
-                                     │   ├─ model = pi-ai（scnet provider：Qwen3.8-Max 主 / DeepSeek-V4-Flash-0731 辅）
-                                     │   └─ tools = Bash + Qwen-MM Core/Search + PaddleOCR-VL + respond
-                                     └─ 密钥：agent-runtime 直读本服务 env；领域服务经 @mathpilot/providers-model
-
-browser ──同源──▶ api-next ──受信主体头──▶ pi-chat-runtime
-                                               ├─ @assistant-ui/react-pi 官方线程协议
-                                               ├─ MODEL_API_BASE / MODEL_ID / MODEL_API_KEY
-                                               └─ extensions + skills 插件式注入（Pi 本体零修改）
-```
-
-- 任务提示/纪律全部在仓库 `policies/`（版本化策略源，manifest 统一管理 prompt_version 与主/辅模型角色）；
-  模型行为只通过策略、Skills 与工作区文件控制，Agent 循环内无动作限制逻辑；Pi 本体零修改（SDK 扩展接入）。
-
-## 供应商密钥（.env；只注入使用该 Provider 的宿主服务，绝不入库、不进沙箱/前端）
+`MINIO_ENDPOINT=http://minio:9000` 只在 Compose 内部使用。浏览器签名 URL 和 CORS
+由部署变量控制：
 
 ```sh
-MODEL_API_BASE=https://api.scnet.cn/api/llm/v1
-MODEL_API_KEY=<scnet-key>
-MODEL_ID_MAIN=Qwen3.8-Max
-MODEL_ID_AUX=DeepSeek-V4-Flash-0731
-PI_GATEWAY_SECRET=<32+ character shared secret>
-PI_MODEL_API_BASE=https://api.deepseek.com
-PI_MODEL_API_KEY=<deepseek-key>
-PI_MODEL_ID=deepseek-v4-flash-vision-exp
-MINIO_ROOT_USER=<internal-access-key>
-MINIO_ROOT_PASSWORD=<internal-secret-key>
+# 本地
 MINIO_PUBLIC_ENDPOINT=http://localhost:9000
 MINIO_CORS_ALLOWED_ORIGINS=http://localhost:8080
-CONTENT_NEXT_SECRET=<32+ character shared secret>
-STORAGE_NEXT_SECRET=<32+ character shared secret>
-OCR_API_BASE=https://paddleocr.aistudio-app.com
-OCR_API_TOKEN=<paddleocr-token>
-OCR_MODEL=PaddleOCR-VL-1.6
-SERPER_API_KEY=<serper-key>
+
+# mathpilot.tangentpi.com 反代部署
+MINIO_PUBLIC_ENDPOINT=https://mathpilot.tangentpi.com
+MINIO_CORS_ALLOWED_ORIGINS=https://mathpilot.tangentpi.com
 ```
 
-- 无任何 fake/回退路径：模型不可用（配额/网络）时各服务显式 502，绝不伪造结果；
-  题目未发布/不可达时 learning 显式 404/502，无内置兜底题（Review-001"严禁回退方案"）。
-- 多租户：agent-runtime 会话创建时绑定租户，prompt/查询/销毁跨租户一律 403；
-  PostgreSQL RLS + 不可变事件触发器；Better Auth Session 只在 API 网关解析。
-- Dream 模型声明 `review_required` 时升级教师复核（student_diagnosis 队列），不物化快照（设计 §9.3）。
+生产部署同时需要 HTTPS Better Auth URL、Secure Cookie、准确的 Trusted Origins，
+以及替换全部开发 secret。供应商密钥只进入需要它的宿主服务，不进入浏览器、数据库
+或模型工具沙箱。
 
-## 约定
+## 快速核验
 
-单一组合根：**禁止**复制出 demo/competition 第二套组合根。任何 Provider 实现（含未接入的本地/MCP/自建模式）必须产生与正式实现同构的 ProviderTrace 字段。
+```sh
+docker compose config --quiet
+docker compose ps
+curl --fail http://127.0.0.1:3101/readyz
+docker compose exec -T postgres psql -U mathpilot -d mathpilot -c \
+  "select count(*) as official_items from content_package_item where package_id='pkg_official_home_v1';"
+```
 
-生产反代当前使用 `https://mathpilot.tangentpi.com` 时，将 `MINIO_PUBLIC_ENDPOINT` 设为该
-浏览器可达地址，并把 `MINIO_CORS_ALLOWED_ORIGINS` 设为实际 Web origin；本地保持上述
-localhost 值。`MINIO_ENDPOINT=http://minio:9000` 仅在 Compose 内部使用，不暴露给浏览器。
+正式导入结果应为 174 项，其中 84 项是题目。外部模型、搜索或 OCR 不可用时返回真实
+错误，不生成假结果或回退到旧服务。
