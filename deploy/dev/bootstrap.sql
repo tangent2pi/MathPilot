@@ -1,6 +1,6 @@
--- 默认开发启动只创建运行所需身份，不预灌 K/T/Q/E/R 内容。
--- 正式内容必须由教师上传教学资料批次，经 OCR -> KTQ -> ER -> 人工复核 -> 发布得到。
--- 某次赛题可由 5 份 PDF 初始化，但文件数量和格式不是内容工坊的产品限制。
+-- 默认开发启动只创建运行所需身份；官方初始 K/T/Q/E/R 由审核过的
+-- db/migration-data 清单单独导入，不由 bootstrap 或旧 fixture 隐式灌入。
+-- 后续教师内容仍经资料上传 -> KTQ -> ER -> 人工复核 -> 班级发布得到。
 begin;
 
 select format('create role %I login password %L','mathpilot_app', :'app_password')
@@ -26,6 +26,12 @@ grant select, insert, update, delete on all tables in schema public to mathpilot
 grant usage, select, update on all sequences in schema public to mathpilot_app;
 grant execute on function mathpilot_pending_content_pipelines() to mathpilot_app;
 grant execute on function mathpilot_provision_agent_identity(text,text,text,text) to mathpilot_app;
+grant execute on function mathpilot_content_entity_visible(text,text,text[],text,text,boolean) to mathpilot_app;
+grant execute on function mathpilot_content_package_visible(text,text,text[],text,boolean) to mathpilot_app;
+grant execute on function mathpilot_content_candidate_visible(text,text,text[],text) to mathpilot_app;
+grant execute on function mathpilot_content_can_publish_package(text,text,text[],text,text) to mathpilot_app;
+grant execute on function mathpilot_pending_er_start_commands() to mathpilot_app;
+grant execute on function mathpilot_pending_review_feedback_commands() to mathpilot_app;
 
 insert into identity_tenant(tenant_id, name)
 values ('tnt_dev00001', 'Dev Tenant')
@@ -53,10 +59,19 @@ end $$;
 
 insert into identity_user(user_id, tenant_id, oidc_sub, display_name, roles)
 values
-  ('usr_teacher01', 'tnt_dev00001', 'sub-teacher-dev', 'Dev Teacher', '{teacher,content_reviewer}'),
+  ('usr_teacher01', 'tnt_dev00001', 'sub-teacher-dev', 'Dev Teacher', '{teacher}'),
   ('usr_student01', 'tnt_dev00001', 'sub-student-dev', 'Dev Student 01', '{student}'),
   ('usr_student02', 'tnt_dev00001', 'sub-student-02', 'Dev Student 02', '{student}'),
   ('usr_student03', 'tnt_dev00001', 'sub-student-03', 'Dev Student 03', '{student}')
 on conflict (user_id) do nothing;
+
+-- 0031 的规范化角色关系是 next 域的事实源。bootstrap 在迁移之后执行，
+-- 因此不能依赖用户第一次登录才补这几行。
+insert into identity_user_role(tenant_id, user_id, role, assigned_by_user_id)
+select u.tenant_id, u.user_id, r.role, null
+  from identity_user u
+  cross join lateral unnest(u.roles) as r(role)
+ where r.role in ('teacher', 'student')
+on conflict (user_id, role) do nothing;
 
 commit;

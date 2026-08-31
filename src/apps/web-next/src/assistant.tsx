@@ -4,7 +4,6 @@ import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import { ThreadListSidebar } from "@/components/assistant-ui/elements/threadlist-sidebar.aui";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AccountMenu } from "./account-menu";
-import { AuthProvider } from "./auth";
 import { PiRuntimeProvider } from "./PiRuntimeProvider";
 
 /**
@@ -13,18 +12,16 @@ import { PiRuntimeProvider } from "./PiRuntimeProvider";
  */
 export const Assistant = () => {
   return (
-    <AuthProvider>
-      <PiRuntimeProvider>
-        <SidebarProvider>
-          <ThreadListSidebar footer={<AccountMenu />} />
-          <SidebarInset className="h-dvh overflow-hidden">
-            <header className="absolute start-2 top-2 z-20 md:hidden">
-              <SidebarTrigger aria-label="打开会话列表" />
-            </header>
-            <Thread />
-          </SidebarInset>
-        </SidebarProvider>
-      </PiRuntimeProvider>
-    </AuthProvider>
+    <PiRuntimeProvider>
+      <SidebarProvider>
+        <ThreadListSidebar footer={<AccountMenu />} />
+        <SidebarInset className="h-dvh overflow-hidden">
+          <header className="absolute start-2 top-2 z-20 md:hidden">
+            <SidebarTrigger aria-label="打开会话列表" />
+          </header>
+          <Thread />
+        </SidebarInset>
+      </SidebarProvider>
+    </PiRuntimeProvider>
   );
 };

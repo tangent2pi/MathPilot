@@ -6,6 +6,7 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.74",
     "@earendil-works/pi-coding-agent": "0.84.1",
+    "pi-mcp-adapter": "2.26.1",
     "typebox": "^1.3.19"
   }
 }

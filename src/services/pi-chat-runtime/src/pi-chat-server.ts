@@ -1,14 +1,17 @@
-import { chmod, cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createPiNodeClient } from "@assistant-ui/react-pi/node";
 import type { PiClient } from "@assistant-ui/react-pi";
+import { assemblePiChatWorkspace } from "./pi-chat-workspace.ts";
 
 const EXTENSIONS_SOURCE = process.env.PI_CHAT_EXTENSIONS_SOURCE
   ?? fileURLToPath(new URL("../extensions", import.meta.url));
 const EXTENSIONS_NODE_MODULES = fileURLToPath(new URL("../node_modules", import.meta.url));
+const CAPABILITIES_SOURCE = process.env.PI_CHAT_CAPABILITIES_SOURCE
+  ?? fileURLToPath(new URL("./capabilities", import.meta.url));
 // 注入 Pi 对话所需的 Skills：仅通过 agentDir 插件式注入，
 // 不修改 Pi；不包含“下一题”fork、后台判答或 Dream 编排。
 const SKILLS_SOURCE = process.env.PI_CHAT_SKILLS_SOURCE
@@ -43,6 +46,31 @@ async function rewriteSkillPaths(root: string, skillsRoot: string): Promise<void
   await walk(root);
 }
 
+async function makeModelReadable(root: string): Promise<void> {
+  const walk = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`Skill projection may not contain symlinks: ${file}`);
+      if (entry.isDirectory()) {
+        await walk(file);
+        await chmod(file, 0o555);
+      } else if (entry.isFile()) {
+        const info = await lstat(file);
+        await chmod(file, info.mode & 0o111 ? 0o555 : 0o444);
+      }
+    }
+  };
+  await walk(root);
+  await chmod(root, 0o555);
+}
+
+async function refreshExistingWorkspaces(sessionsRoot: string, skillsRoot: string): Promise<void> {
+  for (const entry of await readdir(sessionsRoot, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    await assemblePiChatWorkspace(path.join(sessionsRoot, entry.name), skillsRoot);
+  }
+}
+
 export interface PiChatRuntime {
   client: PiClient;
   runtimeRoot: string;
@@ -61,11 +89,24 @@ export async function createPiChatRuntime(): Promise<PiChatRuntime> {
   const runtimeRoot = process.env.PI_CHAT_RUNTIME_ROOT
     ?? process.env.MATHPILOT_RUNTIME
     ?? path.join(os.homedir(), ".mathpilot", "runtime");
+  await mkdir(runtimeRoot, { recursive: true, mode: 0o700 });
+  await chmod(runtimeRoot, typeof process.getuid === "function" && process.getuid() === 0 ? 0o711 : 0o700);
+  // Sandbox Runtime derives compatibility write paths from HOME while it
+  // builds the sandbox descriptor. Keep those paths in the runtime volume
+  // instead of exposing the container user's normal home.
+  const sandboxHome = path.join(runtimeRoot, "sandbox-home");
+  // This directory contains only disposable package/runtime caches. Recreate
+  // it to remove ownership left by the retired setpriv launchers.
+  await rm(sandboxHome, { recursive: true, force: true });
+  await mkdir(sandboxHome, { recursive: true, mode: 0o700 });
+  await chmod(sandboxHome, 0o700);
+  process.env.HOME = sandboxHome;
   const agentDir = path.join(runtimeRoot, "agent");
   const sessionsRoot = path.join(runtimeRoot, "sessions");
   const extensionsRoot = path.join(agentDir, "extensions");
   const agentSessionsRoot = path.join(agentDir, "sessions");
-  const skillsRoot = path.join(agentDir, "skills");
+  const agentSkillsRoot = path.join(agentDir, "skills");
+  const sandboxSkillsRoot = path.join(runtimeRoot, "sandbox-skills");
 
   // The agent directory contains auth.json and must not be readable by other
   // users of the host/container.  Pi's AuthStorage also enforces 0600, but
@@ -77,27 +118,41 @@ export async function createPiChatRuntime(): Promise<PiChatRuntime> {
   // extensions/skills 是声明式注入缓存，不是会话事实；启动时重建以免旧插件残留。
   await Promise.all([
     rm(extensionsRoot, { recursive: true, force: true }),
-    rm(skillsRoot, { recursive: true, force: true }),
+    rm(agentSkillsRoot, { recursive: true, force: true }),
+    rm(sandboxSkillsRoot, { recursive: true, force: true }),
   ]);
   await Promise.all([
     mkdir(sessionsRoot, { recursive: true, mode: 0o700 }),
     mkdir(agentSessionsRoot, { recursive: true, mode: 0o700 }),
-    mkdir(skillsRoot, { recursive: true, mode: 0o700 }),
+    mkdir(agentSkillsRoot, { recursive: true, mode: 0o700 }),
+    mkdir(sandboxSkillsRoot, { recursive: true, mode: 0o755 }),
     syncDirectory(EXTENSIONS_SOURCE, extensionsRoot),
   ]);
+  // Capabilities are source-owned by the new Pi runtime, but are staged below
+  // extensions so Pi's official agentDir discovery owns their lifecycle.
+  await syncDirectory(CAPABILITIES_SOURCE, path.join(extensionsRoot, "capabilities"));
   await Promise.all([
-    chmod(sessionsRoot, 0o700),
+    chmod(sessionsRoot, typeof process.getuid === "function" && process.getuid() === 0 ? 0o711 : 0o700),
     chmod(agentSessionsRoot, 0o700),
-    chmod(skillsRoot, 0o700),
+    chmod(agentSkillsRoot, 0o700),
     chmod(extensionsRoot, 0o700),
   ]);
   // 插件仍由 Pi 官方 ResourceLoader 从 agentDir 发现；这里只把宿主锁定的依赖
   // 暴露给运行时副本，避免每次启动 npm install，也不让新服务依赖 web-next。
   await symlink(EXTENSIONS_NODE_MODULES, path.join(extensionsRoot, "node_modules"), "dir");
   if (SKILLS_SOURCE) {
-    await syncDirectory(SKILLS_SOURCE, skillsRoot);
-    await rewriteSkillPaths(skillsRoot, skillsRoot);
+    await Promise.all([
+      syncDirectory(SKILLS_SOURCE, agentSkillsRoot),
+      syncDirectory(SKILLS_SOURCE, sandboxSkillsRoot),
+    ]);
+    await Promise.all([
+      rewriteSkillPaths(agentSkillsRoot, sandboxSkillsRoot),
+      rewriteSkillPaths(sandboxSkillsRoot, sandboxSkillsRoot),
+    ]);
+    await makeModelReadable(sandboxSkillsRoot);
   }
+  process.env.PI_CHAT_SANDBOX_SKILLS_ROOT = sandboxSkillsRoot;
+  await refreshExistingWorkspaces(sessionsRoot, sandboxSkillsRoot);
 
   const apiKey = process.env.MODEL_API_KEY ?? "";
   const baseUrl = process.env.MODEL_API_BASE ?? DEFAULT_BASE_URL;
@@ -134,6 +189,6 @@ export async function createPiChatRuntime(): Promise<PiChatRuntime> {
     runtimeRoot,
     sessionsRoot,
     agentSessionsRoot,
-    skillsRoot,
+    skillsRoot: sandboxSkillsRoot,
   };
 }

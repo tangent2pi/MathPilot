@@ -1,8 +1,103 @@
 /** Pi 插件式结构化出口；不修改 Pi 本体。 */
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { listBoundAttachments } from "./attachments/manifest.ts";
 import { readHostPrincipal } from "./lib/host-principal.ts";
 import { validateContentRespond } from "./lib/content-result-validation.ts";
+
+type HostPrincipal = Awaited<ReturnType<typeof readHostPrincipal>>;
+
+const normalizeInputReference = (value: string): string => {
+  const normalized = path.posix.normalize(value.replaceAll("\\", "/"));
+  return normalized.startsWith("input/") ? normalized : `input/${normalized}`;
+};
+
+async function sourceObjectsForResult(cwd: string, result: Record<string, unknown>): Promise<Array<{
+  workspace_path: string;
+  object_id: string;
+  version_id: string;
+  sha256: string;
+}>> {
+  const references = new Set<string>();
+  if (result.schema === "mathpilot.ktq-result/v1" && Array.isArray(result.questions)) {
+    for (const questionValue of result.questions) {
+      if (!questionValue || typeof questionValue !== "object" || Array.isArray(questionValue)) continue;
+      const question = questionValue as Record<string, unknown>;
+      const source = question.source && typeof question.source === "object" && !Array.isArray(question.source)
+        ? question.source as Record<string, unknown>
+        : undefined;
+      if (typeof source?.path === "string") references.add(normalizeInputReference(source.path));
+      if (Array.isArray(question.image_refs)) {
+        for (const value of question.image_refs) if (typeof value === "string") references.add(normalizeInputReference(value));
+      }
+    }
+  }
+  if (!references.size) return [];
+  const attachments = await listBoundAttachments(cwd);
+  const byPath = new Map(attachments.map((attachment) => [attachment.workspacePath, attachment]));
+  return [...references].map((workspacePath) => {
+    const attachment = byPath.get(workspacePath);
+    if (!attachment) throw new Error(`validated source is not backed by a registered storage object: ${workspacePath}`);
+    return {
+      workspace_path: workspacePath,
+      object_id: attachment.storageObjectId,
+      version_id: attachment.versionId,
+      sha256: attachment.sha256,
+    };
+  });
+}
+
+async function storeCandidateAuditFile(
+  cwd: string,
+  relativeFile: string,
+  principal: NonNullable<HostPrincipal>,
+): Promise<{ objectId: string; sha256: string; versionId: string }> {
+  const bytes = await readFile(path.resolve(cwd, relativeFile));
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const endpoint = (process.env.STORAGE_NEXT_URL ?? "http://storage-next:3017").replace(/\/$/, "");
+  const secret = process.env.STORAGE_NEXT_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
+  if (secret.length < 32) throw new Error("storage-next runtime secret is not configured");
+  const headers = {
+    "content-type": "application/json",
+    "x-mathpilot-runtime-secret": secret,
+    "x-tenant-id": principal.tenantId,
+    "x-user-id": principal.userId,
+    "x-user-roles": principal.roles.join(","),
+    "x-mathpilot-storage-audience": "runtime",
+  };
+  const initialized = await fetch(`${endpoint}/internal/objects/init`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      purpose: "candidate",
+      mime_type: "application/json",
+      byte_size: bytes.length,
+      original_name: path.basename(relativeFile),
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const initBody = await initialized.json().catch(() => ({})) as { object_id?: unknown; upload_url?: unknown };
+  if (!initialized.ok || typeof initBody.object_id !== "string" || typeof initBody.upload_url !== "string") throw new Error(`candidate audit object init failed (${initialized.status})`);
+  const uploaded = await fetch(initBody.upload_url, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: bytes,
+    signal: AbortSignal.timeout(5 * 60_000),
+  });
+  if (!uploaded.ok) throw new Error(`candidate audit object upload failed (${uploaded.status})`);
+  const completed = await fetch(`${endpoint}/internal/objects/${encodeURIComponent(initBody.object_id)}/complete`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ sha256 }),
+    signal: AbortSignal.timeout(5 * 60_000),
+  });
+  const completeBody = await completed.json().catch(() => ({})) as { sha256?: unknown; version_id?: unknown };
+  if (!completed.ok || completeBody.sha256 !== sha256 || typeof completeBody.version_id !== "string" || !completeBody.version_id) throw new Error(`candidate audit object verification failed (${completed.status})`);
+  return { objectId: initBody.object_id, sha256, versionId: completeBody.version_id };
+}
 
 export default async (pi: ExtensionAPI) => {
   pi.registerTool({
@@ -19,14 +114,65 @@ export default async (pi: ExtensionAPI) => {
       const principal = params.result_file || params.validation_file
         ? await readHostPrincipal(context.cwd)
         : undefined;
-      if (principal && !principal.roles.some((role) => ["teacher", "content_reviewer", "tenant_admin"].includes(role))) {
+      if (principal && !principal.roles.includes("teacher")) {
         throw new Error("KTQ/ER content respond requires a teacher principal");
       }
       const validated = params.result_file || params.validation_file
         ? await validateContentRespond(context.cwd, params)
         : undefined;
+      let registered: Record<string, unknown> | undefined;
+      if (validated && principal) {
+        const threadManifest = JSON.parse(await readFile(path.join(context.cwd, "input", "session", "thread.json"), "utf8")) as { thread_id?: unknown };
+        if (typeof threadManifest.thread_id !== "string" || !threadManifest.thread_id) throw new Error("Pi thread manifest is missing");
+        const result = JSON.parse(await readFile(path.resolve(context.cwd, validated.resultFile), "utf8")) as Record<string, unknown>;
+        const sourceObjects = await sourceObjectsForResult(context.cwd, result);
+        const frozen = validated.kind === "er"
+          ? JSON.parse(await readFile(path.join(context.cwd, "input", "frozen", "ktq.json"), "utf8").catch(() => "{}")) as Record<string, unknown>
+          : {};
+        const endpoint = (process.env.CONTENT_NEXT_URL ?? process.env.CONTENT_LIBRARY_URL ?? "http://content-next:3016").replace(/\/$/, "");
+        const secret = process.env.CONTENT_NEXT_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
+        if (secret.length < 32) throw new Error("content-next runtime secret is not configured");
+        const [resultAudit, receiptAudit] = await Promise.all([
+          storeCandidateAuditFile(context.cwd, validated.resultFile, principal),
+          storeCandidateAuditFile(context.cwd, validated.validationFile, principal),
+        ]);
+        if (resultAudit.sha256 !== validated.sha256) throw new Error("stored result hash does not match validated result");
+        const response = await fetch(`${endpoint}/internal/candidates/register`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-mathpilot-runtime-secret": secret,
+            "x-tenant-id": principal.tenantId,
+            "x-user-id": principal.userId,
+            "x-user-roles": principal.roles.join(","),
+          },
+          body: JSON.stringify({
+            phase: validated.kind,
+            thread_id: threadManifest.thread_id,
+            tool_call_id: _toolCallId,
+            result_sha256: validated.sha256,
+            result_object_id: resultAudit.objectId,
+            receipt_object_id: receiptAudit.objectId,
+            source_objects: sourceObjects,
+            result,
+            input_candidate_set_id: typeof frozen.candidate_set_id === "string" ? frozen.candidate_set_id : undefined,
+            supersedes_candidate_set_id: typeof result.supersedes_candidate_set_id === "string" ? result.supersedes_candidate_set_id : undefined,
+          }),
+          ...(_signal ? { signal: _signal } : {}),
+        });
+        const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+        if (!response.ok) throw new Error(`content candidate registration failed (${response.status}): ${String(body.detail ?? body.error ?? "unknown error")}`);
+        const candidate = body.candidate && typeof body.candidate === "object" && !Array.isArray(body.candidate)
+          ? body.candidate as Record<string, unknown>
+          : {};
+        registered = {
+          ...body,
+          ...(typeof candidate.candidate_set_id === "string" ? { candidate_set_id: candidate.candidate_set_id } : {}),
+        };
+      }
       const content = validated
         ? JSON.stringify({
+            ...(registered ?? {}),
             schema: "mathpilot.content-respond/v1",
             kind: validated.kind,
             itemCount: validated.itemCount,
@@ -37,7 +183,7 @@ export default async (pi: ExtensionAPI) => {
         : "responded";
       return {
         content: [{ type: "text", text: content }],
-        details: validated ?? params,
+        details: registered ? { ...validated, ...registered } : validated ?? params,
         terminate: true,
       };
     },

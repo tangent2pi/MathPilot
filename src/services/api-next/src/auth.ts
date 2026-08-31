@@ -35,7 +35,14 @@ export const auth = betterAuth({
   },
 });
 
-const DOMAIN_ROLES = new Set(["student", "guardian", "teacher", "content_reviewer", "tenant_admin", "platform_ops"]);
+// Only the two product roles are persisted and propagated to next services.
+// Retired role labels never reach the next domain and never grant teacher
+// access. An account must carry the explicit teacher value; every other or
+// missing value receives the normal student default.
+const ROLE_ALIASES: Record<string, "student" | "teacher"> = {
+  student: "student",
+  teacher: "teacher",
+};
 
 export interface Principal {
   userId: string;
@@ -52,8 +59,12 @@ export class AuthError extends Error {
 }
 
 function rolesFor(value: unknown): string[] {
-  const roles = (typeof value === "string" ? value : "student").split(",").map((role) => role.trim()).filter((role) => DOMAIN_ROLES.has(role));
-  return roles.length ? roles : ["student"];
+  const roles = (typeof value === "string" ? value : "student")
+    .split(",")
+    .map((role) => ROLE_ALIASES[role.trim()])
+    .filter((role): role is "student" | "teacher" => Boolean(role));
+  const unique = [...new Set(roles)].sort();
+  return unique.length ? unique : ["student"];
 }
 
 export async function authenticate(pool: pg.Pool, headers: IncomingHttpHeaders): Promise<Principal> {
@@ -62,29 +73,55 @@ export async function authenticate(pool: pg.Pool, headers: IncomingHttpHeaders):
   const authUser = session.user as typeof session.user & { role?: string };
   const account = (await pool.query<{ uid: string }>(`select uid::text from "user" where id=$1`, [authUser.id])).rows[0];
   if (!account?.uid) throw new AuthError(401, "account UID is unavailable");
-  const roles = rolesFor(authUser.role);
+  const requestedRoles = rolesFor(authUser.role);
   const domain = await withTenant(pool, DEV_TENANT, async (client) => (await client.query<{ user_id: string; tenant_id: string }>(
     `insert into identity_user (user_id, tenant_id, oidc_sub, display_name, roles)
      values ($1,$2,$3,$4,$5)
-     on conflict (oidc_sub) do update set display_name=excluded.display_name,roles=excluded.roles
+     on conflict (oidc_sub) do update set display_name=excluded.display_name
      returning user_id,tenant_id`,
-    [newId("usr"), DEV_TENANT, authUser.id, authUser.name || authUser.email, roles],
+    [newId("usr"), DEV_TENANT, authUser.id, authUser.name || authUser.email, requestedRoles],
   )).rows[0]);
   if (!domain) throw new AuthError(401, "account domain mapping is unavailable");
+  // The normalized role relation is the next domain fact source.  The auth
+  // provider's single string is only an input hint and is never propagated as
+  // an arbitrary role list.
+  const roles = await withTenant(pool, domain.tenant_id, async (client) => {
+    // The relation is the domain fact source.  A provider role is used only
+    // when this Better Auth account is first mapped; later requests cannot
+    // silently erase a teacher/student assignment made by the domain.
+    const existing = await client.query<{ role: "student" | "teacher" }>(
+      `select role from identity_user_role where tenant_id=$1 and user_id=$2 order by role`,
+      [domain.tenant_id, domain.user_id],
+    );
+    if (!existing.rows.length) {
+      await client.query(
+        `insert into identity_user_role(tenant_id,user_id,role,assigned_by_user_id)
+         select $1,$2,unnest($3::text[]),null
+         on conflict (user_id,role) do nothing`,
+        [domain.tenant_id, domain.user_id, requestedRoles],
+      );
+    }
+    const result = await client.query<{ role: "student" | "teacher" }>(
+      `select role from identity_user_role where tenant_id=$1 and user_id=$2 order by role`,
+      [domain.tenant_id, domain.user_id],
+    );
+    return result.rows.map((row) => row.role);
+  });
+  const normalizedRoles = roles.length ? roles : ["student"];
   return {
-    userId: domain.user_id, uid: account.uid, tenantId: domain.tenant_id, roles,
+    userId: domain.user_id, uid: account.uid, tenantId: domain.tenant_id, roles: normalizedRoles,
     authUserId: authUser.id, name: authUser.name || authUser.email, email: authUser.email,
   };
 }
 
 export function requireRole(principal: Principal, role: string): void {
-  if (!principal.roles.includes(role) && !principal.roles.includes("tenant_admin")) throw new AuthError(403, `requires role: ${role}`);
+  if (!principal.roles.includes(role)) throw new AuthError(403, `requires role: ${role}`);
 }
 
 export async function bootstrapAuthUsers(): Promise<void> {
   const users = [
     { email: process.env.BETTER_AUTH_STUDENT_EMAIL, password: process.env.BETTER_AUTH_STUDENT_PASSWORD, name: "Demo Student", role: "student" },
-    { email: process.env.BETTER_AUTH_TEACHER_EMAIL, password: process.env.BETTER_AUTH_TEACHER_PASSWORD, name: "Demo Teacher", role: "teacher,content_reviewer" },
+    { email: process.env.BETTER_AUTH_TEACHER_EMAIL, password: process.env.BETTER_AUTH_TEACHER_PASSWORD, name: "Demo Teacher", role: "teacher" },
   ].filter((user): user is { email: string; password: string; name: string; role: string } => Boolean(user.email && user.password));
   if (!users.length) return;
   const pool = new pg.Pool({ connectionString: DATABASE_URL, max: 1 });
@@ -96,6 +133,11 @@ export async function bootstrapAuthUsers(): Promise<void> {
       const fixtureId = user.role.startsWith("teacher") ? "usr_teacher01" : "usr_student01";
       await withTenant(pool, DEV_TENANT, async (client) => {
         await client.query(`update identity_user set oidc_sub=$1,display_name=$2,roles=$3 where user_id=$4`, [userId, user.name, user.role.split(","), fixtureId]);
+        await client.query(
+          `insert into identity_user_role(tenant_id,user_id,role,assigned_by_user_id)
+           values($1,$2,$3,null) on conflict (user_id,role) do nothing`,
+          [DEV_TENANT, fixtureId, user.role === "teacher" ? "teacher" : "student"],
+        );
       });
     }
   } finally { await pool.end(); }

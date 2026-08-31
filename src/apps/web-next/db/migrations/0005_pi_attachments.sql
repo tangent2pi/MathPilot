@@ -1,6 +1,5 @@
--- 线程附件的最小登记表。
--- 文件内容可以暂时位于 Pi workspace；迁移到 MinIO 后只需填充
--- storage_object_id，不需要改变对话线程或旧 JSONL。
+-- 线程附件的最小登记表。稳定内容必须先进入 MinIO；Pi workspace 只保存
+-- 当前模型回合的物化副本，不是浏览器下载事实源。
 
 begin;
 
@@ -9,7 +8,7 @@ create table if not exists pi_attachments (
   thread_id          text not null references pi_threads(thread_id) on delete cascade,
   tenant_id          text not null,
   uploaded_by_user_id text not null,
-  storage_object_id  text,
+  storage_object_id  text not null,
   workspace_path     text not null,
   original_name      text not null,
   mime_type          text not null,
@@ -22,6 +21,15 @@ create table if not exists pi_attachments (
   unique (thread_id, workspace_path),
   unique (thread_id, storage_object_id)
 );
+
+do $$
+begin
+  if exists (select 1 from pi_attachments where storage_object_id is null) then
+    raise exception 'pi_attachments contains local-only compatibility rows; migrate or remove them before enabling MinIO-only attachments';
+  end if;
+  alter table pi_attachments alter column storage_object_id set not null;
+end
+$$;
 
 create index if not exists pi_attachments_thread_idx
   on pi_attachments (tenant_id, thread_id, created_at desc);
@@ -38,7 +46,6 @@ create policy pi_attachments_select on pi_attachments for select using (
       and t.tenant_id = pi_attachments.tenant_id
       and (
         t.owner_user_id = current_setting('mathpilot.user_id', true)
-        or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
         or exists (
           select 1 from pi_thread_acl a
           where a.thread_id = t.thread_id
@@ -59,7 +66,6 @@ create policy pi_attachments_insert on pi_attachments for insert with check (
       and t.tenant_id = pi_attachments.tenant_id
       and (
         t.owner_user_id = current_setting('mathpilot.user_id', true)
-        or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
         or exists (
           select 1 from pi_thread_acl a
           where a.thread_id = t.thread_id
@@ -74,23 +80,16 @@ create policy pi_attachments_insert on pi_attachments for insert with check (
 drop policy if exists pi_attachments_update on pi_attachments;
 create policy pi_attachments_update on pi_attachments for update using (
   tenant_id = current_setting('mathpilot.tenant_id', true)
-  and (
-    uploaded_by_user_id = current_setting('mathpilot.user_id', true)
-    or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
-  )
+  and uploaded_by_user_id = current_setting('mathpilot.user_id', true)
 ) with check (
   tenant_id = current_setting('mathpilot.tenant_id', true)
-  and (
-    uploaded_by_user_id = current_setting('mathpilot.user_id', true)
-    or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
-  )
+  and uploaded_by_user_id = current_setting('mathpilot.user_id', true)
   and exists (
     select 1 from pi_threads t
     where t.thread_id = pi_attachments.thread_id
       and t.tenant_id = pi_attachments.tenant_id
       and (
         t.owner_user_id = current_setting('mathpilot.user_id', true)
-        or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
         or exists (
           select 1 from pi_thread_acl a
           where a.thread_id = t.thread_id
@@ -105,10 +104,7 @@ create policy pi_attachments_update on pi_attachments for update using (
 drop policy if exists pi_attachments_delete on pi_attachments;
 create policy pi_attachments_delete on pi_attachments for delete using (
   tenant_id = current_setting('mathpilot.tenant_id', true)
-  and (
-    uploaded_by_user_id = current_setting('mathpilot.user_id', true)
-    or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
-  )
+  and uploaded_by_user_id = current_setting('mathpilot.user_id', true)
 );
 
 commit;

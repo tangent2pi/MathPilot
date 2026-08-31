@@ -17,16 +17,19 @@
 ```text
 web (web-next, :8080 → :80)
   └─ /api/* → api (api-next, :3101)
-                    └─ pi-chat-runtime (:3105, 仅 Compose 内网)
-                         ├─ postgres/mathpilot_pi
-                         ├─ pi_chat_runtime volume
-                         └─ minio:9000 → minio_data volume
+                    ├─ pi-chat-runtime (:3105, 仅 Compose 内网)
+                    │    ├─ postgres/mathpilot_pi
+                    │    └─ pi_chat_runtime volume
+                    ├─ content-next (:3016, 规范化内容/复核/包/宿主命令轮询)
+                    └─ storage-next (:3017, 对象登记和预签名)
+                              └─ minio:9000 → minio_data volume
 
 learning/content/profile → agent-runtime :3005（保留的旧批处理链）
 ```
 
-PostgreSQL、MinIO 与 `pi-chat-runtime` 不向公网映射端口。Nginx 对 SSE 关闭代理缓冲，
-浏览器继续只访问同源 `/api/*`。
+PostgreSQL、Pi 和领域服务不向公网映射端口。浏览器通过同源 `/api/*` 请求对象授权后，
+直接访问 `MINIO_PUBLIC_ENDPOINT` 的短时效预签名 URL；因此 MinIO API 必须由受控反代或
+专用域名对浏览器可达，并只允许配置的 CORS origin。
 
 ## 首次切换顺序
 
@@ -42,13 +45,16 @@ PostgreSQL、MinIO 与 `pi-chat-runtime` 不向公网映射端口。Nginx 对 SS
    POSTGRES_VOLUME=mathpilot_pgdata_next
    PI_CHAT_RUNTIME_VOLUME=mathpilot_pi_chat_runtime
    MINIO_VOLUME=mathpilot_minio_data
+   MINIO_PUBLIC_ENDPOINT=https://mathpilot.tangentpi.com
+   MINIO_CORS_ALLOWED_ORIGINS=https://mathpilot.tangentpi.com
    ```
 
 5. 仅启动新 PostgreSQL 容器，确认它实际挂载 `mathpilot_pgdata_next`，再创建并恢复两个数据库。
 6. 把 Pi runtime 归档解入 `mathpilot_pi_chat_runtime` 的卷根。
 7. 运行 `pi-db-migrate`，使 schema 幂等收敛并向 `mathpilot_app` 授最小权限。
-8. 构建并启动 `minio`、`pi-chat-runtime`、`api`、`web`；其余领域服务与旧
-   `agent-runtime` 保留原职责。
+8. 构建并启动 `minio`、`storage-next`、`content-next`、`pi-chat-runtime`、`api`、`web`。
+9. 先运行官方导入 dry-run 并审核报告，再加 `--execute` 导入固定清单；确认 174 个修订和
+   `pkg_official_home_v1` 后才切流。其余领域服务与旧 `agent-runtime` 保留原职责。
 
 ## 切换前后核验
 
@@ -58,7 +64,12 @@ PostgreSQL、MinIO 与 `pi-chat-runtime` 不向公网映射端口。Nginx 对 SS
 - `mathpilot_pi.pi_threads` 数量与开发机一致；对应 JSONL 和工作区存在于 Pi runtime 卷。
 - `web` 仅反代 `api-next`；`api-next` 只通过内部地址访问 `pi-chat-runtime`。
 - 未登录主页可见；首次发送要求登录；登录后旧线程可读、新线程可建、消息可发送。
-- 图片与普通文件在消息中可见且可下载；归档后 MinIO 中出现 `pi-threads/<thread-id>/`。
+- 图片与普通文件在消息中可见且可下载；对象存在 MinIO，Pi JSONL/工作区仍在 runtime 卷。
+- `content_entity_revision` 与官方包项均为 174；`student_cases.*` 未进入官方内容库。
+- 浏览器 PUT/GET 的响应体不经过 api-next，数据库没有保存预签名 URL。
+
+若此前误执行过废弃的六个纯增量内容迁移，只能按 [`db/cutover/README.md`](../db/cutover/README.md)
+处理：空对象可用受保护脚本清理；已有数据时停止并换用核验过的新卷，禁止猜测性删除。
 
 ## 2026-08-30 切换基线
 

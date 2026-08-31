@@ -1,10 +1,12 @@
 # db/ — PostgreSQL 数据底座
 
-PostgreSQL 是唯一运行时事实源（实施规划一级决策 2）。CSV/XLSX 仅为派生导出。
+PostgreSQL 是唯一运行时事实源。五份审核过的 `data/*.csv` 仅作为一次性官方初始内容输入，
+由带 SHA-256/行数的 manifest 导入后不再参与运行时读取；其它 CSV/XLSX 仍是派生或 fixture。
 
 ## 迁移规范
 
-- 迁移文件为纯 SQL，按 `NNNN_name.sql` 编号，**只追加、不修改已发布文件**；
+- 迁移文件为纯 SQL，按 `NNNN_name.sql` 编号；Next 内容切换统一由
+  `0031_content_pipeline_cutover.sql` 一次收敛，不重新引入废弃的六段纯增量迁移；
 - 每个迁移以 `insert into infra_schema_migration` 结尾（0001 建表除外）；
 - 所有业务表必须含 `tenant_id`，且在 `0006_outbox_rls.sql` 统一启用 RLS；
 - 跨边界族（content/runtime/state/review）之间**不加外键**，一致性由应用层契约校验保证；同族内部允许外键；
@@ -29,3 +31,12 @@ PostgreSQL 是唯一运行时事实源（实施规划一级决策 2）。CSV/XLS
 - `state_*`：SER、EvidenceBundle、PUD、掌握/保持/错因状态、快照、计划
 - `review_*`：复核任务、教师纠正、发布记录、评测、agent_trace
 - `infra_outbox`：事务性发件箱
+
+## Next 内容切换
+
+- 正式 schema：`migrations/0031_content_pipeline_cutover.sql`。
+- 官方清单：`migration-data/official-content-manifest.csv`，固定 174 项，不含学生案例。
+- 导入：先运行 `pnpm --dir src/services/content-next run migrate:official -- --report=/tmp/report.json`，
+  审核后追加 `--execute`。
+- 误执行的空增量对象和最终旧表清理由 `cutover/README.md` 中的受保护手工脚本处理；自动
+  runner 不做猜测性删除。

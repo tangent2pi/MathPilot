@@ -1,5 +1,6 @@
 # 开源项目源码副本与研究材料（仅供阅读，不入库）
 references/
+.claude/worktrees/
 
 # 依赖与构建产物
 node_modules/

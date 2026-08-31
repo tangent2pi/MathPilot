@@ -281,13 +281,13 @@ function ProfileSettings({
   );
 }
 
-type Classroom = { class_id: string; name: string; teacher_name?: string; join_code?: string; student_count?: number };
-type TeacherBinding = { teacher_name: string; teacher_id: string } | null;
+type Classroom = { class_id: string; name: string; teacher_name?: string; join_code?: string; student_count?: number; allow_official_content?: boolean };
+type TeacherBinding = { teacher_name: string; teacher_id: string; class_count?: number; first_joined_at?: string };
 
 function ClassesPanel({ principal }: { principal: AuthPrincipal }) {
-  const isTeacher = principal.roles.includes("teacher") || principal.roles.includes("tenant_admin");
+  const isTeacher = principal.roles.includes("teacher");
   const [classes, setClasses] = useState<Classroom[]>([]);
-  const [teacher, setTeacher] = useState<TeacherBinding>(null);
+  const [teacher, setTeacher] = useState<TeacherBinding | null>(null);
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState("");
@@ -302,10 +302,10 @@ function ClassesPanel({ principal }: { principal: AuthPrincipal }) {
       } else {
         const [classResult, teacherResult] = await Promise.all([
           jsonFetch<{ classes: Classroom[] }>("/api/my-class"),
-          jsonFetch<{ binding: TeacherBinding }>("/api/my-teacher"),
+          jsonFetch<{ teachers: TeacherBinding[] }>("/api/my-teacher"),
         ]);
         setClasses(classResult.classes);
-        setTeacher(teacherResult.binding);
+        setTeacher(teacherResult.teachers[0] ?? null);
       }
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法读取班级信息");
@@ -332,6 +332,20 @@ function ClassesPanel({ principal }: { principal: AuthPrincipal }) {
     }
   };
 
+  const toggleOfficialContent = async (classroom: Classroom) => {
+    setFeedback("");
+    try {
+      await jsonFetch(`/api/classes/${encodeURIComponent(classroom.class_id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ allow_official_content: !classroom.allow_official_content }),
+      });
+      setFeedback(classroom.allow_official_content ? "已关闭该班官方库" : "已开启该班官方库");
+      await load();
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "官方库设置失败");
+    }
+  };
+
   return (
     <div className="space-y-4 text-sm">
       <form className="space-y-2" onSubmit={submit}>
@@ -351,6 +365,11 @@ function ClassesPanel({ principal }: { principal: AuthPrincipal }) {
               <div className="text-muted-foreground mt-1 text-xs">
                 {isTeacher ? `${item.student_count ?? 0} 名学生 · 班级码 ${item.join_code}` : `教师 ${item.teacher_name ?? teacher?.teacher_name ?? "—"}`}
               </div>
+              {isTeacher && (
+                <Button className="mt-3 min-h-11" type="button" variant="outline" onClick={() => void toggleOfficialContent(item)}>
+                  官方库：{item.allow_official_content === false ? "关闭" : "开启"}
+                </Button>
+              )}
             </div>
           ))}
         </div>

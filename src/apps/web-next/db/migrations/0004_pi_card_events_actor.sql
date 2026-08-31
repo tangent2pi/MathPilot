@@ -26,7 +26,6 @@ create policy pi_card_events_select on pi_card_events for select using (
       and t.tenant_id = pi_card_events.tenant_id
       and (
         t.owner_user_id = current_setting('mathpilot.user_id', true)
-        or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
         or exists (
           select 1 from pi_thread_acl a
           where a.thread_id = t.thread_id
@@ -47,7 +46,6 @@ create policy pi_card_events_insert on pi_card_events for insert with check (
       and t.tenant_id = pi_card_events.tenant_id
       and (
         t.owner_user_id = current_setting('mathpilot.user_id', true)
-        or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
         or exists (
           select 1 from pi_thread_acl a
           where a.thread_id = t.thread_id

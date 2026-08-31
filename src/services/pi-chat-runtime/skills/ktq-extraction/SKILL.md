@@ -9,10 +9,11 @@ This Skill owns knowledge components, question types, and questions only. Do not
 
 ## Workflow
 
-1. Inspect every relevant file under `input/original/` and `input/sources/` before making semantic claims. Use `ocr-routing` for scans or difficult layout.
+1. Inspect every relevant file under `input/original/` and `input/sources/` before making semantic claims. Use Core's `media_info`/`read_image`/`read_video` for visual originals. For searchable PDFs use the preinstalled `pdfinfo`, `pdftotext`, `qpdf`, or Python `PyPDF2`; use `ocr-routing` for scans or difficult layout.
 2. Use `content-library` to search for matching K/T/Q entities before assigning IDs. Never use a database shell or invent a scope.
 3. Preserve exact wording, order, choices, diagrams, and source page/bbox evidence. Do not invent an answer when the source does not provide one.
 4. Write the complete candidate to `output/ktq-result.json` using `assets/result-template.json` as a guide. Keep all image references workspace-relative.
+   When the host message supplies a `supersedes_candidate_set_id`, preserve that exact value at the result top level and keep the original entity IDs for items being revised.
 5. Validate the exact file before calling the host:
 
    ```sh

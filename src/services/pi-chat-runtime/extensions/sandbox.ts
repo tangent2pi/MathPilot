@@ -1,11 +1,11 @@
 /**
- * 四工具沙箱插件：Pi 原生工具构造器 + 官方 sandbox-runtime，按线程 cwd 隔离。
- * 能力通过 agentDir/extensions 注入，不修改 Pi 本体。
+ * Pi native file tools executed through Anthropic's official Sandbox Runtime.
+ * The runtime owns Bubblewrap argument construction; this extension only
+ * supplies the MathPilot policy and a scrubbed child environment.
  */
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import os from "node:os";
 import path from "node:path";
 import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import {
@@ -20,65 +20,128 @@ import {
   type WriteOperations,
 } from "@earendil-works/pi-coding-agent";
 
-const USER_HOME = os.homedir();
-const skillsRoot = () => process.env.PI_CODING_AGENT_DIR
-  ? path.join(process.env.PI_CODING_AGENT_DIR, "skills")
-  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../skills");
+const skillsRoot = () => process.env.PI_CHAT_SANDBOX_SKILLS_ROOT
+  ?? (process.env.PI_CODING_AGENT_DIR
+    ? path.join(process.env.PI_CODING_AGENT_DIR, "skills")
+    : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../skills"));
 const SANDBOX_RUNTIME_VENDOR = path.join(
   path.dirname(createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime/package.json")),
   "vendor",
 );
+const SYSTEM_READ_PATHS = ["/usr", "/bin", "/lib", "/lib64", "/etc"];
 
-const strictConfig = (cwd: string): SandboxRuntimeConfig => ({
-  network: { allowedDomains: [], deniedDomains: [] },
+export const sandboxToolConfig = (cwd: string): SandboxRuntimeConfig => ({
+  // The outer development container cannot run SRT's optional nested seccomp
+  // helper. Host Unix sockets remain absent behind the private network
+  // namespace and deny-root filesystem policy.
+  network: {
+    allowedDomains: [],
+    deniedDomains: [],
+    strictAllowlist: true,
+    allowAllUnixSockets: true,
+  },
   filesystem: {
-    denyRead: [USER_HOME],
-    allowRead: [cwd, skillsRoot(), SANDBOX_RUNTIME_VENDOR],
-    allowWrite: [cwd],
-    // Evidence and host-owned audit/publication state are never model-writable.
+    // SRT implements this as deny-root then allow-back. This prevents a tool
+    // from discovering /app, /opt, /var/lib siblings, or host credentials.
+    denyRead: ["/", "/sys", path.join(cwd, ".agent")],
+    allowRead: [
+      path.join(cwd, "AGENTS.md"),
+      path.join(cwd, "input"),
+      path.join(cwd, "task"),
+      skillsRoot(),
+      SANDBOX_RUNTIME_VENDOR,
+      ...SYSTEM_READ_PATHS,
+    ],
+    allowWrite: [path.join(cwd, "output"), path.join(cwd, "tmp")],
     denyWrite: [path.join(cwd, "input"), path.join(cwd, ".agent")],
   },
+  enableWeakerNestedSandbox: false,
 });
 
-const runWrapped = (command: string, cwd: string, signal?: AbortSignal): Promise<string> =>
+const safeChildEnv = (cwd: string): NodeJS.ProcessEnv => ({
+  HOME: path.join(cwd, "tmp"),
+  TMPDIR: path.join(cwd, "tmp"),
+  PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  LANG: "C.UTF-8",
+  LC_ALL: "C.UTF-8",
+});
+
+const spawnOfficialSandbox = async (
+  command: string,
+  cwd: string,
+  options: {
+    detached?: boolean;
+    signal?: AbortSignal | undefined;
+    stdio: ["ignore" | "pipe", "ignore" | "pipe", "pipe"];
+  },
+): Promise<ChildProcess> => {
+  const descriptor = await SandboxManager.wrapWithSandboxArgv(
+    command,
+    "/bin/bash",
+    sandboxToolConfig(cwd),
+    options.signal,
+    cwd,
+  );
+  // Strong Linux mode handles uid 0 explicitly: SRT creates a user namespace
+  // and drops all capabilities before executing the command.
+  return spawn(descriptor.argv[0]!, descriptor.argv.slice(1), {
+    cwd,
+    detached: options.detached,
+    stdio: options.stdio,
+    env: safeChildEnv(cwd),
+  });
+};
+
+const shellArg = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+
+const runSandboxed = (command: string, cwd: string, signal?: AbortSignal): Promise<string> =>
   new Promise((resolve, reject) => {
-    const child = spawn("bash", ["-c", command], { cwd, stdio: ["pipe", "pipe", "pipe"], signal });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (data) => (stdout += data));
-    child.stderr.on("data", (data) => (stderr += data));
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error(`sandbox command failed (${code}): ${stderr || stdout}`));
-    });
+    void spawnOfficialSandbox(command, cwd, { signal, stdio: ["pipe", "pipe", "pipe"] })
+      .then((child) => {
+        let stdout = "";
+        let stderr = "";
+        const onAbort = () => child.kill("SIGKILL");
+        signal?.addEventListener("abort", onAbort, { once: true });
+        child.stdout!.on("data", (data) => (stdout += data));
+        child.stderr!.on("data", (data) => (stderr += data));
+        child.on("error", reject);
+        child.on("close", (code) => {
+          SandboxManager.cleanupAfterCommand();
+          signal?.removeEventListener("abort", onAbort);
+          if (signal?.aborted) reject(new Error("aborted"));
+          else if (code === 0) resolve(stdout);
+          else reject(new Error(`sandbox command failed (${code}): ${stderr || stdout}`));
+        });
+      })
+      .catch(reject);
   });
 
 const sandboxedBashOps = (): BashOperations => ({
   async exec(command, execCwd, { onData, signal, timeout }) {
-    const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, strictConfig(execCwd), signal);
+    const child = await spawnOfficialSandbox(command, execCwd, {
+      detached: true,
+      signal,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     return new Promise((resolve, reject) => {
-      const child = spawn("bash", ["-c", wrapped], {
-        cwd: execCwd,
-        detached: true,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
       let timedOut = false;
       let timer: NodeJS.Timeout | undefined;
+      const kill = () => {
+        try { process.kill(-child.pid!, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+      };
       if (timeout !== undefined && timeout > 0) {
         timer = setTimeout(() => {
           timedOut = true;
-          try { process.kill(-child.pid!, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+          kill();
         }, timeout * 1000);
       }
       child.stdout?.on("data", onData);
       child.stderr?.on("data", onData);
       child.on("error", reject);
-      const onAbort = () => {
-        try { process.kill(-child.pid!, "SIGKILL"); } catch { child.kill("SIGKILL"); }
-      };
+      const onAbort = () => kill();
       signal?.addEventListener("abort", onAbort, { once: true });
       child.on("close", (code) => {
+        SandboxManager.cleanupAfterCommand();
         if (timer) clearTimeout(timer);
         signal?.removeEventListener("abort", onAbort);
         if (signal?.aborted) reject(new Error("aborted"));
@@ -91,20 +154,14 @@ const sandboxedBashOps = (): BashOperations => ({
 
 const sandboxedReadOps = (cwd: string): ReadOperations => ({
   async readFile(absolutePath) {
-    const wrapped = await SandboxManager.wrapWithSandbox(
-      `cat ${JSON.stringify(absolutePath)}`, undefined, strictConfig(cwd));
-    return Buffer.from(await runWrapped(wrapped, cwd), "utf8");
+    return Buffer.from(await runSandboxed(`cat -- ${shellArg(absolutePath)}`, cwd), "utf8");
   },
   async access(absolutePath) {
-    const wrapped = await SandboxManager.wrapWithSandbox(
-      `test -r ${JSON.stringify(absolutePath)}`, undefined, strictConfig(cwd));
-    await runWrapped(wrapped, cwd);
+    await runSandboxed(`test -r ${shellArg(absolutePath)}`, cwd);
   },
   async detectImageMimeType(absolutePath) {
-    const wrapped = await SandboxManager.wrapWithSandbox(
-      `head -c 16 ${JSON.stringify(absolutePath)} | xxd -p`, undefined, strictConfig(cwd));
     try {
-      const hex = (await runWrapped(wrapped, cwd)).trim();
+      const hex = (await runSandboxed(`head -c 16 -- ${shellArg(absolutePath)} | xxd -p`, cwd)).trim();
       if (hex.startsWith("89504e47")) return "image/png";
       if (hex.startsWith("ffd8ff")) return "image/jpeg";
       if (hex.startsWith("52494646")) return "image/webp";
@@ -117,19 +174,23 @@ const sandboxedReadOps = (cwd: string): ReadOperations => ({
 
 const sandboxedWriteOps = (cwd: string): WriteOperations => ({
   async writeFile(absolutePath, content) {
-    const wrapped = await SandboxManager.wrapWithSandbox(
-      `cat > ${JSON.stringify(absolutePath)}`, undefined, strictConfig(cwd));
+    const child = await spawnOfficialSandbox(`cat > ${shellArg(absolutePath)}`, cwd, {
+      stdio: ["pipe", "ignore", "pipe"],
+    });
     return new Promise((resolve, reject) => {
-      const child = spawn("bash", ["-c", wrapped], { cwd, stdio: ["pipe", "ignore", "pipe"] });
+      let stderr = "";
+      child.stderr?.on("data", (data) => (stderr += data));
       child.on("error", reject);
-      child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`write failed: ${code}`))));
-      child.stdin.end(content);
+      child.on("close", (code) => {
+        SandboxManager.cleanupAfterCommand();
+        if (code === 0) resolve();
+        else reject(new Error(`write failed (${code}): ${stderr}`));
+      });
+      child.stdin!.end(content);
     });
   },
   async mkdir(directory) {
-    const wrapped = await SandboxManager.wrapWithSandbox(
-      `mkdir -p ${JSON.stringify(directory)}`, undefined, strictConfig(cwd));
-    await runWrapped(wrapped, cwd);
+    await runSandboxed(`mkdir -p -- ${shellArg(directory)}`, cwd);
   },
 });
 
@@ -140,10 +201,7 @@ const sandboxedEditOps = (cwd: string): EditOperations => ({
 });
 
 export default async (pi: ExtensionAPI) => {
-  await SandboxManager.initialize({
-    ...strictConfig(process.cwd()),
-    enableWeakerNestedSandbox: process.env.MATHPILOT_PI_SANDBOX_NESTED === "true",
-  });
+  await SandboxManager.initialize(sandboxToolConfig(process.cwd()));
 
   pi.registerTool({
     ...createBashTool(process.cwd(), { operations: sandboxedBashOps() }),

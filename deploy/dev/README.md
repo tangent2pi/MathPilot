@@ -13,9 +13,9 @@ docker compose up -d
 默认 Web 只监听 `127.0.0.1:8080`。远端部署时在 `.env` 中把
 `WEB_BIND_ADDRESS` 设置为反向代理可达的专用地址；数据库和内部服务仍不对外暴露。
 
-`web` 与 `api` 现在分别构建 `web-next`、`api-next`；`pi-chat-runtime` 是独立的
-assistant-ui/react-pi 线程宿主。旧 `agent-runtime` 仍只承载 learning/content/profile
-批处理任务，禁止把两套运行时重新合并。home 的首次数据切换严格按
+`web` 与 `api` 分别构建 `web-next`、`api-next`；`pi-chat-runtime` 是独立的
+assistant-ui/react-pi 线程宿主。新内容链由 `content-next` 与 `storage-next` 承载；旧
+`content`/`agent-runtime` 仍只服务旧 learning/profile 链，禁止把两套实现重新合并。home 的首次数据切换严格按
 [`docs/home-next-deployment.md`](../../docs/home-next-deployment.md) 执行。
 
 `references/qwen-mm-plugins` 是构建输入，不在镜像构建时联网下载另一份源码。Agent Runtime
@@ -25,14 +25,15 @@ Skill 装配为唯一的 `/opt/mathpilot-skills`。本地克隆提交与固定 r
 ## 当前覆盖
 
 - **PostgreSQL**：`mathpilot` 保存身份/学习/审计；`mathpilot_pi` 只保存线程归属、ACL、卡片事件和文件位置。两库在同一 PostgreSQL 实例中，事实边界不合并。
-- **对象与运行时持久化**：活动 Pi JSONL/工作区使用 `PI_CHAT_RUNTIME_VOLUME`；归档使用内部 MinIO 的 `MINIO_VOLUME`；数据库使用 `POSTGRES_VOLUME`。
-- **正式对话链**：web-next（assistant-ui）→ api-next（Better Auth + 线程授权）→ pi-chat-runtime（官方 Pi Thread）→ PostgreSQL/MinIO。
+- **对象与运行时持久化**：Pi JSONL/工作区使用 `PI_CHAT_RUNTIME_VOLUME`；附件、私有内容和候选审计对象使用 MinIO 的 `MINIO_VOLUME`；数据库使用 `POSTGRES_VOLUME`。
+- **正式对话链**：web-next（assistant-ui）→ api-next（Better Auth）→ pi-chat-runtime / content-next / storage-next → PostgreSQL/MinIO。
+- **正式内容初始化**：`db/migration-data/official-content-manifest.csv` 固定 home 已提取的 174 项 K/T/Q/E/R；默认启动不自动导入，审核清单后显式运行 `pnpm --dir src/services/content-next run migrate:official -- --execute`。
 - **既有领域链保留**：learning、profile、review、content 与旧 agent-runtime 维持原职责，本阶段不接“下一题” fork、后台判答或 Dream 到新对话链。
 
 ## 鉴权
 
 - 登录、密码哈希、Session Cookie、CSRF 与 Origin 校验由 api-next 中的 Better Auth 负责；领域角色和租户在网关服务端映射。
-- 学生请求强制使用本人范围；教师只能查看已绑定学生和本人内容库；管理员才能发布公共内容。
+- 产品角色只有 `teacher` 与 `student`。学生请求使用本人及班级范围；教师只能复核、发布自己的候选和内容包；当前唯一 teacher 也是历史 owner 的默认管理员。
 - Nginx 覆盖写入 `X-Real-IP`，Better Auth 用该地址执行限流。开发环境的 API、Agent Runtime 和数据库端口只绑定本机。
 - 开发账号由 `.env` 中的 `BETTER_AUTH_*_EMAIL/PASSWORD` 创建。生产部署需要替换 Secret，使用 HTTPS URL、Secure Cookie 和准确的 Trusted Origins，并让领域服务只在私网监听。
 
@@ -88,6 +89,10 @@ PI_MODEL_API_KEY=<deepseek-key>
 PI_MODEL_ID=deepseek-v4-flash-vision-exp
 MINIO_ROOT_USER=<internal-access-key>
 MINIO_ROOT_PASSWORD=<internal-secret-key>
+MINIO_PUBLIC_ENDPOINT=http://localhost:9000
+MINIO_CORS_ALLOWED_ORIGINS=http://localhost:8080
+CONTENT_NEXT_SECRET=<32+ character shared secret>
+STORAGE_NEXT_SECRET=<32+ character shared secret>
 OCR_API_BASE=https://paddleocr.aistudio-app.com
 OCR_API_TOKEN=<paddleocr-token>
 OCR_MODEL=PaddleOCR-VL-1.6
@@ -103,3 +108,7 @@ SERPER_API_KEY=<serper-key>
 ## 约定
 
 单一组合根：**禁止**复制出 demo/competition 第二套组合根。任何 Provider 实现（含未接入的本地/MCP/自建模式）必须产生与正式实现同构的 ProviderTrace 字段。
+
+生产反代当前使用 `https://mathpilot.tangentpi.com` 时，将 `MINIO_PUBLIC_ENDPOINT` 设为该
+浏览器可达地址，并把 `MINIO_CORS_ALLOWED_ORIGINS` 设为实际 Web origin；本地保持上述
+localhost 值。`MINIO_ENDPOINT=http://minio:9000` 仅在 Compose 内部使用，不暴露给浏览器。

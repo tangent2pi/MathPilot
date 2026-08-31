@@ -112,14 +112,15 @@ const AttachmentUI: FC = () => {
   const isImage = useAuiState((s) => s.attachment.type === "image");
   const threadId = useAuiState((s) => s.threadListItem.remoteId);
   const attachmentName = useAuiState((s) => s.attachment.name);
-  const workspacePath = useAuiState((s) => {
+  const fileReference = useAuiState((s) => {
     const part = s.attachment.content?.find(
       (candidate) => candidate.type === "file" && candidate.sourceType === "id",
     );
     return part?.type === "file" ? part.data : undefined;
   });
-  const downloadUrl = !isComposer && !isImage && threadId && workspacePath
-    ? `/api/pi/threads/${encodeURIComponent(threadId)}/files/download?path=${encodeURIComponent(workspacePath)}&name=${encodeURIComponent(attachmentName)}`
+  const downloadUrl = !isComposer && !isImage && threadId && fileReference
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(fileReference)
+    ? `/api/pi/threads/${encodeURIComponent(threadId)}/files/${encodeURIComponent(fileReference)}/download`
     : undefined;
   const typeLabel = useAuiState((s) => {
     const type = s.attachment.type;

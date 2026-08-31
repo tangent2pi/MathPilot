@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  generateId,
   type AttachmentAdapter,
   type CompleteAttachment,
   type PendingAttachment,
@@ -18,6 +17,20 @@ import {
  */
 const apiFetch = (url: string, options: RequestInit): Promise<Response> =>
   fetch(url, { ...options, headers: { "content-type": "application/json" } });
+
+const newAttachmentId = (): string => {
+  // The Pi attachment manifest and its database row use UUIDs. Modern
+  // browsers expose crypto.randomUUID; the small fallback keeps local test
+  // environments deterministic without reverting to a short UI-only id.
+  if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (typeof globalThis.crypto?.getRandomValues === "function") globalThis.crypto.getRandomValues(bytes);
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
 
 const toDataUrl = (file: File): Promise<string> =>
   typeof FileReader === "undefined"
@@ -36,9 +49,9 @@ const toDataUrl = (file: File): Promise<string> =>
         reader.readAsDataURL(file);
       });
 
-type PendingUpload = {
+type ReadyUpload = {
   attachment: PendingAttachment;
-  base64: string;
+  objectId: string;
 };
 
 type UploadedAttachment = {
@@ -51,29 +64,25 @@ export class UnifiedAttachmentAdapter implements AttachmentAdapter {
   // assistant-ui 以 "*" 表示不给原生 file input 设 accept。
   // "*/*" 会被原样写入 input.accept，在部分浏览器中会过滤掉所有文件。
   accept = "*";
-  private readonly readyUploads = new Map<string, PendingUpload>();
+  private readonly readyUploads = new Map<string, ReadyUpload>();
 
   /**
-   * AttachmentAdapter.send 只负责把本次发送涉及的附件标记为就绪。
-   * react-pi 随后会按官方流程 initialize 远端线程，再以真实 threadId 调用
-   * PiClient.sendMessage；PiRuntimeProvider 在那个调用点先上传，再发送消息。
+   * AttachmentAdapter.send 已完成对象上传与校验；react-pi 随后按官方流程
+   * initialize 远端线程，再由 PiRuntimeProvider 用真实 threadId 完成关联。
    */
   async flushToThread(threadId: string): Promise<UploadedAttachment[]> {
     const uploads = [...this.readyUploads.entries()];
     if (uploads.length === 0) return [];
     for (const [id] of uploads) this.readyUploads.delete(id);
-    try {
-      return await Promise.all(uploads.map(([, upload]) => this.upload(threadId, upload)));
-    } catch (error) {
-      for (const [id, upload] of uploads) this.readyUploads.set(id, upload);
-      throw error;
-    }
+    // A failed registration must not leave an invisible attachment queued:
+    // otherwise every later text-only send retries the same stale upload.
+    return Promise.all(uploads.map(([, upload]) => this.register(threadId, upload)));
   }
 
   async add(state: { file: File }): Promise<PendingAttachment> {
     const isImage = state.file.type.startsWith("image/");
     return {
-      id: generateId(),
+      id: newAttachmentId(),
       type: isImage ? "image" : "document",
       name: state.file.name,
       contentType: state.file.type,
@@ -88,15 +97,14 @@ export class UnifiedAttachmentAdapter implements AttachmentAdapter {
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
     const file = attachment.file;
-    const dataUrl = await toDataUrl(file);
-    const base64 = dataUrl.split(",")[1] ?? "";
-    const upload = { attachment, base64 };
-
-    // 这里不猜线程状态。真正的 remote threadId 只由 PiClient.sendMessage 提供。
-    this.readyUploads.set(attachment.id, upload);
+    // Upload and verify before assistant-ui clears the composer attachment.
+    // Only the final thread association waits for the remote Pi thread id.
+    const objectId = await this.uploadObject(file);
+    this.readyUploads.set(attachment.id, { attachment, objectId });
 
     if (attachment.type === "image") {
       // 图片：保留 Pi 视觉输入（回合内直接可见）。
+      const dataUrl = await toDataUrl(file);
       return {
         ...attachment,
         status: { type: "complete" },
@@ -109,20 +117,47 @@ export class UnifiedAttachmentAdapter implements AttachmentAdapter {
       status: { type: "complete" },
       content: [{
         type: "file",
-        data: dataUrl,
+        data: attachment.id,
         mimeType: file.type || "application/octet-stream",
         filename: file.name,
+        sourceType: "id",
       }],
     } as CompleteAttachment;
   }
 
-  private async upload(threadId: string, upload: PendingUpload): Promise<UploadedAttachment> {
-    const file = upload.attachment.file;
-    const res = await apiFetch(`/api/pi/threads/${encodeURIComponent(threadId)}/files`, {
+  private async uploadObject(file: File): Promise<string> {
+    const init = await apiFetch("/api/storage/objects/init", {
       method: "POST",
-      body: JSON.stringify({ name: file.name, mimeType: file.type, data: upload.base64 }),
+      body: JSON.stringify({
+        purpose: "thread",
+        original_name: file.name,
+        mime_type: file.type || "application/octet-stream",
+        byte_size: file.size,
+      }),
     });
-    if (!res.ok) throw new Error(`upload failed: ${res.status}`);
+    if (!init.ok) throw new Error(`storage initialization failed: ${init.status}`);
+    const descriptor = await init.json() as { object_id?: unknown; upload_url?: unknown };
+    if (typeof descriptor.object_id !== "string" || typeof descriptor.upload_url !== "string") throw new Error("storage returned an invalid upload descriptor");
+    const put = await fetch(descriptor.upload_url, {
+      method: "PUT",
+      headers: { "content-type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!put.ok) throw new Error(`direct object upload failed: ${put.status}`);
+    const complete = await apiFetch(`/api/storage/objects/${encodeURIComponent(descriptor.object_id)}/complete`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    if (!complete.ok) throw new Error(`storage verification failed: ${complete.status}`);
+    return descriptor.object_id;
+  }
+
+  private async register(threadId: string, upload: ReadyUpload): Promise<UploadedAttachment> {
+    const res = await apiFetch(`/api/pi/threads/${encodeURIComponent(threadId)}/files/from-object`, {
+      method: "POST",
+      body: JSON.stringify({ object_id: upload.objectId, attachment_id: upload.attachment.id }),
+    });
+    if (!res.ok) throw new Error(`thread attachment registration failed: ${res.status}`);
     return await res.json() as UploadedAttachment;
   }
 }

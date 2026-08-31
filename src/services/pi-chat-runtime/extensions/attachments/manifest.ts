@@ -7,6 +7,9 @@ const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 export interface WorkspaceAttachment {
   id: string;
+  storageObjectId: string;
+  versionId: string;
+  sha256: string;
   originalName: string;
   workspacePath: string;
   mimeType: string;
@@ -91,6 +94,9 @@ export async function releaseAttachmentTurn(cwd: string, turn: AttachmentTurn): 
 const validAttachment = (value: WorkspaceAttachment): boolean =>
   typeof value === "object" && value !== null
   && isAttachmentId(value.id)
+  && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/.test(value.storageObjectId)
+  && typeof value.versionId === "string" && value.versionId.length > 0
+  && /^[0-9a-f]{64}$/.test(value.sha256)
   && typeof value.originalName === "string"
   && typeof value.workspacePath === "string"
   && /^input\/original\/[^/\\\u0000]+$/.test(value.workspacePath)
@@ -133,4 +139,13 @@ export async function findAttachmentTurn(
     attachments.push(attachment);
   }
   return { turn, attachments };
+}
+
+export async function listBoundAttachments(cwd: string): Promise<WorkspaceAttachment[]> {
+  const attachments: WorkspaceAttachment[] = [];
+  for (const name of (await readdir(boundRoot(cwd)).catch(() => [] as string[])).filter((entry) => entry.endsWith(".json")).sort()) {
+    const attachment = await readJson<WorkspaceAttachment>(path.join(boundRoot(cwd), name)).catch(() => undefined);
+    if (attachment && validAttachment(attachment)) attachments.push(attachment);
+  }
+  return attachments;
 }

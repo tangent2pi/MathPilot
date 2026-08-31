@@ -23,8 +23,12 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # Exact browser origin(s) are supplied by deployment configuration.
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_CORS_ALLOWED_ORIGINS:-http://localhost:8080}
     volumes:
       - minio_data:/data
+    ports:
+      - "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_PORT:-9000}:9000"
 
   db-migrate:
     image: postgres:16-alpine
@@ -33,10 +37,17 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-mathpilot-app-dev-only}
     volumes:
       - ../../db/migrations:/migrations:ro
       - ../../db/migrate.sh:/migrate.sh:ro
-    command: ["sh", "/migrate.sh"]
+      - ./app-role.sql:/app-role.sql:ro
+    command:
+      - sh
+      - -ceu
+      - |
+        psql "$${DATABASE_URL}" -v ON_ERROR_STOP=1 -v app_password="$${APP_DB_PASSWORD}" -f /app-role.sql
+        sh /migrate.sh
     restart: "no"
 
   db-seed:
@@ -219,26 +230,81 @@ services:
       PI_DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/mathpilot_pi
       PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET}
       PI_CHAT_RUNTIME_ROOT: /var/lib/mathpilot/pi-chat
-      MATHPILOT_PI_SANDBOX_NESTED: "true"
+      PI_CHAT_WORKSPACE_ROOT: /var/lib/mathpilot/pi-chat/sessions
       MODEL_API_BASE: ${PI_MODEL_API_BASE:-https://api.deepseek.com}
       MODEL_API_KEY: ${PI_MODEL_API_KEY}
       MODEL_ID: ${PI_MODEL_ID:-deepseek-v4-flash-vision-exp}
-      CONTENT_LIBRARY_URL: http://content:3006
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      MINIO_BUCKET: ${MINIO_BUCKET:-mathpilot-workspaces}
-      MINIO_USE_SSL: "false"
+      CONTENT_LIBRARY_URL: http://content-next:3016
+      CONTENT_NEXT_URL: http://content-next:3016
+      CONTENT_NEXT_SECRET: ${CONTENT_NEXT_SECRET:-${PI_GATEWAY_SECRET}}
+      STORAGE_NEXT_URL: http://storage-next:3017
+      STORAGE_NEXT_SECRET: ${STORAGE_NEXT_SECRET:-${PI_GATEWAY_SECRET}}
+      # Core 只读当前线程；Search 仅得搜索凭据；OCR 仅得 OCR 凭据。
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      QWEN_MM_SEARCH_BACKEND: ${QWEN_MM_SEARCH_BACKEND:-auto}
+      PADDLEOCR_MCP_MODEL: ${OCR_MODEL:-PaddleOCR-VL-1.6}
+      PADDLEOCR_MCP_PPOCR_SOURCE: aistudio
+      PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN: ${OCR_API_TOKEN:-}
+      PADDLEOCR_MCP_AISTUDIO_BASE_URL: ${OCR_API_BASE:-https://paddleocr.aistudio-app.com}
+      PADDLEOCR_MCP_AISTUDIO_REQUEST_TIMEOUT: "120"
+      PADDLEOCR_MCP_AISTUDIO_POLL_TIMEOUT: "600"
       PORT: "3105"
     volumes:
       - pi_chat_runtime:/var/lib/mathpilot/pi-chat
     depends_on:
       pi-db-migrate:
         condition: service_completed_successfully
-      content:
+      content-next:
         condition: service_started
+      storage-next:
+        condition: service_started
+
+  # Next content boundary. It owns normalized candidates, reviews, packages,
+  # review-feedback delivery and the ER handoff poller. The legacy content service below remains on
+  # the old learning path and is intentionally not rewired here.
+  content-next:
+    build:
+      context: ../..
+      dockerfile: src/services/Dockerfile
+      args: { SERVICE_NAME: content-next }
+    environment:
+      DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
+      PI_CHAT_RUNTIME_URL: http://pi-chat-runtime:3105
+      PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET}
+      CONTENT_NEXT_SECRET: ${CONTENT_NEXT_SECRET:-${PI_GATEWAY_SECRET}}
+      PORT: "3016"
+    depends_on:
+      db-seed:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:3016:3016"
+
+  # MinIO management credentials are confined to this service. It returns
+  # short-lived presigned URLs; no URL is persisted in PostgreSQL.
+  storage-next:
+    build:
+      context: ../..
+      dockerfile: src/services/Dockerfile
+      args: { SERVICE_NAME: storage-next }
+    environment:
+      DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
+      STORAGE_NEXT_SECRET: ${STORAGE_NEXT_SECRET:-${PI_GATEWAY_SECRET}}
+      PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      PORT: "3017"
+    depends_on:
+      db-seed:
+        condition: service_completed_successfully
       minio:
         condition: service_started
+    ports:
+      - "127.0.0.1:3017:3017"
 
   content:
     build:
@@ -281,6 +347,9 @@ services:
     build:
       context: ../..
       dockerfile: src/apps/web-next/Dockerfile
+    environment:
+      # Keep the browser CSP in sync with the exact endpoint used for signed URLs.
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
     depends_on:
       - api
     ports:
@@ -294,7 +363,11 @@ services:
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       PI_CHAT_RUNTIME_URL: http://pi-chat-runtime:3105
       PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET}
+      CONTENT_NEXT_URL: http://content-next:3016
+      CONTENT_NEXT_SECRET: ${CONTENT_NEXT_SECRET:-${PI_GATEWAY_SECRET}}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8080}
+      STORAGE_NEXT_URL: http://storage-next:3017
+      STORAGE_NEXT_SECRET: ${STORAGE_NEXT_SECRET:-${PI_GATEWAY_SECRET}}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-mathpilot-dev-secret-change-me-at-least-32-characters}
       BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       BETTER_AUTH_SECURE_COOKIES: ${BETTER_AUTH_SECURE_COOKIES:-false}
@@ -308,6 +381,10 @@ services:
       db-seed:
         condition: service_completed_successfully
       pi-chat-runtime:
+        condition: service_started
+      content-next:
+        condition: service_started
+      storage-next:
         condition: service_started
     ports:
       - "127.0.0.1:3101:3101"

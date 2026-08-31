@@ -18,9 +18,7 @@ import { useAuth } from "./auth";
 import { AccountPanelDialog, type AccountPanel } from "./account-panels";
 
 const roleName = (roles: string[]): string => {
-  if (roles.includes("tenant_admin")) return "租户管理员";
   if (roles.includes("teacher")) return "教师";
-  if (roles.includes("guardian")) return "家长";
   return "学生";
 };
 

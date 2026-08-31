@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PiClient, PiHostUiResponse, PiSendMessageInput, PiThinkingLevel } from "@assistant-ui/react-pi";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiThreadStore, type PiPrincipal, type PiThreadRecord } from "./pi-thread-store.ts";
 import { PiObjectStore } from "./pi-object-store.ts";
 import { assemblePiChatWorkspace, bindPiThreadWorkspace } from "./pi-chat-workspace.ts";
@@ -36,6 +37,77 @@ const principalOf = (request: FastifyRequest): PiPrincipal | undefined => {
   };
 };
 
+const internalPrincipalOf = (request: FastifyRequest): PiPrincipal | undefined => {
+  const expectedSecret = process.env.CONTENT_NEXT_SECRET ?? process.env.PI_GATEWAY_SECRET;
+  const actualSecret = request.headers["x-mathpilot-runtime-secret"];
+  if (!expectedSecret || expectedSecret.length < 32 || actualSecret !== expectedSecret) return undefined;
+  const tenantId = request.headers["x-tenant-id"];
+  const userId = request.headers["x-user-id"];
+  const roles = request.headers["x-user-roles"];
+  if (typeof tenantId !== "string" || !tenantId || typeof userId !== "string" || !userId) return undefined;
+  return {
+    tenantId,
+    userId,
+    roles: typeof roles === "string"
+      ? roles.split(",").map((role) => role.trim()).filter((role) => role === "teacher" || role === "student")
+      : [],
+  };
+};
+
+const storageNextUrl = (process.env.STORAGE_NEXT_URL ?? "http://storage-next:3017").replace(/\/$/, "");
+const storageNextSecret = process.env.STORAGE_NEXT_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
+
+type StorageObjectGrant = {
+  object_id: string;
+  download_url: string;
+  original_name: string | null;
+  mime_type: string;
+  byte_size: number;
+  sha256: string | null;
+  version_id: string;
+};
+
+const requestStorageGrant = async (
+  principal: PiPrincipal,
+  objectId: string,
+  audience: "public" | "runtime",
+): Promise<StorageObjectGrant> => {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/.test(objectId)) throw new Error("invalid storage object id");
+  if (storageNextSecret.length < 32) throw new Error("storage-next runtime secret is not configured");
+  const response = await fetch(`${storageNextUrl}/internal/objects/${encodeURIComponent(objectId)}/presign-get`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mathpilot-runtime-secret": storageNextSecret,
+      "x-tenant-id": principal.tenantId,
+      "x-user-id": principal.userId,
+      "x-user-roles": principal.roles.join(","),
+    },
+    body: JSON.stringify({ audience }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await response.json().catch(() => ({})) as Partial<StorageObjectGrant> & { error?: unknown };
+  if (!response.ok || typeof body.download_url !== "string") throw new Error(`storage object lookup failed (${response.status})`);
+  if (!/^https?:\/\//i.test(body.download_url) || typeof body.object_id !== "string" || typeof body.mime_type !== "string" || typeof body.byte_size !== "number" || !Number.isSafeInteger(body.byte_size) || typeof body.version_id !== "string" || !body.version_id) {
+    throw new Error("storage returned an invalid object grant");
+  }
+  const byteSize = body.byte_size;
+  return {
+    object_id: body.object_id,
+    download_url: body.download_url,
+    original_name: typeof body.original_name === "string" ? body.original_name : null,
+    mime_type: body.mime_type,
+    byte_size: byteSize,
+    sha256: typeof body.sha256 === "string" ? body.sha256 : null,
+    version_id: body.version_id,
+  };
+};
+
+const safeAttachmentName = (name: string): string => {
+  const safe = path.basename(name).replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^\.+$/, "");
+  return (safe || "attachment").slice(0, 180);
+};
+
 // The host principal is deliberately persisted outside the model workspace so
 // extensions can read it without exposing it to Bash. A thread must therefore
 // have at most one in-flight turn: otherwise two HTTP callers could overwrite
@@ -64,14 +136,98 @@ const sessionFileOf = (runtime: PiChatRuntime, record: PiThreadRecord): string =
   return sessionFile;
 };
 
-const downloadDisposition = (name: string): string => {
-  const filename = path.basename(name).replace(/[\u0000-\u001f\u007f]/g, "") || "attachment";
-  const fallback = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
-  const encoded = encodeURIComponent(filename).replace(/['()*]/g, (character) =>
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
-  );
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+type ErCommandMarker = {
+  schema: "mathpilot.er-start/v1";
+  command_id: string;
+  candidate_set_id: string;
+  target_thread_id: string;
+  status: "starting" | "sent";
 };
+
+const readErCommandMarker = async (workspace: string): Promise<ErCommandMarker | undefined> => {
+  try {
+    const value = JSON.parse(await readFile(path.join(workspace, "input", "session", "er-command.json"), "utf8")) as Partial<ErCommandMarker>;
+    if (value.schema !== "mathpilot.er-start/v1" || typeof value.command_id !== "string" || typeof value.candidate_set_id !== "string" || typeof value.target_thread_id !== "string") return undefined;
+    if (value.status !== "starting" && value.status !== "sent") return undefined;
+    return value as ErCommandMarker;
+  } catch {
+    return undefined;
+  }
+};
+
+const ensureErThread = async (
+  runtime: PiChatRuntime,
+  store: PiThreadStore,
+  principal: PiPrincipal,
+  targetThreadId: string,
+): Promise<PiThreadRecord> => {
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(targetThreadId)) throw new Error("invalid target Pi thread id");
+  const existing = await store.accessible(principal, targetThreadId);
+  if (existing) return existing;
+
+  // The workspace name is deterministic for the command.  This is not a
+  // second workflow identity; it only lets a retry find the same ordinary Pi
+  // session before the mapping transaction has completed.
+  const workspaceId = `er-${targetThreadId}`;
+  const sessionDir = `sessions/${workspaceId}`;
+  const workspacePath = path.join(runtime.sessionsRoot, workspaceId);
+  await assemblePiChatWorkspace(workspacePath, runtime.skillsRoot);
+  await mkdir(path.join(workspacePath, "input", "frozen"), { recursive: true });
+  await bindPiThreadWorkspace(workspacePath, targetThreadId);
+
+  let sessionFileAbsolute: string | undefined;
+  const discovered = await SessionManager.list(workspacePath, runtime.agentSessionsRoot).catch(() => []);
+  const discoveredTarget = discovered.find((info) => info.id === targetThreadId);
+  if (discoveredTarget) sessionFileAbsolute = discoveredTarget.path;
+  if (!sessionFileAbsolute) {
+    const manager = SessionManager.create(workspacePath, runtime.agentSessionsRoot, { id: targetThreadId });
+    sessionFileAbsolute = manager.getSessionFile();
+    const header = manager.getHeader();
+    if (!sessionFileAbsolute || !header) throw new Error("Pi did not allocate a session file for ER handoff");
+    // SessionManager intentionally waits for the first assistant message before
+    // flushing an empty session.  Persist the header now so pi.getThread() can
+    // open the pre-generated ID and the command remains retryable after a crash.
+    await writeFile(sessionFileAbsolute, `${JSON.stringify(header)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 }).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    });
+  }
+  const relativeSessionFile = path.relative(runtime.runtimeRoot, sessionFileAbsolute);
+  if (relativeSessionFile.startsWith("..") || path.isAbsolute(relativeSessionFile)) throw new Error("ER session file is outside runtime root");
+  return store.create(principal, { threadId: targetThreadId, sessionDir, sessionFile: relativeSessionFile });
+};
+
+type PiSnapshot = Awaited<ReturnType<PiClient["getThread"]>>;
+const erHandoffLocks = new Map<string, Promise<{ record: PiThreadRecord; workspace: string; snapshot: PiSnapshot }>>();
+const reviewFeedbackLocks = new Map<string, Promise<{ record: PiThreadRecord; workspace: string; snapshot: PiSnapshot }>>();
+
+type ReviewFeedbackMarker = {
+  schema: "mathpilot.review-feedback/v1";
+  command_id: string;
+  candidate_set_id: string;
+  target_thread_id: string;
+  status: "starting" | "sent";
+};
+
+const readReviewFeedbackMarker = async (markerPath: string): Promise<ReviewFeedbackMarker | undefined> => {
+  try {
+    const value = JSON.parse(await readFile(markerPath, "utf8")) as Partial<ReviewFeedbackMarker>;
+    if (value.schema !== "mathpilot.review-feedback/v1" || typeof value.command_id !== "string" || typeof value.candidate_set_id !== "string" || typeof value.target_thread_id !== "string") return undefined;
+    if (value.status !== "starting" && value.status !== "sent") return undefined;
+    return value as ReviewFeedbackMarker;
+  } catch {
+    return undefined;
+  }
+};
+
+const snapshotContainsUserToken = (snapshot: PiSnapshot, token: string): boolean => snapshot.messages.some((message) =>
+  message.role === "user"
+  && (() => {
+    const content = (message as { content?: unknown }).content;
+    if (typeof content === "string") return content.includes(token);
+    if (!Array.isArray(content)) return false;
+    return content.some((part: unknown) => part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string" && part.text.includes(token));
+  })(),
+);
 
 const restoreArchivedThread = async (
   runtime: PiChatRuntime,
@@ -91,9 +247,9 @@ const owned = async (
   threadId: string,
   reply: FastifyReply,
   write = false,
-  adminOnly = false,
+  ownerOnly = false,
 ): Promise<PiThreadRecord | undefined> => {
-  const record = adminOnly
+  const record = ownerOnly
     ? await store.deletable(principal, threadId)
     : await store.accessible(principal, threadId, write);
   if (!record) reply.code(404).send({ error: "thread not found" });
@@ -124,7 +280,205 @@ export function registerPiChatRoutes(
 
   app.addHook("onClose", async () => {
     activePrincipalByThread.clear();
+    erHandoffLocks.clear();
+    reviewFeedbackLocks.clear();
     await store.close();
+  });
+
+  app.post("/internal/er-start", async (request, reply) => {
+    const principal = internalPrincipalOf(request);
+    if (!principal || !principal.roles.includes("teacher")) return reply.code(401).send({ error: "trusted teacher principal required" });
+    const body = (request.body ?? {}) as { command_id?: unknown; candidate_set_id?: unknown; target_thread_id?: unknown };
+    const commandId = typeof body.command_id === "string" ? body.command_id : "";
+    const candidateSetId = typeof body.candidate_set_id === "string" ? body.candidate_set_id : "";
+    const targetThreadId = typeof body.target_thread_id === "string" ? body.target_thread_id : "";
+    if (!commandId || !candidateSetId || !targetThreadId) return reply.code(422).send({ error: "command_id, candidate_set_id and target_thread_id are required" });
+    const key = `${principal.tenantId}\u0000${commandId}`;
+    let operation = erHandoffLocks.get(key);
+    if (!operation) {
+      operation = (async () => {
+        const record = await ensureErThread(runtime, store, principal, targetThreadId);
+        const workspace = workspaceOf(runtime, record);
+        const markerPath = path.join(workspace, "input", "session", "er-command.json");
+        const existingMarker = await readErCommandMarker(workspace);
+        if (existingMarker && (
+          existingMarker.command_id !== commandId
+          || existingMarker.candidate_set_id !== candidateSetId
+          || existingMarker.target_thread_id !== targetThreadId
+        )) throw new Error("target Pi thread is already assigned to another ER command");
+
+        const endpoint = (process.env.CONTENT_NEXT_URL ?? process.env.CONTENT_LIBRARY_URL ?? "http://content-next:3016").replace(/\/$/, "");
+        const secret = process.env.CONTENT_NEXT_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
+        if (secret.length < 32) throw new Error("content-next runtime secret is not configured");
+        const frozenResponse = await fetch(`${endpoint}/internal/candidates/${encodeURIComponent(candidateSetId)}/frozen`, {
+          headers: {
+            "x-mathpilot-runtime-secret": secret,
+            "x-tenant-id": principal.tenantId,
+            "x-user-id": principal.userId,
+            "x-user-roles": "teacher",
+          },
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!frozenResponse.ok) throw new Error(`approved KTQ handoff lookup failed (${frozenResponse.status})`);
+        const frozen = await frozenResponse.json() as Record<string, unknown>;
+        await mkdir(path.dirname(markerPath), { recursive: true });
+        await writeFile(path.join(workspace, "input", "frozen", "ktq.json"), `${JSON.stringify(frozen, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+        await writeHostPrincipal(workspace, principal);
+
+        if (existingMarker?.status === "sent") {
+          const snapshot = await pi.getThread(targetThreadId);
+          return { record, workspace, snapshot };
+        }
+        if (existingMarker?.status === "starting") {
+          const snapshot = await pi.getThread(targetThreadId);
+          const alreadyPrompted = snapshotContainsUserToken(snapshot, commandId);
+          if (alreadyPrompted) {
+            await writeFile(markerPath, `${JSON.stringify({ ...existingMarker, status: "sent" }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+            return { record, workspace, snapshot };
+          }
+        }
+
+        const marker: ErCommandMarker = {
+          schema: "mathpilot.er-start/v1",
+          command_id: commandId,
+          candidate_set_id: candidateSetId,
+          target_thread_id: targetThreadId,
+          status: "starting",
+        };
+        await writeFile(markerPath, `${JSON.stringify(marker, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+        await pi.sendMessage(targetThreadId, {
+          content: [
+            `[MathPilot ER handoff ${commandId}]`,
+            `已批准的 KTQ 候选集为 ${candidateSetId}，完整冻结快照位于 input/frozen/ktq.json。`,
+            "这是一个新的普通对话。请读取 er-research Skill，严格基于冻结的 K/T 维度开展 E/R 研究；不要修改冻结输入，也不要直接发布内容。完成后按 Skill 调用 respond。",
+          ].join("\n"),
+        });
+        await writeFile(markerPath, `${JSON.stringify({ ...marker, status: "sent" }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+        const snapshot = await pi.getThread(targetThreadId);
+        return { record, workspace, snapshot };
+      })().finally(() => {
+        if (erHandoffLocks.get(key) === operation) erHandoffLocks.delete(key);
+      });
+      erHandoffLocks.set(key, operation);
+    }
+    try {
+      const result = await operation;
+      return {
+        command_id: commandId,
+        candidate_set_id: candidateSetId,
+        target_thread_id: targetThreadId,
+        dispatched: true,
+        replayed: result.snapshot.messages.length > 0,
+      };
+    } catch (error) {
+      request.log.error({ err: error, commandId, targetThreadId }, "ER handoff failed");
+      return reply.code(502).send({ error: "ER handoff failed" });
+    }
+  });
+
+  app.post("/internal/review-feedback", async (request, reply) => {
+    const principal = internalPrincipalOf(request);
+    if (!principal || !principal.roles.includes("teacher")) return reply.code(401).send({ error: "trusted teacher principal required" });
+    const body = (request.body ?? {}) as {
+      command_id?: unknown;
+      candidate_set_id?: unknown;
+      target_thread_id?: unknown;
+      phase?: unknown;
+      annotations?: unknown;
+    };
+    const commandId = typeof body.command_id === "string" ? body.command_id : "";
+    const candidateSetId = typeof body.candidate_set_id === "string" ? body.candidate_set_id : "";
+    const targetThreadId = typeof body.target_thread_id === "string" ? body.target_thread_id : "";
+    const phase = body.phase === "ktq" || body.phase === "er" ? body.phase : undefined;
+    const rawAnnotations = Array.isArray(body.annotations) ? body.annotations : [];
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(commandId) || !candidateSetId || !targetThreadId || !phase || rawAnnotations.length === 0 || rawAnnotations.length > 500) {
+      return reply.code(422).send({ error: "valid command, candidate, thread, phase and annotations are required" });
+    }
+    const annotations = rawAnnotations.map((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+      const item = value as Record<string, unknown>;
+      if (typeof item.revision_id !== "string" || typeof item.comment_text !== "string" || !item.comment_text.trim() || item.comment_text.length > 10_000) return undefined;
+      return {
+        revision_id: item.revision_id,
+        revision_item_id: typeof item.revision_item_id === "string" ? item.revision_item_id : null,
+        field_name: typeof item.field_name === "string" ? item.field_name : null,
+        comment_text: item.comment_text,
+      };
+    });
+    if (annotations.some((value) => !value)) return reply.code(422).send({ error: "invalid review annotation" });
+
+    const key = `${principal.tenantId}\u0000${commandId}`;
+    let operation = reviewFeedbackLocks.get(key);
+    if (!operation) {
+      operation = (async () => {
+        const record = await store.deletable(principal, targetThreadId);
+        if (!record) throw new Error("review target thread is not owned by this teacher");
+        await restoreArchivedThread(runtime, record, objectStore);
+        const workspace = workspaceOf(runtime, record);
+        const markerPath = path.join(workspace, "input", "session", "review-feedback", `${commandId}.json`);
+        const existingMarker = await readReviewFeedbackMarker(markerPath);
+        if (existingMarker && (
+          existingMarker.command_id !== commandId
+          || existingMarker.candidate_set_id !== candidateSetId
+          || existingMarker.target_thread_id !== targetThreadId
+        )) throw new Error("review feedback marker does not match this command");
+
+        if (existingMarker?.status === "sent") {
+          return { record, workspace, snapshot: await pi.getThread(targetThreadId) };
+        }
+        if (existingMarker?.status === "starting") {
+          const snapshot = await pi.getThread(targetThreadId);
+          if (snapshotContainsUserToken(snapshot, commandId)) {
+            await writeFile(markerPath, `${JSON.stringify({ ...existingMarker, status: "sent" }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+            return { record, workspace, snapshot };
+          }
+        }
+
+        const releasePrincipal = reserveThread(activePrincipalByThread, targetThreadId, principal);
+        if (!releasePrincipal) throw new Error("review target thread is busy");
+        try {
+          await writeHostPrincipal(workspace, principal);
+          await mkdir(path.dirname(markerPath), { recursive: true });
+          const marker: ReviewFeedbackMarker = {
+            schema: "mathpilot.review-feedback/v1",
+            command_id: commandId,
+            candidate_set_id: candidateSetId,
+            target_thread_id: targetThreadId,
+            status: "starting",
+          };
+          await writeFile(markerPath, `${JSON.stringify(marker, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+          const skill = phase === "ktq" ? "ktq-extraction" : "er-research";
+          await pi.sendMessage(targetThreadId, {
+            content: [
+              `[MathPilot review feedback ${commandId}]`,
+              `候选集 ${candidateSetId} 已被教师退回。以下批注已经冻结：`,
+              JSON.stringify(annotations),
+              `请读取 ${skill} Skill，只修改批注涉及的内容并重新验证。再次调用 respond 时，结果顶层必须包含 \"supersedes_candidate_set_id\":\"${candidateSetId}\"；被修改实体沿用原实体 ID，以生成新的不可变修订。`,
+            ].join("\n"),
+          });
+          await writeFile(markerPath, `${JSON.stringify({ ...marker, status: "sent" }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+          return { record, workspace, snapshot: await pi.getThread(targetThreadId) };
+        } finally {
+          releasePrincipal();
+        }
+      })().finally(() => {
+        if (reviewFeedbackLocks.get(key) === operation) reviewFeedbackLocks.delete(key);
+      });
+      reviewFeedbackLocks.set(key, operation);
+    }
+    try {
+      const result = await operation;
+      return {
+        command_id: commandId,
+        candidate_set_id: candidateSetId,
+        target_thread_id: targetThreadId,
+        dispatched: true,
+        replayed: result.snapshot.messages.length > 0,
+      };
+    } catch (error) {
+      request.log.error({ err: error, commandId, targetThreadId }, "review feedback dispatch failed");
+      return reply.code(502).send({ error: "review feedback dispatch failed" });
+    }
   });
 
   app.get("/pi/models", async (request, reply) => {
@@ -395,106 +749,100 @@ export function registerPiChatRoutes(
     });
   });
 
-  // Legacy browser clients still send base64. Keep the larger limit local to
-  // this compatibility route; ordinary Pi messages retain the 32 MiB global
-  // body limit until direct MinIO upload is enabled.
-  app.post("/pi/threads/:threadId/files", { bodyLimit: 48 * 1024 * 1024 }, async (request, reply) => {
+  // Browser uploads finish in MinIO.  The Pi host only receives the stable
+  // object id, obtains a short-lived internal URL from storage-next, and
+  // materializes a private read-only copy for the current model turn.
+  app.post("/pi/threads/:threadId/files/from-object", async (request, reply) => {
     const principal = principalOf(request);
     if (!principal) return reply.code(401).send({ error: "trusted principal required" });
     const { threadId } = request.params as { threadId: string };
     const record = await owned(store, principal, threadId, reply, true);
     if (!record) return;
-    const { name, data, mimeType } = request.body as { name?: unknown; data?: unknown; mimeType?: unknown };
-    if (typeof name !== "string" || !name.trim() || name.length > 255 || typeof data !== "string" || !data || data.length > 48 * 1024 * 1024) return reply.code(422).send({ error: "valid file required" });
-    const safeName = path.basename(name).replace(/[^\p{L}\p{N}._-]+/gu, "_");
-    const workspace = workspaceOf(runtime, record);
-    const directory = path.join(workspace, "input", "original");
-    await mkdir(directory, { recursive: true });
-    const encoded = data.includes(",") ? data.slice(data.indexOf(",") + 1) : data;
-    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 === 1) {
-      return reply.code(422).send({ error: "invalid base64 file" });
+    const body = (request.body ?? {}) as { object_id?: unknown; attachment_id?: unknown };
+    const objectId = typeof body.object_id === "string" ? body.object_id : "";
+    const attachmentId = typeof body.attachment_id === "string" ? body.attachment_id : "";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attachmentId)) {
+      return reply.code(422).send({ error: "valid attachment_id is required" });
     }
-    const bytes = Buffer.from(encoded, "base64");
-    if (!bytes.length || bytes.byteLength > 32 * 1024 * 1024) {
-      return reply.code(422).send({ error: "file must be between 1 byte and 32 MiB" });
-    }
-    const extension = path.extname(safeName);
-    const stem = path.basename(safeName, extension) || "attachment";
-    let storedName = safeName || "attachment";
-    for (let suffix = 1; ; suffix += 1) {
-      try {
-        await writeFile(path.join(directory, storedName), bytes, { flag: "wx" });
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        storedName = `${stem}-${suffix + 1}${extension}`;
-      }
-    }
-    const uploadId = randomUUID();
-    const resolvedMimeType = typeof mimeType === "string" && /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(mimeType)
-      ? mimeType.toLowerCase()
-      : "application/octet-stream";
-    const workspacePath = `input/original/${storedName}`;
     try {
-      await savePendingAttachment(workspace, {
-        id: uploadId,
-        originalName: name,
-        workspacePath,
-        mimeType: resolvedMimeType,
-        byteSize: bytes.byteLength,
-        uploadedAt: new Date().toISOString(),
-      });
-      await store.createAttachment(principal, {
-        attachmentId: uploadId,
-        threadId,
-        workspacePath,
-        originalName: name,
-        mimeType: resolvedMimeType,
-        byteSize: bytes.byteLength,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-      });
+      const grant = await requestStorageGrant(principal, objectId, "runtime");
+      const response = await fetch(grant.download_url, { signal: AbortSignal.timeout(120_000) });
+      if (!response.ok) throw new Error(`storage download failed (${response.status})`);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (bytes.byteLength !== grant.byte_size) throw new Error("storage object size changed during materialization");
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      if (grant.sha256 && sha256 !== grant.sha256) throw new Error("storage object hash changed during materialization");
+
+      const workspace = workspaceOf(runtime, record);
+      const directory = path.join(workspace, "input", "original");
+      await mkdir(directory, { recursive: true });
+      const originalName = grant.original_name || "attachment";
+      const extension = path.extname(safeAttachmentName(originalName));
+      const stem = path.basename(safeAttachmentName(originalName), extension) || "attachment";
+      let storedName = safeAttachmentName(originalName);
+      for (let suffix = 1; ; suffix += 1) {
+        try {
+          const target = path.join(directory, storedName);
+          await writeFile(target, bytes, { flag: "wx", mode: 0o400 });
+          await chmod(target, 0o400);
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+          storedName = `${stem}-${suffix + 1}${extension}`;
+        }
+      }
+      const workspacePath = `input/original/${storedName}`;
+      try {
+        await savePendingAttachment(workspace, {
+          id: attachmentId,
+          storageObjectId: grant.object_id,
+          versionId: grant.version_id,
+          sha256,
+          originalName,
+          workspacePath,
+          mimeType: grant.mime_type,
+          byteSize: bytes.byteLength,
+          uploadedAt: new Date().toISOString(),
+        });
+        const persistedId = await store.createAttachment(principal, {
+          attachmentId,
+          threadId,
+          storageObjectId: grant.object_id,
+          workspacePath,
+          originalName,
+          mimeType: grant.mime_type,
+          byteSize: bytes.byteLength,
+          sha256,
+        });
+        return { id: persistedId, path: workspacePath, mimeType: grant.mime_type };
+      } catch (error) {
+        await rm(path.join(directory, storedName), { force: true }).catch(() => undefined);
+        await removePendingAttachment(workspace, attachmentId).catch(() => undefined);
+        throw error;
+      }
     } catch (error) {
-      await rm(path.join(directory, storedName), { force: true }).catch(() => undefined);
-      await removePendingAttachment(workspace, uploadId).catch(() => undefined);
-      throw error;
+      request.log.warn({ err: error, threadId, objectId }, "Pi storage attachment materialization failed");
+      return reply.code(422).send({ error: "storage attachment rejected" });
     }
-    return { id: uploadId, path: workspacePath, mimeType: resolvedMimeType };
   });
 
-  app.get("/pi/threads/:threadId/files/download", async (request, reply) => {
+  app.get("/pi/threads/:threadId/files/:attachmentId/download", async (request, reply) => {
     const principal = principalOf(request);
     if (!principal) return reply.code(401).send({ error: "trusted principal required" });
-    const { threadId } = request.params as { threadId: string };
+    const { threadId, attachmentId } = request.params as { threadId: string; attachmentId: string };
     const record = await owned(store, principal, threadId, reply);
     if (!record) return;
-    await restoreArchivedThread(runtime, record, objectStore);
-
-    const query = request.query as { path?: unknown; name?: unknown };
-    if (typeof query.path !== "string") return reply.code(422).send({ error: "file path required" });
-    const workspacePath = query.path.replaceAll("\\", "/");
-    if (path.posix.dirname(workspacePath) !== "input/original") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attachmentId)) return reply.code(404).send({ error: "file not found" });
+    const attachment = await store.attachment(principal, threadId, attachmentId);
+    if (!attachment) return reply.code(404).send({ error: "file not found" });
+    if (!attachment.storageObjectId) return reply.code(404).send({ error: "file not found" });
+    try {
+      const grant = await requestStorageGrant(principal, attachment.storageObjectId, "public");
+      return reply.redirect(grant.download_url, 302);
+    } catch (error) {
+      request.log.warn({ err: error, threadId, attachmentId }, "Pi storage attachment download grant failed");
       return reply.code(404).send({ error: "file not found" });
     }
-    const originalRoot = path.resolve(workspaceOf(runtime, record), "input", "original");
-    const absoluteFile = path.resolve(workspaceOf(runtime, record), workspacePath);
-    if (path.dirname(absoluteFile) !== originalRoot) return reply.code(404).send({ error: "file not found" });
-
-    let bytes: Buffer;
-    try {
-      bytes = await readFile(absoluteFile);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return reply.code(404).send({ error: "file not found" });
-      }
-      throw error;
-    }
-    const requestedName = typeof query.name === "string" ? query.name : path.basename(absoluteFile);
-    return reply
-      .header("content-type", "application/octet-stream")
-      .header("content-disposition", downloadDisposition(requestedName))
-      .header("cache-control", "private, no-store")
-      .header("x-content-type-options", "nosniff")
-      .send(bytes);
   });
 
   app.post("/pi/threads/:threadId/cancel", async (request, reply) => {

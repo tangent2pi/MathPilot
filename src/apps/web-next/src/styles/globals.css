@@ -1,5 +1,40 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "tw-shimmer";
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.soft-scrollbar {
+  scrollbar-color: color-mix(in oklab, var(--foreground) 18%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.soft-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.soft-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.soft-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--foreground) 18%, transparent);
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+
+.soft-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--foreground) 30%, transparent);
+  background-clip: content-box;
+}
 
 /* assistant-ui Generative UI registry 中本项目允许词表的样式子集。 */
 [data-aui-theme="elements"] [data-aui="root"] { display: flex; flex-direction: column; gap: 1rem; }

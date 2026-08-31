@@ -19,9 +19,9 @@ alter table pi_threads drop column if exists student_id;
 create index if not exists pi_threads_owner_idx
   on pi_threads (tenant_id, owner_user_id, created_at desc);
 
--- ACL rows are not a tenant-wide capability list. A caller may inspect its
--- own grant (needed by the thread predicates below), while ACL mutation is
--- disabled until a dedicated owner/admin route can use a security-definer
+-- ACL rows are not a tenant-wide capability list. A caller may inspect only
+-- its own grant (needed by the thread predicates below), while ACL mutation is
+-- disabled until a dedicated owner route can use a security-definer
 -- transaction. Keeping the write policy closed is safer than letting an
 -- ordinary tenant user grant itself access through a raw table query.
 alter table pi_thread_acl enable row level security;
@@ -34,10 +34,7 @@ drop policy if exists pi_thread_acl_delete on pi_thread_acl;
 
 create policy pi_thread_acl_select on pi_thread_acl for select using (
   tenant_id = current_setting('mathpilot.tenant_id', true)
-  and (
-    user_id = current_setting('mathpilot.user_id', true)
-    or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
-  )
+  and user_id = current_setting('mathpilot.user_id', true)
 );
 
 create policy pi_thread_acl_insert on pi_thread_acl for insert with check (false);
@@ -48,7 +45,6 @@ create policy pi_threads_select on pi_threads for select using (
   tenant_id = current_setting('mathpilot.tenant_id', true)
   and (
     owner_user_id = current_setting('mathpilot.user_id', true)
-    or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
     or exists (
       select 1 from pi_thread_acl a
       where a.thread_id = pi_threads.thread_id
@@ -67,7 +63,6 @@ create policy pi_threads_update on pi_threads for update using (
   tenant_id = current_setting('mathpilot.tenant_id', true)
   and (
     owner_user_id = current_setting('mathpilot.user_id', true)
-    or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
     or exists (
       select 1 from pi_thread_acl a
       where a.thread_id = pi_threads.thread_id
@@ -80,17 +75,7 @@ create policy pi_threads_update on pi_threads for update using (
 
 create policy pi_threads_delete on pi_threads for delete using (
   tenant_id = current_setting('mathpilot.tenant_id', true)
-  and (
-    owner_user_id = current_setting('mathpilot.user_id', true)
-    or 'tenant_admin' = any(string_to_array(coalesce(current_setting('mathpilot.roles', true), ''), ','))
-    or exists (
-      select 1 from pi_thread_acl a
-      where a.thread_id = pi_threads.thread_id
-        and a.tenant_id = pi_threads.tenant_id
-        and a.user_id = current_setting('mathpilot.user_id', true)
-        and a.access = 'admin'
-    )
-  )
+  and owner_user_id = current_setting('mathpilot.user_id', true)
 );
 
 commit;

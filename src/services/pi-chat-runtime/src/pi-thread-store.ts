@@ -29,6 +29,42 @@ type Row = {
   archived_at: Date | null;
 };
 
+export interface PiAttachmentRecord {
+  attachmentId: string;
+  threadId: string;
+  tenantId: string;
+  storageObjectId?: string;
+  workspacePath: string;
+  originalName: string;
+  mimeType: string;
+  byteSize: number;
+  sha256?: string;
+}
+
+type AttachmentRow = {
+  attachment_id: string;
+  thread_id: string;
+  tenant_id: string;
+  storage_object_id: string | null;
+  workspace_path: string;
+  original_name: string;
+  mime_type: string;
+  byte_size: number;
+  sha256: string | null;
+};
+
+const mapAttachment = (row: AttachmentRow): PiAttachmentRecord => ({
+  attachmentId: row.attachment_id,
+  threadId: row.thread_id,
+  tenantId: row.tenant_id,
+  ...(row.storage_object_id ? { storageObjectId: row.storage_object_id } : {}),
+  workspacePath: row.workspace_path,
+  originalName: row.original_name,
+  mimeType: row.mime_type,
+  byteSize: Number(row.byte_size),
+  ...(row.sha256 ? { sha256: row.sha256 } : {}),
+});
+
 const mapRow = (row: Row): PiThreadRecord => ({
   threadId: row.thread_id,
   tenantId: row.tenant_id,
@@ -86,10 +122,14 @@ export class PiThreadStore {
     const result = await this.scopedQuery<Row>(principal,
       `insert into pi_threads(thread_id,tenant_id,owner_user_id,session_dir,session_file)
        values($1,$2,$3,$4,$5)
+       on conflict (thread_id) do nothing
        returning *`,
       [value.threadId, principal.tenantId, principal.userId, value.sessionDir, value.sessionFile],
     );
-    const row = result.rows[0];
+    const row = result.rows[0] ?? (await this.scopedQuery<Row>(principal,
+      `select * from pi_threads where thread_id=$1 and tenant_id=$2 and owner_user_id=$3`,
+      [value.threadId, principal.tenantId, principal.userId],
+    )).rows[0];
     if (!row) throw new Error("Pi thread mapping insert returned no row");
     return mapRow(row);
   }
@@ -99,33 +139,24 @@ export class PiThreadStore {
       `select t.* from pi_threads t
        where t.thread_id=$1 and t.tenant_id=$2 and (
          t.owner_user_id=$3
-         or $4::boolean
          or exists (
            select 1 from pi_thread_acl a
            where a.thread_id=t.thread_id and a.tenant_id=t.tenant_id and a.user_id=$3
-             and (not $5::boolean or a.access in ('write','admin'))
+             and (not $4::boolean or a.access in ('write','admin'))
          )
        )`,
-      [threadId, principal.tenantId, principal.userId, principal.roles.includes("tenant_admin"), write],
+      [threadId, principal.tenantId, principal.userId, write],
     );
     return result.rows[0] ? mapRow(result.rows[0]) : undefined;
   }
 
-  /** Deletion is stricter than ordinary writes: only the owner, tenant admin,
-   * or an explicitly delegated ACL admin may remove a thread mapping. */
+  /** Deletion is stricter than ordinary writes: only the owner may remove a
+   * thread mapping. An ACL access level is not a product-wide admin role. */
   async deletable(principal: PiPrincipal, threadId: string): Promise<PiThreadRecord | undefined> {
     const result = await this.scopedQuery<Row>(principal,
       `select t.* from pi_threads t
-       where t.thread_id=$1 and t.tenant_id=$2 and (
-         t.owner_user_id=$3
-         or $4::boolean
-         or exists (
-           select 1 from pi_thread_acl a
-           where a.thread_id=t.thread_id and a.tenant_id=t.tenant_id
-             and a.user_id=$3 and a.access='admin'
-         )
-       )`,
-      [threadId, principal.tenantId, principal.userId, principal.roles.includes("tenant_admin")],
+       where t.thread_id=$1 and t.tenant_id=$2 and t.owner_user_id=$3`,
+      [threadId, principal.tenantId, principal.userId],
     );
     return result.rows[0] ? mapRow(result.rows[0]) : undefined;
   }
@@ -134,12 +165,12 @@ export class PiThreadStore {
     const result = await this.scopedQuery<Row>(principal,
       `select t.* from pi_threads t
        where t.tenant_id=$1 and (
-         t.owner_user_id=$2 or $3::boolean or exists (
+         t.owner_user_id=$2 or exists (
            select 1 from pi_thread_acl a
            where a.thread_id=t.thread_id and a.tenant_id=t.tenant_id and a.user_id=$2
          )
        ) order by t.created_at desc`,
-      [principal.tenantId, principal.userId, principal.roles.includes("tenant_admin")],
+      [principal.tenantId, principal.userId],
     );
     return result.rows.map(mapRow);
   }
@@ -197,19 +228,35 @@ export class PiThreadStore {
       mimeType: string;
       byteSize: number;
       sha256?: string;
-      storageObjectId?: string;
+      storageObjectId: string;
     },
-  ): Promise<void> {
+  ): Promise<string> {
     const allowed = await this.accessible(principal, value.threadId, true);
     if (!allowed) throw new Error("Pi thread is not writable by this principal");
-    await this.scopedQuery(principal,
+    const result = await this.scopedQuery<{ attachment_id: string }>(principal,
       `insert into pi_attachments
          (attachment_id,thread_id,tenant_id,uploaded_by_user_id,storage_object_id,workspace_path,original_name,mime_type,byte_size,sha256)
-       values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       on conflict (thread_id, storage_object_id) do update
+         set original_name=excluded.original_name,mime_type=excluded.mime_type,
+             byte_size=excluded.byte_size,sha256=excluded.sha256
+       returning attachment_id`,
       [value.attachmentId, value.threadId, principal.tenantId, principal.userId,
-       value.storageObjectId ?? null, value.workspacePath, value.originalName, value.mimeType,
+       value.storageObjectId, value.workspacePath, value.originalName, value.mimeType,
        value.byteSize, value.sha256 ?? null],
     );
+    return result.rows[0]?.attachment_id ?? value.attachmentId;
+  }
+
+  async attachment(principal: PiPrincipal, threadId: string, attachmentId: string): Promise<PiAttachmentRecord | undefined> {
+    const allowed = await this.accessible(principal, threadId);
+    if (!allowed) return undefined;
+    const result = await this.scopedQuery<AttachmentRow>(principal,
+      `select attachment_id,thread_id,tenant_id,storage_object_id,workspace_path,original_name,mime_type,byte_size,sha256
+         from pi_attachments where attachment_id=$1 and thread_id=$2 and tenant_id=$3`,
+      [attachmentId, threadId, principal.tenantId],
+    );
+    return result.rows[0] ? mapAttachment(result.rows[0]) : undefined;
   }
 
   async markArchived(principal: PiPrincipal, threadId: string, archived: boolean): Promise<boolean> {

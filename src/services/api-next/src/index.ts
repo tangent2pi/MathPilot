@@ -8,6 +8,10 @@ import { createPool, startService, withTenant } from "./lib.ts";
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
 const runtimeUrl = process.env.PI_CHAT_RUNTIME_URL ?? "http://127.0.0.1:3105";
 const gatewaySecret = process.env.PI_GATEWAY_SECRET ?? "";
+const contentNextUrl = (process.env.CONTENT_NEXT_URL ?? "http://127.0.0.1:3016").replace(/\/$/, "");
+const contentNextSecret = process.env.CONTENT_NEXT_SECRET ?? gatewaySecret;
+const storageNextUrl = (process.env.STORAGE_NEXT_URL ?? "http://127.0.0.1:3017").replace(/\/$/, "");
+const storageNextSecret = process.env.STORAGE_NEXT_SECRET ?? gatewaySecret;
 const classCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function newClassCode(length = 8): string {
@@ -60,6 +64,50 @@ async function relayPi(principal: Principal, request: FastifyRequest, reply: Fas
   stream.pipe(reply.raw);
 }
 
+async function relayContent(principal: Principal, request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> {
+  if (contentNextSecret.length < 32) return reply.code(503).send({ error: "content-next is not configured" });
+  const suffix = request.url.replace(/^\/api\/content(?=\/|$)/, "") || "/";
+  const response = await fetch(`${contentNextUrl}${suffix}`, {
+    method: request.method,
+    headers: {
+      ...(request.headers["content-type"] ? { "content-type": String(request.headers["content-type"]) } : {}),
+      "x-tenant-id": principal.tenantId,
+      "x-user-id": principal.userId,
+      "x-user-roles": principal.roles.join(","),
+      "x-mathpilot-runtime-secret": contentNextSecret,
+    },
+    ...(request.body !== undefined && !["GET", "HEAD"].includes(request.method) ? { body: JSON.stringify(request.body) } : {}),
+    signal: AbortSignal.timeout(30_000),
+  });
+  reply.code(response.status);
+  for (const name of ["content-type", "content-disposition", "cache-control", "x-content-type-options"]) {
+    const value = response.headers.get(name); if (value) reply.header(name, value);
+  }
+  return reply.send(Buffer.from(await response.arrayBuffer()));
+}
+
+async function relayStorage(principal: Principal, request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> {
+  if (storageNextSecret.length < 32) return reply.code(503).send({ error: "storage-next is not configured" });
+  const suffix = request.url.replace(/^\/api\/storage(?=\/|$)/, "") || "/";
+  const response = await fetch(`${storageNextUrl}/internal${suffix}`, {
+    method: request.method,
+    headers: {
+      ...(request.headers["content-type"] ? { "content-type": String(request.headers["content-type"]) } : {}),
+      "x-tenant-id": principal.tenantId,
+      "x-user-id": principal.userId,
+      "x-user-roles": principal.roles.join(","),
+      "x-mathpilot-runtime-secret": storageNextSecret,
+    },
+    ...(request.body !== undefined && !["GET", "HEAD"].includes(request.method) ? { body: JSON.stringify(request.body) } : {}),
+    signal: AbortSignal.timeout(30_000),
+  });
+  reply.code(response.status);
+  for (const name of ["content-type", "content-disposition", "cache-control", "x-content-type-options"]) {
+    const value = response.headers.get(name); if (value) reply.header(name, value);
+  }
+  return reply.send(Buffer.from(await response.arrayBuffer()));
+}
+
 await bootstrapAuthUsers();
 
 await startService({
@@ -94,6 +142,27 @@ await startService({
       async handler(request, reply) {
         const principal = await principalOf(request, reply); if (!principal) return;
         return relayPi(principal, request, reply);
+      },
+    });
+
+    // The browser talks to the same-origin API.  Only api-next turns the
+    // authenticated session into the trusted principal headers understood by
+    // the isolated content-next service.
+    app.route({
+      method: ["GET", "POST", "PATCH", "DELETE"], url: "/api/content/*",
+      async handler(request, reply) {
+        const principal = await principalOf(request, reply); if (!principal) return;
+        return relayContent(principal, request, reply);
+      },
+    });
+
+    // Storage management stays behind the authenticated same-origin API. The
+    // returned presigned URL is the only value the browser sends to MinIO.
+    app.route({
+      method: ["GET", "POST", "PATCH", "DELETE"], url: "/api/storage/*",
+      async handler(request, reply) {
+        const principal = await principalOf(request, reply); if (!principal) return;
+        return relayStorage(principal, request, reply);
       },
     });
 
@@ -132,10 +201,19 @@ await startService({
       const principal = await principalOf(request, reply); if (!principal) return;
       try { requireRole(principal, "teacher"); } catch (error) { return reply.code((error as AuthError).status).send({ error: (error as Error).message }); }
       const classes = await withTenant(pool, principal.tenantId, async (client) => (await client.query(
-        `select cl.class_id,cl.name,cl.join_code,cl.join_code_updated_at,cl.created_at,count(cm.student_id)::int as student_count
-         from identity_class cl left join identity_class_member cm on cm.class_id=cl.class_id
-         where $2::boolean or cl.teacher_id=$1 group by cl.class_id order by cl.created_at desc`,
-        [principal.userId, principal.roles.includes("tenant_admin")],
+        `select cl.class_id,cl.name,cl.join_code,cl.join_code_updated_at,cl.created_at,
+                cl.created_by_user_id,cl.allow_official_content,cl.status,
+                count(distinct students.user_id)::int as student_count
+           from identity_class cl
+           join identity_class_user mine
+             on mine.tenant_id=cl.tenant_id and mine.class_id=cl.class_id
+            and mine.user_id=$1 and mine.class_role='teacher' and mine.status='active'
+           left join identity_class_user students
+             on students.tenant_id=cl.tenant_id and students.class_id=cl.class_id
+            and students.class_role='student' and students.status='active'
+          where cl.tenant_id=$2 and cl.status='active'
+          group by cl.class_id order by cl.created_at desc`,
+        [principal.userId, principal.tenantId],
       )).rows);
       return { classes };
     });
@@ -148,15 +226,45 @@ await startService({
       const classId = `cls_${randomUUID().replaceAll("-", "")}`;
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
-          const row = await withTenant(pool, principal.tenantId, async (client) => (await client.query(
-            `insert into identity_class(class_id,tenant_id,name,teacher_id,join_code) values($1,$2,$3,$4,$5)
-             returning class_id,name,join_code,join_code_updated_at,created_at`,
-            [classId, principal.tenantId, name, principal.userId, newClassCode()],
-          )).rows[0]);
+          const row = await withTenant(pool, principal.tenantId, async (client) => {
+            const created = (await client.query(
+              `insert into identity_class(class_id,tenant_id,name,teacher_id,created_by_user_id,join_code)
+               values($1,$2,$3,$4,$4,$5)
+               returning class_id,name,join_code,join_code_updated_at,created_at,created_by_user_id,allow_official_content,status`,
+              [classId, principal.tenantId, name, principal.userId, newClassCode()],
+            )).rows[0];
+            await client.query(
+              `insert into identity_class_user(tenant_id,class_id,user_id,class_role,status,added_by_user_id)
+               values($1,$2,$3,'teacher','active',$3)`,
+              [principal.tenantId, classId, principal.userId],
+            );
+            return created;
+          });
           return reply.code(201).send(row);
         } catch (error) { if ((error as { code?: string }).code !== "23505") throw error; }
       }
       return reply.code(503).send({ error: "could not allocate a unique class code" });
+    });
+
+    app.patch("/api/classes/:classId", async (request, reply) => {
+      const principal = await principalOf(request, reply); if (!principal) return;
+      try { requireRole(principal, "teacher"); } catch (error) { return reply.code((error as AuthError).status).send({ error: (error as Error).message }); }
+      const { allow_official_content: allowOfficialContent } = (request.body ?? {}) as { allow_official_content?: unknown };
+      if (typeof allowOfficialContent !== "boolean") return reply.code(422).send({ error: "allow_official_content must be boolean" });
+      const classId = (request.params as { classId: string }).classId;
+      const classroom = await withTenant(pool, principal.tenantId, async (client) => (await client.query(
+        `update identity_class cl
+            set allow_official_content=$3,updated_at=now()
+          where cl.tenant_id=$1 and cl.class_id=$2 and cl.status='active'
+            and exists (
+              select 1 from identity_class_user cu
+               where cu.tenant_id=cl.tenant_id and cu.class_id=cl.class_id
+                 and cu.user_id=$4 and cu.class_role='teacher' and cu.status='active'
+            )
+        returning cl.class_id,cl.name,cl.allow_official_content,cl.status,cl.updated_at`,
+        [principal.tenantId, classId, allowOfficialContent, principal.userId],
+      )).rows[0]);
+      return classroom ? classroom : reply.code(404).send({ error: "class not found" });
     });
 
     app.post("/api/classes/join", async (request, reply) => {
@@ -166,22 +274,19 @@ await startService({
       if (code.length < 6 || code.length > 12) return reply.code(422).send({ error: "invalid class code" });
       const result = await withTenant(pool, principal.tenantId, async (client) => {
         const classroom = (await client.query(
-          `select cl.class_id,cl.name,cl.teacher_id,u.display_name as teacher_name from identity_class cl
-           join identity_user u on u.user_id=cl.teacher_id where cl.join_code=$1`, [code],
+          `select cl.class_id,cl.name,cl.allow_official_content,
+                  cl.created_by_user_id as teacher_id,
+                  u.display_name as teacher_name
+             from identity_class cl
+             join identity_user u on u.user_id=cl.created_by_user_id
+            where cl.tenant_id=$1 and cl.join_code=$2 and cl.status='active'`, [principal.tenantId, code],
         )).rows[0];
         if (!classroom) return { status: 404 as const, error: "class code not found" };
-        const active = (await client.query(
-          `select teacher_id from identity_teacher_student_binding where student_id=$1 and status='active'`, [principal.userId],
-        )).rows[0];
-        if (active && active.teacher_id !== classroom.teacher_id) return { status: 409 as const, error: "student is already bound to another teacher" };
         await client.query(
-          `insert into identity_class_member(tenant_id,class_id,student_id) values($1,$2,$3)
-           on conflict(class_id,student_id) do nothing`, [principal.tenantId, classroom.class_id, principal.userId],
-        );
-        if (!active) await client.query(
-          `insert into identity_teacher_student_binding(binding_id,tenant_id,teacher_id,student_id,status,created_by,payload)
-           values($1,$2,$3,$4,'active',$4,$5)`,
-          [`bind_${randomUUID().replaceAll("-", "")}`, principal.tenantId, classroom.teacher_id, principal.userId, JSON.stringify({ source: "class_code", class_id: classroom.class_id })],
+          `insert into identity_class_user(tenant_id,class_id,user_id,class_role,status,added_by_user_id)
+           values($1,$2,$3,'student','active',$3)
+           on conflict (class_id,user_id) do update set status='active'
+             where identity_class_user.class_role='student'`, [principal.tenantId, classroom.class_id, principal.userId],
         );
         return { status: 200 as const, classroom };
       });
@@ -192,21 +297,36 @@ await startService({
     app.get("/api/my-class", async (request, reply) => {
       const principal = await principalOf(request, reply); if (!principal) return;
       const classes = await withTenant(pool, principal.tenantId, async (client) => (await client.query(
-        `select cl.class_id,cl.name,u.display_name as teacher_name,cm.created_at as joined_at
-         from identity_class_member cm join identity_class cl on cl.class_id=cm.class_id
-         join identity_user u on u.user_id=cl.teacher_id where cm.student_id=$1 order by cm.created_at desc`, [principal.userId],
+        `select cl.class_id,cl.name,cl.allow_official_content,
+                cl.created_by_user_id as teacher_id,
+                u.display_name as teacher_name,cu.joined_at
+           from identity_class_user cu
+           join identity_class cl on cl.class_id=cu.class_id and cl.tenant_id=cu.tenant_id
+           join identity_user u on u.user_id=cl.created_by_user_id
+          where cu.tenant_id=$1 and cu.user_id=$2 and cu.class_role='student'
+            and cu.status='active' and cl.status='active'
+          order by cu.joined_at desc`, [principal.tenantId, principal.userId],
       )).rows);
       return { classes };
     });
 
     app.get("/api/my-teacher", async (request, reply) => {
       const principal = await principalOf(request, reply); if (!principal) return;
-      const binding = await withTenant(pool, principal.tenantId, async (client) => (await client.query(
-        `select b.binding_id,b.teacher_id,u.display_name as teacher_name,b.created_at
-         from identity_teacher_student_binding b join identity_user u on u.user_id=b.teacher_id
-         where b.student_id=$1 and b.status='active'`, [principal.userId],
-      )).rows[0]);
-      return { binding: binding ?? null };
+      const teachers = await withTenant(pool, principal.tenantId, async (client) => (await client.query(
+        `select t.user_id as teacher_id,t.display_name as teacher_name,
+                count(distinct cu.class_id)::int as class_count,
+                min(cu.joined_at) as first_joined_at
+           from identity_class_user mine
+           join identity_class_user cu
+             on cu.tenant_id=mine.tenant_id and cu.class_id=mine.class_id
+            and cu.class_role='teacher' and cu.status='active'
+           join identity_user t on t.user_id=cu.user_id
+           join identity_class cl on cl.class_id=mine.class_id and cl.tenant_id=mine.tenant_id
+          where mine.tenant_id=$1 and mine.user_id=$2 and mine.class_role='student'
+            and mine.status='active' and cl.status='active'
+          group by t.user_id,t.display_name order by min(cu.joined_at)`, [principal.tenantId, principal.userId],
+      )).rows);
+      return { teachers };
     });
   },
 });

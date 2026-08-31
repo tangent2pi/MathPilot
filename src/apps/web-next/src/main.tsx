@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { Assistant } from "./assistant";
+import { App } from "./app";
 import "./styles/globals.css";
 
 if (localStorage.getItem("mathpilot:theme") === "dark") {
@@ -9,6 +9,6 @@ if (localStorage.getItem("mathpilot:theme") === "dark") {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Assistant />
+    <App />
   </StrictMode>,
 );

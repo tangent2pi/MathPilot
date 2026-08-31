@@ -894,7 +894,7 @@ def emit() -> None:
     line("")
     line("insert into identity_user(user_id, tenant_id, oidc_sub, display_name, roles)")
     line("values")
-    line("  ('usr_teacher01', 'tnt_dev00001', 'sub-teacher-dev', 'Dev Teacher', '{teacher,content_reviewer}'),")
+    line("  ('usr_teacher01', 'tnt_dev00001', 'sub-teacher-dev', 'Dev Teacher', '{teacher}'),")
     line("  ('usr_student01', 'tnt_dev00001', 'sub-student-dev', 'Dev Student 01', '{student}'),")
     line("  ('usr_student02', 'tnt_dev00001', 'sub-student-02', 'Dev Student 02', '{student}'),")
     line("  ('usr_student03', 'tnt_dev00001', 'sub-student-03', 'Dev Student 03', '{student}')")

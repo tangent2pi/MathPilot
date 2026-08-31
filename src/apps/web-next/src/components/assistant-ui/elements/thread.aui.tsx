@@ -4,7 +4,11 @@ import {
   UserMessageAttachments,
 } from "@/components/assistant-ui/elements/attachment.aui";
 import { MarkdownText } from "@/components/assistant-ui/elements/markdown-text";
-import { ToolFallback } from "@/components/assistant-ui/elements/tool-fallback.aui";
+import {
+  SessionReasoningStep,
+  SessionToolStep,
+  SessionToolTimeline,
+} from "@/components/assistant-ui/elements/session-tool-timeline";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -19,6 +23,7 @@ import {
   MessagePrimitive,
   SuggestionPrimitive,
   ThreadPrimitive,
+  groupPartByType,
   useAuiState,
 } from "@assistant-ui/react";
 import {
@@ -32,7 +37,6 @@ import {
   MicIcon,
   MoreHorizontalIcon,
   PencilIcon,
-  RefreshCwIcon,
   SquareIcon,
 } from "lucide-react";
 import type { FC } from "react";
@@ -89,7 +93,7 @@ export const Thread: FC = () => {
       <ThreadPrimitive.Viewport
         turnAnchor="top"
         data-slot="aui_thread-viewport"
-        className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
+        className="soft-scrollbar relative flex flex-1 flex-col overflow-x-auto overflow-y-auto scroll-smooth"
       >
         <div
           className={cn(
@@ -158,7 +162,7 @@ const ThreadScrollToBottom: FC = () => {
 const ThreadWelcome: FC = () => {
   return (
     <div className="aui-thread-welcome-root mb-6 flex flex-col items-center px-4 text-center">
-      <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-2xl font-medium tracking-tight duration-200">
+      <h1 className="aui-thread-welcome-message-inner text-2xl font-medium tracking-tight">
         How can I help you today?
       </h1>
     </div>
@@ -177,7 +181,7 @@ const ThreadSuggestions: FC = () => {
 
 const ThreadSuggestionItem: FC = () => {
   return (
-    <div className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200">
+    <div className="aui-thread-welcome-suggestion-display">
       <SuggestionPrimitive.Trigger send asChild>
         <Button
           variant="ghost"
@@ -297,25 +301,60 @@ const MessageError: FC = () => {
 const AssistantMessage: FC = () => {
   const ACTION_BAR_PT = "pt-1.5";
   const ACTION_BAR_HEIGHT = `min-h-7.5 ${ACTION_BAR_PT}`;
+  const answerStarted = useAuiState((state) => {
+    const parts = state.message.parts;
+    const lastPart = parts[parts.length - 1];
+    return lastPart?.type === "text" || state.message.status?.type === "incomplete";
+  });
 
   return (
     <MessagePrimitive.Root
       data-slot="aui_assistant-message-root"
       data-role="assistant"
-      className="fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
+      className="relative -mb-7.5 pb-7.5 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
     >
       <div
         data-slot="aui_assistant-message-content"
         className="text-foreground px-2 leading-relaxed wrap-break-word"
       >
-        <MessagePrimitive.Parts>
-          {({ part }) => {
+        <MessagePrimitive.GroupedParts
+          groupBy={groupPartByType({
+            reasoning: ["group-work", "group-reasoning"],
+            "tool-call": ["group-work", "group-tool"],
+          })}
+          indicator="never"
+        >
+          {({ part, children }) => {
+            if (part.type === "group-work") {
+              return (
+                <SessionToolTimeline
+                  count={part.indices.length}
+                  settled={answerStarted}
+                >
+                  {children}
+                </SessionToolTimeline>
+              );
+            }
+            if (part.type === "group-reasoning" || part.type === "group-tool") {
+              return children;
+            }
             if (part.type === "text") return <MarkdownText />;
-            if (part.type === "tool-call")
-              return part.toolUI ?? <ToolFallback {...part} />;
+            if (part.type === "reasoning") {
+              return <SessionReasoningStep active={part.status.type === "running"} />;
+            }
+            if (part.type === "tool-call") {
+              return (
+                <SessionToolStep
+                  part={part}
+                  active={part.status.type === "running"}
+                >
+                  {part.toolUI}
+                </SessionToolStep>
+              );
+            }
             return null;
           }}
-        </MessagePrimitive.Parts>
+        </MessagePrimitive.GroupedParts>
         <AuiIf
           condition={(s) =>
             s.message.status?.type === "running" && s.message.parts.length === 0
@@ -360,11 +399,6 @@ const AssistantActionBar: FC = () => {
           </AuiIf>
         </TooltipIconButton>
       </ActionBarPrimitive.Copy>
-      <ActionBarPrimitive.Reload asChild>
-        <TooltipIconButton tooltip="Refresh">
-          <RefreshCwIcon />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Reload>
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton
@@ -396,7 +430,7 @@ const UserMessage: FC = () => {
   return (
     <MessagePrimitive.Root
       data-slot="aui_user-message-root"
-      className="fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto] [&:where(>*)]:col-start-2"
+      className="grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 [contain-intrinsic-size:auto_200px] [content-visibility:auto] [&:where(>*)]:col-start-2"
       data-role="user"
     >
       <UserMessageAttachments />

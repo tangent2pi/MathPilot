@@ -19,7 +19,7 @@ export default async (pi: ExtensionAPI) => {
     const content = [
       "本轮用户上传了以下文件。文件已由宿主完成权限校验并放入当前线程工作区；需要读取时仅使用所列相对路径：",
       ...match.attachments.map((file) =>
-        `- ${file.workspacePath}（MIME：${file.mimeType}；${file.byteSize} bytes）`,
+        `- ${file.workspacePath}（对象：${file.storageObjectId}；版本：${file.versionId}；SHA-256：${file.sha256}；MIME：${file.mimeType}；${file.byteSize} bytes）`,
       ),
     ].join("\n");
 

@@ -2,8 +2,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { readHostPrincipal } from "./lib/host-principal.ts";
 
-const CONTENT_URL = (process.env.CONTENT_LIBRARY_URL ?? process.env.CONTENT_URL ?? "http://content:3006").replace(/\/$/, "");
-const CONTENT_SECRET = process.env.CONTENT_LIBRARY_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
+const CONTENT_URL = (process.env.CONTENT_NEXT_URL ?? process.env.CONTENT_LIBRARY_URL ?? "http://content-next:3016").replace(/\/$/, "");
+const CONTENT_SECRET = process.env.CONTENT_NEXT_SECRET ?? process.env.CONTENT_LIBRARY_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
 const MAX_LIMIT = 50;
 
 const entityKind = Type.Union([

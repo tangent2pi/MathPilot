@@ -17,6 +17,9 @@ const TURN_ID = "22222222-2222-4222-8222-222222222222";
 
 const attachment: WorkspaceAttachment = {
   id: ATTACHMENT_ID,
+  storageObjectId: "obj_attachment_test",
+  versionId: "version-test",
+  sha256: "a".repeat(64),
   originalName: "作业.pdf",
   workspacePath: "input/original/作业.pdf",
   mimeType: "application/pdf",

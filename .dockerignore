@@ -1,4 +1,14 @@
 .git
+.claude
+.agents
+.codex
+**/.claude
+**/.agents
+**/.codex
+.env
+.env.*
+**/.env
+**/.env.*
 # Qwen-MM-Plugins 是 Agent 镜像的固定本地上游。仅把这一份克隆送入构建上下文；
 # 其余研究参考仍不进入镜像。
 references/*

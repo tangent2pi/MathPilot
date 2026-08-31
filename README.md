@@ -26,8 +26,10 @@
 apps/web-next（正式对话前端：assistant-ui Thread / ThreadList / Generative UI）
 services/api-next（Better Auth 网关与账户/线程授权）
 services/pi-chat-runtime（自托管 react-pi 线程宿主：Pi JSONL/工作区/附件/卡片）
+services/content-next（新对话的规范化 K/T/Q/E/R、候选复核、ER handoff、内容包）
+services/storage-next（私有 MinIO 对象登记、校验、浏览器预签名直传直下）
 services/agent-runtime（既有批处理 Pi 宿主；不承载 next 对话线程）
-services/content（原始资料→KTQ→独立 ER→复核；OCR 由 Agent 按原件质量决定）
+services/content（旧 learning 链保留实现；不作为 Next 内容事实入口）
 services/learning（一题一 Session：判答→错因归因→追问卡→双产物）
 services/profile（画像采集→Dream 三段式（pyBKT Roster 基准+画像大模型）→快照/计划）
 services/review（教师复核：supersede+重放+修订 SLR）
@@ -58,13 +60,13 @@ docker compose up -d   # 主库+Pi 库+MinIO+领域服务+next 对话入口(8080
 - 全 workspace `tsc --noEmit` 全绿；mastery（BKT 对拍）/retention/selector 契约测试全绿；
 - 统一九项 Skill 树通过 `skill-creator` 结构检查；自动测试覆盖元数据、模板、上游固定提交、有效输出与危险/损坏输出拒绝；
 - 21 契约 schema 样例校验通过；PaddleOCR-VL 接口、原件/版面/图片持久化与 Agent 路由已接入；
-- 当前数据库保留教师实测得到的 84 道暂存题、33 个题图资产和 114 项待复核事项；正式学生库仍为空，人工复核完成前不会显示发布入口；
+- 官方初始内容由 home 已提取的 K/T/Q/E/R 五份清单一次导入，共 174 个固定修订；学生案例不导入。教师新内容经普通 Pi KTQ/ER 会话、独立复核页和班级发布生成；
 - 无模型 key 时所有模型路径**显式 502 不伪造**（严禁回退方案纪律）。
 
 ## 项目资料索引
 
 - 代码仓库：本仓库（含 README/部署说明）
-- 结构化数据快照：`data/`（从 PostgreSQL 派生导出，不是运行时数据源）
+- 官方初始清单：`db/migration-data/official-content-manifest.csv` → `data/` 中五份已核验 CSV（导入后 PostgreSQL 为事实源）
 - 产品与交互：`design-docs/产品重构基线v1-用户任务与信息架构.md`、`design-docs/Web信息架构与响应式交互重构v2.md`
 - Agent 架构：`design-docs/统一Pi-Agent能力壳与工作区会话架构v1.md`、`design-docs/架构修订v4-Pi原生运行时与成品复用.md`
 - 数据说明：`docs/数据整理说明.md`

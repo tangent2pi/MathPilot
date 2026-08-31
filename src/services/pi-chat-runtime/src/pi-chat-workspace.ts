@@ -1,4 +1,4 @@
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, chown, lchown, mkdir, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const AGENTS_MD = `# MathPilot 教学对话工作区
@@ -21,11 +21,33 @@ const DIRS = [
   "output/artifacts", "output/drafts", "tmp", ".agent",
 ];
 
+async function repairRetiredLauncherOwnership(root: string, uid: number, gid: number): Promise<void> {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const target = path.join(root, entry.name);
+    if (entry.isDirectory()) await repairRetiredLauncherOwnership(target, uid, gid);
+    else await lchown(target, uid, gid);
+  }
+  await chown(root, uid, gid);
+}
+
 export async function assemblePiChatWorkspace(root: string, skillsRoot: string): Promise<void> {
   await mkdir(root, { recursive: true, mode: 0o700 });
   await chmod(root, 0o700);
   for (const dir of DIRS) await mkdir(path.join(root, dir), { recursive: true });
   await writeFile(path.join(root, "AGENTS.md"), AGENTS_MD.replaceAll("{{SKILLS_ROOT}}", skillsRoot), "utf8");
+  // Repair ownership left by the retired setpriv launchers. The official
+  // runtime now launches as the service identity and performs its own user
+  // namespace/capability drop before the model command starts.
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    const uid = process.getuid();
+    const gid = process.getgid?.() ?? 0;
+    await repairRetiredLauncherOwnership(root, uid, gid);
+    await chmod(root, 0o500);
+    for (const relative of ["output", "tmp"]) {
+      const directory = path.join(root, relative);
+      await chmod(directory, 0o700);
+    }
+  }
 }
 
 export async function bindPiThreadWorkspace(root: string, threadId: string): Promise<void> {
