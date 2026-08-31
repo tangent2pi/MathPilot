@@ -106,6 +106,14 @@ test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-
         occurredAt: input.scheduledAt,
       };
     },
+    async prepareQuestionFinalization() {
+      throw new Error("unexpected FinalizeQuestion Activity in generic runtime test");
+    },
+    async recordFinalJudgment() {},
+    async recordUnresolvedJudgment() {},
+    async commitQuestionClosure() {
+      throw new Error("unexpected FinalizeQuestion commit in generic runtime test");
+    },
   };
   const worker = await Worker.create({
     connection: environment.nativeConnection,

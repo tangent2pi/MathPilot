@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TASK_REGISTRY, directTaskTypeForEvent } from "../src/task-registry.ts";
+import { directWorkflowRoute, workflowInputFromOutbox } from "../src/outbox-routing.ts";
 
 test("Task Registry grants only the documented minimum capabilities", () => {
   for (const task of ["grade", "diagnose", "teach_summary", "light", "rem", "deep"] as const) {
@@ -15,4 +16,17 @@ test("domain workflows are not collapsed into unrelated Pi tasks", () => {
   assert.equal(directTaskTypeForEvent("selection.intent_revised"), "select_question");
   assert.throws(() => directTaskTypeForEvent("question.cut_requested"), /FinalizeQuestionWorkflow/);
   assert.throws(() => directTaskTypeForEvent("teacher.correction_recorded"), /deterministic replay/);
+  assert.equal(directWorkflowRoute("question.cut_requested")?.workflowType, "finalizeQuestionWorkflow");
+  const soft = workflowInputFromOutbox({
+    schemaVersion: 3,
+    eventId: "evt_closed00000001",
+    tenantId: "tnt_test00001",
+    operationId: "op_finalize00000001",
+    eventType: "question.closed",
+    aggregateRef: "question-session:qsn_finalize0001",
+    aggregateVersion: 4,
+    payloadRef: "agent-artifact:art_closed00000001",
+    occurredAt: "2026-08-31T08:00:00.000Z",
+  }, "light");
+  assert.equal(soft.resultOwnership, "parent");
 });

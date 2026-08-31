@@ -20,8 +20,10 @@ import type {
   AgentTaskWorkflowResult,
   AgentTaskWorkflowState,
   AllowedChildWorkflowInput,
+  FinalizeQuestionWorkflowInput,
   LearningNextActivities,
   PiTaskActivityResult,
+  QuestionClosureResult,
   ScheduledDreamTickInput,
   TaskRevision,
   TaskType,
@@ -47,6 +49,9 @@ const assertWorkflowInput = (input: AgentTaskWorkflowInput): void => {
   if (!Number.isSafeInteger(input.aggregateVersion) || input.aggregateVersion < 1
     || !Number.isSafeInteger(input.revision) || input.revision < 1) {
     throw ApplicationFailure.nonRetryable("workflow versions must be positive integers", "invalid_workflow_input");
+  }
+  if (input.resultOwnership !== undefined && input.resultOwnership !== "workflow" && input.resultOwnership !== "parent") {
+    throw ApplicationFailure.nonRetryable("invalid result ownership", "invalid_workflow_input");
   }
   getTaskSpec(input.taskType, input.taskSpecVersion);
 };
@@ -77,6 +82,17 @@ const taskActivityOptions = (taskType: TaskType, taskSpecVersion: string, activi
 const durableActivityOptions = (activityId: string): ActivityOptions => ({
   activityId,
   startToCloseTimeout: "1m",
+  retry: {
+    maximumAttempts: 10,
+    initialInterval: "1s",
+    backoffCoefficient: 2,
+    maximumInterval: "30s",
+  },
+});
+
+const questionCommitActivityOptions = (activityId: string): ActivityOptions => ({
+  activityId,
+  startToCloseTimeout: "2m",
   retry: {
     maximumAttempts: 10,
     initialInterval: "1s",
@@ -162,22 +178,36 @@ export async function agentTaskWorkflow(input: AgentTaskWorkflowInput): Promise<
       activeScope = undefined;
       if (isCancellation(error) && scheduledRevision !== state.revision) continue;
       state.status = isCancellation(error) ? "cancelled" : "failed";
-      await CancellationScope.nonCancellable(() => scheduleActivity<Awaited<ReturnType<LearningNextActivities["markOperationFailed"]>>>(
-        "markOperationFailed",
-        [{
-          tenantId: input.tenantId,
-          operationId: input.operationId,
-          cancelled: isCancellation(error),
-          message: isCancellation(error) ? "操作已取消" : "后台任务失败，请稍后重试",
-        }],
-        durableActivityOptions(`mark-${state.status}`),
-      ));
+      if (input.resultOwnership !== "parent") {
+        await CancellationScope.nonCancellable(() => scheduleActivity<Awaited<ReturnType<LearningNextActivities["markOperationFailed"]>>>(
+          "markOperationFailed",
+          [{
+            tenantId: input.tenantId,
+            operationId: input.operationId,
+            cancelled: isCancellation(error),
+            message: isCancellation(error) ? "操作已取消" : "后台任务失败，请稍后重试",
+          }],
+          durableActivityOptions(`mark-${state.status}`),
+        ));
+      }
       throw error;
     } finally {
       activeScope = undefined;
     }
 
     if (scheduledRevision !== state.revision) continue;
+    if (input.resultOwnership === "parent") {
+      state.status = "succeeded";
+      return {
+        operationId: input.operationId,
+        taskType: input.taskType,
+        status: "succeeded",
+        outputRef: result.outputRef,
+        aggregateRef: input.aggregateRef,
+        aggregateVersion: input.aggregateVersion,
+        revision: scheduledRevision,
+      };
+    }
     const persisted = await scheduleActivity<Awaited<ReturnType<LearningNextActivities["commitOperationResult"]>>>(
       "commitOperationResult",
       [{
@@ -201,6 +231,75 @@ export async function agentTaskWorkflow(input: AgentTaskWorkflowInput): Promise<
       revision: scheduledRevision,
     };
   }
+}
+
+export async function finalizeQuestionWorkflow(input: FinalizeQuestionWorkflowInput): Promise<QuestionClosureResult> {
+  if (input.schemaVersion !== 3
+    || !idempotencyPattern.test(input.operationId)
+    || !idempotencyPattern.test(input.eventId)
+    || !/^qsn_[A-Za-z0-9]{8,}$/.test(input.questionSessionId)
+    || !refPattern.test(input.inputRef)
+    || !Number.isSafeInteger(input.aggregateVersion)
+    || input.aggregateVersion < 1) {
+    throw ApplicationFailure.nonRetryable("invalid FinalizeQuestion input", "invalid_workflow_input");
+  }
+
+  // Once Cut has frozen Attempt admission, external cancellation must not
+  // leave the QuestionSession permanently finalizing. Model failures are
+  // bounded by the grade TaskSpec and become explicit unresolved Judgments.
+  return CancellationScope.nonCancellable(async () => {
+    const prepared = await scheduleActivity<Awaited<ReturnType<LearningNextActivities["prepareQuestionFinalization"]>>>(
+      "prepareQuestionFinalization",
+      [input],
+      questionCommitActivityOptions("prepare-question-finalization"),
+    );
+    for (const [index, task] of prepared.gradeTasks.entries()) {
+      try {
+        const result = await executeChild(agentTaskWorkflow, {
+          args: [task.workflowInput],
+          workflowId: `${workflowInfo().workflowId}:grade:${index + 1}:${task.attemptId}`,
+          parentClosePolicy: ParentClosePolicy.REQUEST_CANCEL,
+        });
+        await scheduleActivity<Awaited<ReturnType<LearningNextActivities["recordFinalJudgment"]>>>(
+          "recordFinalJudgment",
+          [{
+            tenantId: input.tenantId,
+            cutRequestId: prepared.cutRequestId,
+            questionSessionId: input.questionSessionId,
+            attemptId: task.attemptId,
+            judgmentId: task.judgmentId,
+            outputRef: result.outputRef,
+          }],
+          questionCommitActivityOptions(`record-judgment-${index + 1}`),
+        );
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "grading failed";
+        await scheduleActivity<Awaited<ReturnType<LearningNextActivities["recordUnresolvedJudgment"]>>>(
+          "recordUnresolvedJudgment",
+          [{
+            tenantId: input.tenantId,
+            cutRequestId: prepared.cutRequestId,
+            questionSessionId: input.questionSessionId,
+            attemptId: task.attemptId,
+            judgmentId: task.judgmentId,
+            reason: `有界评分未能形成可靠结论：${reason}`.slice(0, 2000),
+          }],
+          questionCommitActivityOptions(`record-unresolved-${index + 1}`),
+        );
+      }
+    }
+    return scheduleActivity<QuestionClosureResult>(
+      "commitQuestionClosure",
+      [{
+        tenantId: input.tenantId,
+        operationId: input.operationId,
+        eventId: input.eventId,
+        cutRequestId: prepared.cutRequestId,
+        questionSessionId: input.questionSessionId,
+      }],
+      questionCommitActivityOptions("commit-question-closure"),
+    );
+  });
 }
 
 const enforceTaskType = (input: AgentTaskWorkflowInput, expected: TaskType): void => {

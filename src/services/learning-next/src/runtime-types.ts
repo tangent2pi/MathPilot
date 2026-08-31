@@ -96,6 +96,7 @@ export interface AgentTaskWorkflowInput {
   revision: number;
   carriedAttempts?: number;
   continueAsNewAfter?: number;
+  resultOwnership?: "workflow" | "parent";
 }
 
 export interface AgentTaskWorkflowResult {
@@ -151,6 +152,64 @@ export interface PersistedOperationResult {
   outputRef: string;
 }
 
+export interface FinalizeQuestionWorkflowInput {
+  schemaVersion: 3;
+  tenantId: string;
+  operationId: string;
+  eventId: string;
+  cutRequestId?: string;
+  questionSessionId: string;
+  aggregateVersion: number;
+  inputRef: string;
+}
+
+export interface PreparedQuestionFinalization {
+  tenantId: string;
+  operationId: string;
+  cutRequestId: string;
+  questionSessionId: string;
+  gradeTasks: ReadonlyArray<{
+    attemptId: string;
+    judgmentId: string;
+    workflowInput: AgentTaskWorkflowInput;
+  }>;
+}
+
+export interface RecordFinalJudgmentInput {
+  tenantId: string;
+  cutRequestId: string;
+  questionSessionId: string;
+  attemptId: string;
+  judgmentId: string;
+  outputRef: string;
+}
+
+export interface RecordUnresolvedJudgmentInput {
+  tenantId: string;
+  cutRequestId: string;
+  questionSessionId: string;
+  attemptId: string;
+  judgmentId: string;
+  reason: string;
+}
+
+export interface CommitQuestionClosureInput {
+  tenantId: string;
+  operationId: string;
+  eventId: string;
+  cutRequestId: string;
+  questionSessionId: string;
+}
+
+export interface QuestionClosureResult {
+  questionClosureId: string;
+  questionSessionId: string;
+  status: "closed" | "abandoned";
+  sessionVersion: number;
+  judgmentRefs: readonly string[];
+  observationRefs: readonly string[];
+}
+
 export interface PiExecutorRequest {
   agentAttemptId: string;
   tenantId: string;
@@ -179,4 +238,8 @@ export interface LearningNextActivities {
   commitOperationResult(input: CommitOperationResultInput): Promise<PersistedOperationResult>;
   markOperationFailed(input: { tenantId: string; operationId: string; cancelled: boolean; message: string }): Promise<void>;
   enqueueScheduledDream(input: { tenantId: string; phase: "rem" | "deep"; scheduledAt: string }): Promise<OutboxWorkflowStart>;
+  prepareQuestionFinalization(input: FinalizeQuestionWorkflowInput): Promise<PreparedQuestionFinalization>;
+  recordFinalJudgment(input: RecordFinalJudgmentInput): Promise<void>;
+  recordUnresolvedJudgment(input: RecordUnresolvedJudgmentInput): Promise<void>;
+  commitQuestionClosure(input: CommitQuestionClosureInput): Promise<QuestionClosureResult>;
 }

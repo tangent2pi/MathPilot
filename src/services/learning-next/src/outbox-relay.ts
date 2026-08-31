@@ -7,7 +7,11 @@ import {
   WorkflowIdReusePolicy,
 } from "@temporalio/common";
 import pg from "pg";
-import { directWorkflowRoute, workflowInputFromOutbox } from "./outbox-routing.ts";
+import {
+  directWorkflowRoute,
+  finalizeQuestionInputFromOutbox,
+  workflowInputFromOutbox,
+} from "./outbox-routing.ts";
 import { OUTBOX_EVENT_TYPES, type OutboxEventType, type OutboxWorkflowStart } from "./runtime-types.ts";
 
 interface PendingWorkflowRow {
@@ -125,8 +129,11 @@ export class OutboxRelay {
       try {
         let duplicate = false;
         try {
+          const workflowInput = route.workflowType === "finalizeQuestionWorkflow"
+            ? finalizeQuestionInputFromOutbox(event)
+            : workflowInputFromOutbox(event, route.taskType);
           await this.client.start(route.workflowType, {
-            args: [workflowInputFromOutbox(event, route.taskType)],
+            args: [workflowInput],
             taskQueue: this.options.taskQueue,
             workflowId,
             workflowIdReusePolicy: WorkflowIdReusePolicy.REJECT_DUPLICATE,

@@ -74,4 +74,12 @@ select u.tenant_id, u.user_id, r.role, null
  where r.role in ('teacher', 'student')
 on conflict (user_id, role) do nothing;
 
+-- science-v3 keeps login and student fact identities distinct. These are
+-- explicit development subjects, not a backfill from legacy learning rows.
+insert into science_v3_student(student_id,tenant_id,user_id) values
+  ('stu_student01','tnt_dev00001','usr_student01'),
+  ('stu_student02','tnt_dev00001','usr_student02'),
+  ('stu_student03','tnt_dev00001','usr_student03')
+on conflict (tenant_id,user_id) do nothing;
+
 commit;

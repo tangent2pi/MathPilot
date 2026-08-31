@@ -4,6 +4,7 @@ import { NativeConnection, Worker } from "@temporalio/worker";
 import { createActivities } from "./activities.ts";
 import { OutboxRelay, PostgresOutboxRelayStore } from "./outbox-relay.ts";
 import { createPiSdkTaskExecutorFromEnvironment } from "./pi-task-executor.ts";
+import { PostgresQuestionStore } from "./question-store.ts";
 import { PostgresRuntimeStore } from "./runtime-store.ts";
 import { ensureDreamSchedules } from "./schedules.ts";
 
@@ -33,6 +34,7 @@ async function main(): Promise<void> {
   if (!tenantIds.length) throw new Error("LEARNING_NEXT_TENANT_IDS must contain at least one tenant");
 
   const runtimeStore = new PostgresRuntimeStore(databaseUrl);
+  const questionStore = new PostgresQuestionStore(databaseUrl);
   const relayStore = new PostgresOutboxRelayStore(databaseUrl);
   const connection = await NativeConnection.connect({ address: temporalAddress });
   const controller = new AbortController();
@@ -43,7 +45,7 @@ async function main(): Promise<void> {
 
   try {
     const executor = await createPiSdkTaskExecutorFromEnvironment();
-    const activities = createActivities({ store: runtimeStore, executor });
+    const activities = createActivities({ store: runtimeStore, questionStore, executor });
     worker = await Worker.create({
       connection,
       namespace: temporalNamespace,
@@ -79,7 +81,7 @@ async function main(): Promise<void> {
   } finally {
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
-    await Promise.allSettled([runtimeStore.close(), relayStore.close()]);
+    await Promise.allSettled([runtimeStore.close(), questionStore.close(), relayStore.close()]);
     await connection.close();
   }
 }

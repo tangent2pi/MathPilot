@@ -1,5 +1,10 @@
 import { directTaskTypeForEvent } from "./task-registry.ts";
-import type { AgentTaskWorkflowInput, OutboxWorkflowStart, TaskType } from "./runtime-types.ts";
+import type {
+  AgentTaskWorkflowInput,
+  FinalizeQuestionWorkflowInput,
+  OutboxWorkflowStart,
+  TaskType,
+} from "./runtime-types.ts";
 
 export const DIRECT_WORKFLOW_TYPES = {
   select_question: "selectQuestionWorkflow",
@@ -13,8 +18,14 @@ export interface DirectWorkflowRoute {
   taskType: keyof typeof DIRECT_WORKFLOW_TYPES;
 }
 
-export function directWorkflowRoute(eventType: string): DirectWorkflowRoute | undefined {
-  if (eventType === "question.cut_requested" || eventType === "teacher.correction_recorded") return undefined;
+export interface FinalizeQuestionWorkflowRoute {
+  workflowType: "finalizeQuestionWorkflow";
+  taskType?: undefined;
+}
+
+export function directWorkflowRoute(eventType: string): DirectWorkflowRoute | FinalizeQuestionWorkflowRoute | undefined {
+  if (eventType === "question.cut_requested") return { workflowType: "finalizeQuestionWorkflow" };
+  if (eventType === "teacher.correction_recorded") return undefined;
   const taskType = directTaskTypeForEvent(eventType);
   if (!(taskType in DIRECT_WORKFLOW_TYPES)) throw new Error(`task ${taskType} has no direct outbox Workflow`);
   return {
@@ -36,5 +47,20 @@ export function workflowInputFromOutbox(event: OutboxWorkflowStart, taskType: Ta
     inputRef: event.payloadRef,
     idempotencyKey: event.eventId,
     revision: event.aggregateVersion,
+    ...(event.eventType === "question.closed" ? { resultOwnership: "parent" as const } : {}),
+  };
+}
+
+export function finalizeQuestionInputFromOutbox(event: OutboxWorkflowStart): FinalizeQuestionWorkflowInput {
+  const match = /^question-session:(qsn_[A-Za-z0-9]{8,})$/.exec(event.aggregateRef);
+  if (!match || event.eventType !== "question.cut_requested") throw new Error("invalid question cut outbox envelope");
+  return {
+    schemaVersion: 3,
+    tenantId: event.tenantId,
+    operationId: event.operationId,
+    eventId: event.eventId,
+    questionSessionId: match[1]!,
+    aggregateVersion: event.aggregateVersion,
+    inputRef: event.payloadRef,
   };
 }

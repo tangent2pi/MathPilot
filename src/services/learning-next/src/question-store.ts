@@ -1,0 +1,610 @@
+import { createHash } from "node:crypto";
+import pg from "pg";
+import type {
+  AgentTaskWorkflowInput,
+  CommitQuestionClosureInput,
+  FinalizeQuestionWorkflowInput,
+  PreparedQuestionFinalization,
+  QuestionClosureResult,
+  RecordFinalJudgmentInput,
+  RecordUnresolvedJudgmentInput,
+} from "./runtime-types.ts";
+
+const idFrom = (prefix: string, value: string, length = 24): string =>
+  `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, length)}`;
+
+const jsonArtifact = (value: unknown): { json: string; sha256: string } => {
+  const json = JSON.stringify(value);
+  if (json === undefined) throw new Error("question artifact must be JSON serializable");
+  if (Buffer.byteLength(json, "utf8") > 1024 * 1024) throw new Error("question artifact exceeds 1 MiB");
+  return { json, sha256: createHash("sha256").update(json).digest("hex") };
+};
+
+const artifactIdFromRef = (ref: string): string => {
+  const match = /^agent-artifact:(art_[A-Za-z0-9]{8,})$/.exec(ref);
+  if (!match) throw new Error("outputRef must be an agent-artifact reference");
+  return match[1]!;
+};
+
+const recordValue = (value: unknown, name: string): Record<string, unknown> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} must be an object`);
+  return value as Record<string, unknown>;
+};
+
+const stringValue = (value: unknown, name: string, maximum = 2000): string => {
+  if (typeof value !== "string" || !value.trim() || value.length > maximum) throw new Error(`${name} is invalid`);
+  return value;
+};
+
+const stringArray = (value: unknown, name: string, minimum = 0): string[] => {
+  if (!Array.isArray(value) || value.length < minimum || !value.every((item) => typeof item === "string" && item.length > 0)) {
+    throw new Error(`${name} is invalid`);
+  }
+  return [...new Set(value as string[])];
+};
+
+const enumValue = <T extends string>(value: unknown, name: string, choices: readonly T[]): T => {
+  if (typeof value !== "string" || !choices.includes(value as T)) throw new Error(`${name} is invalid`);
+  return value as T;
+};
+
+interface PreparedRow {
+  operation_id: string;
+  operation_status: string;
+  event_id: string;
+  cut_request_id: string;
+  question_session_id: string;
+  question_session_version: string;
+  payload_ref: string;
+  frozen_attempt_sequence: string;
+  question_revision_id: string | null;
+  external_question_ref: string | null;
+  frozen_measurement_contract: Record<string, unknown>;
+  lifecycle: string;
+}
+
+interface AttemptRow {
+  attempt_id: string;
+  question_revision_id: string;
+  student_id: string;
+  kind: "answer" | "probe" | "correction" | "explanation";
+  content_refs: string[];
+  hint_level: number;
+  submitted_at: Date;
+  parts: unknown;
+}
+
+interface QuestionMaterialRow {
+  stem_markdown: string | null;
+  analysis_markdown: string | null;
+  answer_items: unknown;
+  rubric_items: unknown;
+  measurement_targets: unknown;
+}
+
+export interface QuestionStore {
+  prepareFinalization(input: FinalizeQuestionWorkflowInput): Promise<PreparedQuestionFinalization>;
+  recordFinalJudgment(input: RecordFinalJudgmentInput): Promise<void>;
+  recordUnresolvedJudgment(input: RecordUnresolvedJudgmentInput): Promise<void>;
+  commitClosure(input: CommitQuestionClosureInput): Promise<QuestionClosureResult>;
+  close(): Promise<void>;
+}
+
+export class PostgresQuestionStore implements QuestionStore {
+  private readonly pool: pg.Pool;
+
+  constructor(connectionString: string) {
+    this.pool = new pg.Pool({ connectionString, max: 6 });
+  }
+
+  private async withTenant<T>(tenantId: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      await client.query(
+        "select set_config('app.current_tenant',$1,true), set_config('app.current_user','',true), set_config('app.current_roles','',true)",
+        [tenantId],
+      );
+      const value = await fn(client);
+      await client.query("commit");
+      return value;
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async prepareFinalization(input: FinalizeQuestionWorkflowInput): Promise<PreparedQuestionFinalization> {
+    return this.withTenant(input.tenantId, async (client) => {
+      const prepared = await client.query<PreparedRow>(
+        `select c.operation_id,o.status as operation_status,e.event_id,c.cut_request_id,c.question_session_id,
+                q.version as question_session_version,c.payload_ref,c.frozen_attempt_sequence,
+                q.question_revision_id,q.external_question_ref,q.frozen_measurement_contract,q.lifecycle
+           from science_v3_cut_request c
+           join science_v3_question_session q
+             on q.tenant_id=c.tenant_id and q.question_session_id=c.question_session_id
+           join science_v3_operation o
+             on o.tenant_id=c.tenant_id and o.operation_id=c.operation_id
+           join infra_outbox e
+             on e.tenant_id=c.tenant_id and e.operation_id=c.operation_id
+            and e.event_type='question.cut_requested'
+          where c.tenant_id=$1 and c.operation_id=$2 and c.question_session_id=$3
+            and ($4::text is null or c.cut_request_id=$4)
+            and e.event_id=$5
+          for update of q,o`,
+        [input.tenantId, input.operationId, input.questionSessionId, input.cutRequestId ?? null, input.eventId],
+      );
+      const row = prepared.rows[0];
+      if (!row || row.operation_id !== input.operationId) throw new Error("cut request does not match FinalizeQuestion input");
+      if (row.payload_ref !== input.inputRef || Number(row.question_session_version) !== input.aggregateVersion) {
+        throw new Error("FinalizeQuestion envelope does not match the frozen Cut");
+      }
+      if (row.lifecycle !== "finalizing") {
+        const closed = await client.query("select 1 from science_v3_question_closure where tenant_id=$1 and cut_request_id=$2", [input.tenantId, row.cut_request_id]);
+        if (closed.rowCount) return {
+          tenantId: input.tenantId,
+          operationId: input.operationId,
+          cutRequestId: row.cut_request_id,
+          questionSessionId: input.questionSessionId,
+          gradeTasks: [],
+        };
+        throw new Error("question session is not finalizing");
+      }
+      if (row.operation_status === "accepted") {
+        await client.query(
+          `update science_v3_operation
+              set status='running',user_message='正在完成题目结算',updated_at=clock_timestamp(),version=version+1
+            where tenant_id=$1 and operation_id=$2 and status='accepted'`,
+          [input.tenantId, input.operationId],
+        );
+      } else if (row.operation_status !== "running") {
+        throw new Error("finalize operation is not runnable");
+      }
+
+      const attempts = await client.query<AttemptRow>(
+        `select a.attempt_id,a.question_revision_id,a.student_id,a.kind,a.content_refs,
+                a.hint_level,a.submitted_at,m.parts
+           from science_v3_attempt a
+           join science_v3_canonical_message m
+             on m.tenant_id=a.tenant_id and m.message_id=a.message_id
+          where a.tenant_id=$1 and a.question_session_id=$2
+            and a.session_sequence <= $3
+            and not exists (
+              select 1 from science_v3_attempt newer
+               where newer.tenant_id=a.tenant_id and newer.supersedes_attempt_id=a.attempt_id
+            )
+            and not exists (
+              select 1 from science_v3_judgment j
+               where j.tenant_id=a.tenant_id and j.attempt_id=a.attempt_id
+                 and not exists (
+                   select 1 from science_v3_judgment newer_j
+                    where newer_j.tenant_id=j.tenant_id and newer_j.supersedes_judgment_id=j.judgment_id
+                 )
+            )
+          order by a.session_sequence`,
+        [input.tenantId, input.questionSessionId, row.frozen_attempt_sequence],
+      );
+      const material = await client.query<QuestionMaterialRow>(
+        `select q.stem_markdown,q.analysis_markdown,
+                coalesce((select jsonb_agg(jsonb_build_object(
+                  'item_id',i.item_id,'answer_text',a.answer_text,'equivalence_rule',a.equivalence_rule
+                ) order by i.position)
+                  from content_revision_item i join content_question_answer_item a using (item_id)
+                 where i.tenant_id=q.tenant_id and i.revision_id=q.revision_id),'[]'::jsonb) as answer_items,
+                coalesce((select jsonb_agg(jsonb_build_object(
+                  'rubric_item_id',i.item_id,'criterion',r.criterion,'score',r.score
+                ) order by i.position)
+                  from content_revision_item i join content_question_rubric_item r using (item_id)
+                 where i.tenant_id=q.tenant_id and i.revision_id=q.revision_id),'[]'::jsonb) as rubric_items,
+                coalesce((select jsonb_agg(jsonb_build_object(
+                  'measurement_rule_id',i.item_id,'dimension_revision_id',t.dimension_revision_id,
+                  'target_role',t.target_role,'evidence_rule',t.evidence_rule
+                ) order by i.position)
+                  from content_revision_item i join content_question_measurement_target t using (item_id)
+                 where i.tenant_id=q.tenant_id and i.revision_id=q.revision_id),'[]'::jsonb) as measurement_targets
+           from content_question_revision q
+          where q.tenant_id=$1 and q.revision_id=$2`,
+        [input.tenantId, row.question_revision_id],
+      );
+      const question = material.rows[0] ?? {
+        stem_markdown: null,
+        analysis_markdown: null,
+        answer_items: [],
+        rubric_items: [],
+        measurement_targets: [],
+      };
+
+      const gradeTasks: Array<PreparedQuestionFinalization["gradeTasks"][number]> = [];
+      for (const attempt of attempts.rows) {
+        const judgmentId = idFrom("jdg", `${row.cut_request_id}\0${attempt.attempt_id}`);
+        const artifactId = idFrom("art", `${row.cut_request_id}\0${attempt.attempt_id}\0grade-input`);
+        const bundle = {
+          schema_version: 3,
+          task_type: "grade",
+          target_judgment_id: judgmentId,
+          cut_request_ref: `cut-request:${row.cut_request_id}`,
+          question_session: {
+            question_session_id: input.questionSessionId,
+            question_revision_id: row.question_revision_id,
+            external_question_ref: row.external_question_ref,
+            frozen_measurement_contract: row.frozen_measurement_contract,
+          },
+          question: {
+            question_revision_id: row.question_revision_id,
+            stem_markdown: question.stem_markdown,
+            analysis_markdown: question.analysis_markdown,
+            answer_items: question.answer_items,
+            rubric_items: question.rubric_items,
+            measurement_targets: question.measurement_targets,
+          },
+          attempt: {
+            attempt_id: attempt.attempt_id,
+            question_revision_id: attempt.question_revision_id,
+            student_ref: `student:${attempt.student_id}`,
+            kind: attempt.kind,
+            content_refs: attempt.content_refs,
+            response_parts: attempt.parts,
+            hint_level: attempt.hint_level,
+            submitted_at: attempt.submitted_at.toISOString(),
+          },
+          output_requirements: {
+            schema_version: 3,
+            fact_version: 1,
+            fact_type: "judgment",
+            judgment_id: judgmentId,
+            attempt_id: attempt.attempt_id,
+            evidence_refs_must_come_from: attempt.content_refs,
+          },
+        };
+        const artifact = jsonArtifact(bundle);
+        await client.query(
+          `insert into science_v3_agent_artifact (
+             artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
+           ) values ($1,$2,$3,'input_bundle',$4,$5::jsonb,$6)
+           on conflict (artifact_id) do nothing`,
+          [artifactId, input.tenantId, input.operationId, "https://schemas.mathpilot.dev/science-v3/grade-input/v1", artifact.json, artifact.sha256],
+        );
+        const workflowInput: AgentTaskWorkflowInput = {
+          schemaVersion: 3,
+          tenantId: input.tenantId,
+          operationId: input.operationId,
+          eventId: input.eventId,
+          aggregateRef: `question-session:${input.questionSessionId}`,
+          aggregateVersion: Number(row.question_session_version),
+          taskType: "grade",
+          taskSpecVersion: "v1",
+          inputRef: `agent-artifact:${artifactId}`,
+          idempotencyKey: `${row.cut_request_id}:grade:${attempt.attempt_id}`,
+          revision: 1,
+          resultOwnership: "parent",
+        };
+        gradeTasks.push({ attemptId: attempt.attempt_id, judgmentId, workflowInput });
+      }
+      return {
+        tenantId: input.tenantId,
+        operationId: input.operationId,
+        cutRequestId: row.cut_request_id,
+        questionSessionId: input.questionSessionId,
+        gradeTasks,
+      };
+    });
+  }
+
+  async recordFinalJudgment(input: RecordFinalJudgmentInput): Promise<void> {
+    const artifactId = artifactIdFromRef(input.outputRef);
+    await this.withTenant(input.tenantId, async (client) => {
+      const existing = await client.query<{ attempt_id: string }>(
+        "select attempt_id from science_v3_judgment where tenant_id=$1 and judgment_id=$2",
+        [input.tenantId, input.judgmentId],
+      );
+      if (existing.rows[0]) {
+        if (existing.rows[0].attempt_id !== input.attemptId) throw new Error("judgment ID conflicts with another Attempt");
+        return;
+      }
+      const source = await client.query<{
+        payload: unknown;
+        resolved_model_id: string | null;
+        prompt_version: string;
+        skill_ref: string;
+        content_refs: string[];
+        frozen_measurement_contract: Record<string, unknown>;
+      }>(
+        `select art.payload,agt.resolved_model_id,agt.prompt_version,agt.skill_ref,
+                a.content_refs,q.frozen_measurement_contract
+           from science_v3_agent_artifact art
+           join science_v3_agent_attempt agt
+             on agt.tenant_id=art.tenant_id and agt.output_ref='agent-artifact:' || art.artifact_id
+           join science_v3_attempt a
+             on a.tenant_id=art.tenant_id and a.attempt_id=$4
+           join science_v3_question_session q
+             on q.tenant_id=a.tenant_id and q.question_session_id=a.question_session_id
+           join science_v3_cut_request c
+             on c.tenant_id=q.tenant_id and c.question_session_id=q.question_session_id
+          where art.tenant_id=$1 and art.artifact_id=$2 and art.artifact_kind='structured_output'
+            and q.question_session_id=$3 and c.cut_request_id=$5
+          order by agt.completed_at desc limit 1`,
+        [input.tenantId, artifactId, input.questionSessionId, input.attemptId, input.cutRequestId],
+      );
+      const row = source.rows[0];
+      if (!row) throw new Error("grade output is not authorized for this cut and Attempt");
+      const proposal = recordValue(row.payload, "Judgment proposal");
+      if (proposal.schema_version !== 3 || proposal.fact_version !== 1 || proposal.fact_type !== "judgment"
+        || proposal.judgment_id !== input.judgmentId || proposal.attempt_id !== input.attemptId) {
+        throw new Error("Judgment proposal identity does not match its frozen task");
+      }
+      const verdict = enumValue(proposal.verdict, "verdict", ["correct", "partially_correct", "incorrect", "unresolved"] as const);
+      const uncertainty = enumValue(proposal.uncertainty, "uncertainty", ["low", "medium", "high"] as const);
+      const decisionSummary = stringValue(proposal.decision_summary, "decision_summary");
+      const evidenceRefs = stringArray(proposal.evidence_refs, "evidence_refs", 1);
+      const allowedEvidence = new Set(row.content_refs);
+      if (evidenceRefs.some((ref) => !allowedEvidence.has(ref))) throw new Error("Judgment cites evidence outside the frozen Attempt");
+
+      if (!Array.isArray(proposal.rubric_results) || proposal.rubric_results.length < 1) throw new Error("rubric_results is invalid");
+      const rubricResults = proposal.rubric_results.map((value, index) => {
+        const item = recordValue(value, `rubric_results[${index}]`);
+        const itemEvidence = stringArray(item.evidence_refs, `rubric_results[${index}].evidence_refs`, 1);
+        if (itemEvidence.some((ref) => !allowedEvidence.has(ref))) throw new Error("rubric result cites evidence outside the frozen Attempt");
+        return {
+          rubric_item_id: stringValue(item.rubric_item_id, "rubric_item_id", 160),
+          status: enumValue(item.status, "rubric status", ["met", "not_met", "unclear"] as const),
+          evidence_refs: itemEvidence,
+        };
+      });
+      const rubricById = new Map(rubricResults.map((item) => [item.rubric_item_id, item.status]));
+      if (!Array.isArray(proposal.dimension_proposals)) throw new Error("dimension_proposals is invalid");
+      const frozenDimensions = new Set(stringArray(row.frozen_measurement_contract.dimension_revision_ids, "frozen dimensions"));
+      const dimensionProposals = proposal.dimension_proposals.map((value, index) => {
+        const item = recordValue(value, `dimension_proposals[${index}]`);
+        const dimension = stringValue(item.dimension_revision_id, "dimension_revision_id", 160);
+        const rubricItem = stringValue(item.rubric_item_id, "rubric_item_id", 160);
+        const outcome = enumValue(item.outcome, "dimension outcome", ["success", "failure", "unresolved"] as const);
+        if (!frozenDimensions.has(dimension)) throw new Error("Judgment proposes an unfrozen dimension");
+        const rubricStatus = rubricById.get(rubricItem);
+        if (!rubricStatus || outcome === "success" && rubricStatus !== "met" || outcome === "failure" && rubricStatus !== "not_met") {
+          throw new Error("dimension proposal contradicts its rubric result");
+        }
+        return { dimension_revision_id: dimension, rubric_item_id: rubricItem, outcome };
+      });
+
+      await client.query(
+        `insert into science_v3_judgment (
+           judgment_id,tenant_id,attempt_id,verdict,rubric_results,dimension_proposals,
+           uncertainty,decision_summary,evidence_refs,model_id,prompt_version,
+           skill_version,created_at,fact_version
+         ) values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,$12,clock_timestamp(),1)`,
+        [
+          input.judgmentId,
+          input.tenantId,
+          input.attemptId,
+          verdict,
+          JSON.stringify(rubricResults),
+          JSON.stringify(dimensionProposals),
+          uncertainty,
+          decisionSummary,
+          evidenceRefs,
+          row.resolved_model_id ?? "unresolved-model",
+          row.prompt_version,
+          row.skill_ref,
+        ],
+      );
+    });
+  }
+
+  async recordUnresolvedJudgment(input: RecordUnresolvedJudgmentInput): Promise<void> {
+    await this.withTenant(input.tenantId, async (client) => {
+      const attempt = await client.query<{ content_refs: string[] }>(
+        `select a.content_refs from science_v3_attempt a
+          join science_v3_cut_request c
+            on c.tenant_id=a.tenant_id and c.question_session_id=a.question_session_id
+         where a.tenant_id=$1 and a.attempt_id=$2 and a.question_session_id=$3
+           and c.cut_request_id=$4 and a.session_sequence <= c.frozen_attempt_sequence`,
+        [input.tenantId, input.attemptId, input.questionSessionId, input.cutRequestId],
+      );
+      const contentRefs = attempt.rows[0]?.content_refs;
+      if (!contentRefs) throw new Error("Attempt is not part of the frozen cut window");
+      const rubricResults = [{ rubric_item_id: "unresolved", status: "unclear", evidence_refs: contentRefs }];
+      await client.query(
+        `insert into science_v3_judgment (
+           judgment_id,tenant_id,attempt_id,verdict,rubric_results,dimension_proposals,
+           uncertainty,decision_summary,evidence_refs,model_id,prompt_version,
+           skill_version,created_at,fact_version
+         ) values ($1,$2,$3,'unresolved',$4::jsonb,'[]'::jsonb,'high',$5,$6,
+                   'mathpilot-host','grade-fallback-v1','question-grade@v1',clock_timestamp(),1)
+         on conflict (tenant_id,attempt_id,fact_version) do nothing`,
+        [input.judgmentId, input.tenantId, input.attemptId, JSON.stringify(rubricResults), input.reason.slice(0, 2000), contentRefs],
+      );
+    });
+  }
+
+  async commitClosure(input: CommitQuestionClosureInput): Promise<QuestionClosureResult> {
+    return this.withTenant(input.tenantId, async (client) => {
+      const existing = await client.query<{
+        question_closure_id: string;
+        question_session_id: string;
+        close_reason: string;
+        judgment_refs: string[];
+        observation_refs: string[];
+        session_version: string;
+      }>(
+        `select c.question_closure_id,c.question_session_id,c.close_reason,
+                c.judgment_refs,c.observation_refs,q.version as session_version
+           from science_v3_question_closure c
+           join science_v3_question_session q
+             on q.tenant_id=c.tenant_id and q.question_session_id=c.question_session_id
+          where c.tenant_id=$1 and c.cut_request_id=$2`,
+        [input.tenantId, input.cutRequestId],
+      );
+      if (existing.rows[0]) return this.closureResult(existing.rows[0]);
+
+      const locked = await client.query<{
+        operation_id: string;
+        operation_status: string;
+        idempotency_key: string;
+        reason: string;
+        frozen_attempt_sequence: string;
+        lifecycle: string;
+        session_version: string;
+      }>(
+        `select c.operation_id,o.status as operation_status,c.idempotency_key,c.reason,
+                c.frozen_attempt_sequence,q.lifecycle,q.version as session_version
+           from science_v3_cut_request c
+           join science_v3_question_session q
+             on q.tenant_id=c.tenant_id and q.question_session_id=c.question_session_id
+           join science_v3_operation o
+             on o.tenant_id=c.tenant_id and o.operation_id=c.operation_id
+          where c.tenant_id=$1 and c.cut_request_id=$2 and c.question_session_id=$3
+          for update of q,o`,
+        [input.tenantId, input.cutRequestId, input.questionSessionId],
+      );
+      const cut = locked.rows[0];
+      if (!cut || cut.operation_id !== input.operationId || cut.lifecycle !== "finalizing" || cut.operation_status !== "running") {
+        throw new Error("question cut is not ready for closure commit");
+      }
+      const missing = await client.query<{ attempt_id: string }>(
+        `select a.attempt_id from science_v3_attempt a
+          where a.tenant_id=$1 and a.question_session_id=$2 and a.session_sequence <= $3
+            and not exists (
+              select 1 from science_v3_attempt newer
+               where newer.tenant_id=a.tenant_id and newer.supersedes_attempt_id=a.attempt_id
+            )
+            and not exists (
+              select 1 from science_v3_judgment j
+               where j.tenant_id=a.tenant_id and j.attempt_id=a.attempt_id
+                 and not exists (
+                   select 1 from science_v3_judgment newer_j
+                    where newer_j.tenant_id=j.tenant_id and newer_j.supersedes_judgment_id=j.judgment_id
+                 )
+            )
+          order by a.session_sequence limit 1`,
+        [input.tenantId, input.questionSessionId, cut.frozen_attempt_sequence],
+      );
+      if (missing.rows[0]) throw new Error(`Attempt ${missing.rows[0].attempt_id} has no final Judgment`);
+
+      const judgments = await client.query<{ ref: string }>(
+        `select 'judgment://' || j.judgment_id as ref
+           from science_v3_judgment j join science_v3_attempt a
+             on a.tenant_id=j.tenant_id and a.attempt_id=j.attempt_id
+          where j.tenant_id=$1 and a.question_session_id=$2 and a.session_sequence <= $3
+            and not exists (
+              select 1 from science_v3_judgment newer
+               where newer.tenant_id=j.tenant_id and newer.supersedes_judgment_id=j.judgment_id
+            )
+          order by a.session_sequence,j.fact_version`,
+        [input.tenantId, input.questionSessionId, cut.frozen_attempt_sequence],
+      );
+      const observations = await client.query<{ ref: string }>(
+        `select 'observation://' || o.observation_id as ref
+           from science_v3_observation o join science_v3_judgment j
+             on j.tenant_id=o.tenant_id and j.judgment_id=o.judgment_id
+           join science_v3_attempt a on a.tenant_id=j.tenant_id and a.attempt_id=j.attempt_id
+          where o.tenant_id=$1 and a.question_session_id=$2 and a.session_sequence <= $3
+            and not exists (
+              select 1 from science_v3_observation newer
+               where newer.tenant_id=o.tenant_id and newer.supersedes_observation_id=o.observation_id
+            )
+          order by o.occurred_at,o.observation_id`,
+        [input.tenantId, input.questionSessionId, cut.frozen_attempt_sequence],
+      );
+      const judgmentRefs = judgments.rows.map((row) => row.ref);
+      const observationRefs = observations.rows.map((row) => row.ref);
+      const closureId = idFrom("qcl", input.cutRequestId);
+      const artifactId = idFrom("art", `${input.cutRequestId}\0question-closed`);
+      const closedEventId = idFrom("evt", `${input.cutRequestId}\0question-closed`);
+      const closedAt = new Date();
+      const sessionVersion = Number(cut.session_version) + 1;
+      const status = cut.reason === "abandoned" ? "abandoned" : "closed";
+      const diagnosticStatus = cut.reason === "skipped" || cut.reason === "abandoned" ? "skipped" : "unclassified";
+      const payload = {
+        schema_version: 3,
+        question_closure_ref: `question-closure:${closureId}`,
+        question_session_ref: `question-session:${input.questionSessionId}`,
+        close_reason: cut.reason,
+        judgment_refs: judgmentRefs,
+        observation_refs: observationRefs,
+        closed_at: closedAt.toISOString(),
+      };
+      const artifact = jsonArtifact(payload);
+
+      await client.query(
+        `insert into science_v3_question_closure (
+           question_closure_id,tenant_id,question_session_id,cut_request_id,operation_id,
+           close_reason,diagnostic_status,judgment_refs,observation_refs,
+           scientific_commit_version,closed_at,version
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10,1)`,
+        [closureId, input.tenantId, input.questionSessionId, input.cutRequestId, input.operationId, cut.reason, diagnosticStatus, judgmentRefs, observationRefs, closedAt],
+      );
+      await client.query(
+        `update science_v3_question_session
+            set lifecycle=$3,closed_at=$4,close_reason=$5,version=$6
+          where tenant_id=$1 and question_session_id=$2`,
+        [input.tenantId, input.questionSessionId, status, closedAt, cut.reason, sessionVersion],
+      );
+      await client.query(
+        `update science_v3_foreground_agent_epoch
+            set ended_at=$3,version=version+1
+          where tenant_id=$1 and active_question_session_id=$2 and ended_at is null`,
+        [input.tenantId, input.questionSessionId, closedAt],
+      );
+      await client.query(
+        `insert into science_v3_agent_artifact (
+           artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
+         ) values ($1,$2,$3,'input_bundle',$4,$5::jsonb,$6)`,
+        [artifactId, input.tenantId, input.operationId, "https://schemas.mathpilot.dev/science-v3/light-input/v1", artifact.json, artifact.sha256],
+      );
+      await client.query(
+        `insert into science_v3_operation_result (
+           tenant_id,operation_id,idempotency_key,result_status,aggregate_ref,
+           aggregate_version,result_resource_refs
+         ) values ($1,$2,$3,'committed',$4,$5,$6)`,
+        [input.tenantId, input.operationId, cut.idempotency_key, `question-session:${input.questionSessionId}`, sessionVersion, [`question-closure:${closureId}`, `question-session:${input.questionSessionId}`]],
+      );
+      await client.query(
+        `update science_v3_operation
+            set status='succeeded',user_message='当前题目已结算',retryable=false,
+                related_resource_refs=$3,updated_at=clock_timestamp(),version=version+1
+          where tenant_id=$1 and operation_id=$2 and status='running'`,
+        [input.tenantId, input.operationId, [`question-closure:${closureId}`, `question-session:${input.questionSessionId}`]],
+      );
+      await client.query(
+        `insert into infra_outbox (
+           event_id,tenant_id,aggregate_type,aggregate_id,event_type,payload,
+           correlation_id,causation_id,occurred_at,aggregate_version,payload_ref,operation_id
+         ) values ($1,$2,'question-session',$3,'question.closed','{}'::jsonb,
+                   $4,$5,$6,$7,$8,$4)`,
+        [closedEventId, input.tenantId, input.questionSessionId, input.operationId, input.eventId, closedAt, sessionVersion, `agent-artifact:${artifactId}`],
+      );
+      return {
+        questionClosureId: closureId,
+        questionSessionId: input.questionSessionId,
+        status,
+        sessionVersion,
+        judgmentRefs,
+        observationRefs,
+      };
+    });
+  }
+
+  private closureResult(row: {
+    question_closure_id: string;
+    question_session_id: string;
+    close_reason: string;
+    judgment_refs: string[];
+    observation_refs: string[];
+    session_version: string;
+  }): QuestionClosureResult {
+    return {
+      questionClosureId: row.question_closure_id,
+      questionSessionId: row.question_session_id,
+      status: row.close_reason === "abandoned" ? "abandoned" : "closed",
+      sessionVersion: Number(row.session_version),
+      judgmentRefs: row.judgment_refs,
+      observationRefs: row.observation_refs,
+    };
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+}

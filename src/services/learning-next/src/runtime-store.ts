@@ -81,6 +81,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
   }
 
   async findOperationResult(input: PiTaskActivityInput): Promise<PiTaskActivityResult | undefined> {
+    if (input.resultOwnership === "parent") return undefined;
     return this.withTenant(input.tenantId, async (client) => {
       const result = await client.query<{ result_resource_refs: string[] }>(
         `select result_resource_refs
@@ -117,17 +118,20 @@ export class PostgresRuntimeStore implements RuntimeStore {
 
   async startAttempt(value: AttemptStart): Promise<void> {
     await this.withTenant(value.input.tenantId, async (client) => {
-      await client.query(
-        `update science_v3_operation
-            set status='running', user_message='正在处理', updated_at=clock_timestamp(), version=version+1
-          where tenant_id=$1 and operation_id=$2 and status='accepted'`,
-        [value.input.tenantId, value.input.operationId],
-      );
+      if (value.input.resultOwnership !== "parent") {
+        await client.query(
+          `update science_v3_operation
+              set status='running', user_message='正在处理', updated_at=clock_timestamp(), version=version+1
+            where tenant_id=$1 and operation_id=$2 and status='accepted'`,
+          [value.input.tenantId, value.input.operationId],
+        );
+      }
       const operation = await client.query<{ status: string }>(
         `select status from science_v3_operation where tenant_id=$1 and operation_id=$2`,
         [value.input.tenantId, value.input.operationId],
       );
-      if (!operation.rows[0] || operation.rows[0].status !== "running") {
+      const runnableStatuses = value.input.resultOwnership === "parent" ? ["running", "succeeded"] : ["running"];
+      if (!operation.rows[0] || !runnableStatuses.includes(operation.rows[0].status)) {
         throw new Error("operation is not runnable");
       }
       await client.query(

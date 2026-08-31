@@ -211,11 +211,11 @@
 本节是可更新的恢复记录，不是完成声明。
 
 ```text
-conceptual phase: P0-P1 complete; P2 question facts and cut boundary
-completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime
-current: implement canonical messages, ForegroundAgentEpoch, QuestionSession and Attempt/Judgment/Observation facts on the new schema
-next action: add the P2 facts and atomic CutRequest transaction before wiring FinalizeQuestionWorkflow
-implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime
+conceptual phase: P0-P2 complete; P3 M/R scientific projections
+completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime; atomic question facts, Cut and finalization
+current: implement EvidencePolicy and deterministic JudgmentCompiler against immutable P2 facts
+next action: add the versioned Observation compiler before the BKT and FSRS thin adapters
+implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime; P2 — canonical messages, QuestionSession isolation, atomic Cut and bounded finalization
 external blockers: none recorded
 ```
 
@@ -233,7 +233,13 @@ external blockers: none recorded
 - `learning-next` 使用官方 Temporal Worker/Schedules 与 Pi SDK；Temporal 测试服务已验证
   retry、revision Update/cancel、Continue-As-New、child wait、重复 Workflow start 和 Worker
   停机期间持久化入队后的替代 Worker 恢复，且 TypeScript typecheck 与 compose config 通过；
-- 以上证明 P0–P1，不证明 P2–P7 或真实服务 E2E 完成；
+- `0033_science_v3_question_flow.sql` 已从 PostgreSQL 16 干净库按 0001→0033 全量应用；
+  事务测试证明 canonical message 与 Attempt 原子提交、响应丢失后幂等重放、并发 Cut
+  收敛、冻结边界后拒绝迟到 Attempt、事实不可变及 tenant RLS；
+- `FinalizeQuestionWorkflow` 已验证单个评分子任务耗尽重试时落显式 unresolved，随后仍只提交
+  一个 QuestionClosure；QuestionStore 集成测试验证关闭事务与响应丢失重放，且软异步任务不
+  拥有父 operation 的结果；
+- 以上证明 P0–P2，不证明 P3–P7 或真实服务 E2E 完成；
 - 旧 `learning/profile/agent-runtime` 仅作为待退役现状，不作为 Next 实现来源或兼容目标。
 
 每次恢复 Goal 时先更新：

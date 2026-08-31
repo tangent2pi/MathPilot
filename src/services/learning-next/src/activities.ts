@@ -1,17 +1,19 @@
 import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
 import { agentAttemptId, type RuntimeStore } from "./runtime-store.ts";
+import type { QuestionStore } from "./question-store.ts";
 import { getTaskSpec } from "./task-registry.ts";
 import type { LearningNextActivities, PiTaskExecutor } from "./runtime-types.ts";
 
 export interface ActivityDependencies {
   store: RuntimeStore;
+  questionStore: QuestionStore;
   executor: PiTaskExecutor;
 }
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
-export function createActivities({ store, executor }: ActivityDependencies): LearningNextActivities {
+export function createActivities({ store, questionStore, executor }: ActivityDependencies): LearningNextActivities {
   return {
     async executePiTask(input) {
       const context = Context.current();
@@ -68,5 +70,9 @@ export function createActivities({ store, executor }: ActivityDependencies): Lea
     commitOperationResult: (input) => store.commitOperationResult(input),
     markOperationFailed: (input) => store.markOperationFailed(input),
     enqueueScheduledDream: (input) => store.enqueueScheduledDream(input),
+    prepareQuestionFinalization: (input) => questionStore.prepareFinalization(input),
+    recordFinalJudgment: (input) => questionStore.recordFinalJudgment(input),
+    recordUnresolvedJudgment: (input) => questionStore.recordUnresolvedJudgment(input),
+    commitQuestionClosure: (input) => questionStore.commitClosure(input),
   };
 }
