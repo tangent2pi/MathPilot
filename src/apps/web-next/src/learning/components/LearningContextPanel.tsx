@@ -86,6 +86,7 @@ function ContextContent({
   const intent = objectValue(data.current_intent);
   const activity = objectValue(data.current_activity);
   const manifest = objectValue(data.agent_context_manifest);
+  const manifestItems = arrayValue(manifest.items);
   const memories = arrayValue(data.relevant_memories);
   const operations = arrayValue(data.operations).filter((entry) => {
     const status = stringValue(objectValue(entry).status);
@@ -150,12 +151,37 @@ function ContextContent({
             </ContextSection>
 
             <ContextSection title="本轮参考内容" icon={<HistoryIcon />}>
-              {Object.keys(manifest).length ? (
+              {manifestItems.length ? (
                 <div className="rounded-xl border p-3">
-                  <ul className="grid gap-1.5 text-xs">
-                    {arrayValue(manifest.includes).map((entry, index) => <li key={`${String(entry)}:${index}`}>· {String(entry)}</li>)}
+                  <ul className="grid gap-2">
+                    {manifestItems.map((entry, index) => {
+                      const item = objectValue(entry);
+                      const href = internalHref(stringValue(item.href));
+                      const body = (
+                        <>
+                          <p className="line-clamp-3 text-xs leading-5">{stringValue(item.label) ?? "已授权参考内容"}</p>
+                          <p className="text-muted-foreground mt-0.5 text-[11px] leading-4">
+                            {manifestKindLabel(stringValue(item.kind))} · 更新于 {dateLabel(stringValue(item.freshness))}
+                          </p>
+                          {stringValue(item.detail) && (
+                            <p className="text-muted-foreground mt-0.5 line-clamp-2 text-[11px] leading-4">{stringValue(item.detail)}</p>
+                          )}
+                        </>
+                      );
+                      return (
+                        <li key={stringValue(item.resource_ref) ?? index}>
+                          {href ? (
+                            <Link to={href} className="hover:bg-muted/55 block rounded-lg border p-2.5 transition-colors">
+                              {body}
+                            </Link>
+                          ) : <div className="rounded-lg border p-2.5">{body}</div>}
+                        </li>
+                      );
+                    })}
                   </ul>
-                  <p className="text-muted-foreground mt-2 text-[11px]">生成于 {dateLabel(stringValue(manifest.generated_at))}</p>
+                  <p className="text-muted-foreground mt-2 border-t pt-2 text-[11px]">
+                    快照 {numberValue(manifest.snapshot_version) ?? "—"} · 生成于 {dateLabel(stringValue(manifest.generated_at))}
+                  </p>
                 </div>
               ) : <EmptyText>发送消息后，这里会显示本轮实际参考的内容。</EmptyText>}
             </ContextSection>
@@ -206,6 +232,29 @@ function arrayValue(value: unknown): unknown[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function internalHref(value: string | undefined): string | undefined {
+  return value?.startsWith("/") && !value.startsWith("//") ? value : undefined;
+}
+
+function manifestKindLabel(value: string | undefined): string {
+  const labels: Record<string, string> = {
+    current_thread: "当前对话",
+    current_question: "当前题目",
+    learning_activity: "学习活动",
+    selection_intent: "选题要求",
+    annotation: "学习观察",
+    history_thread: "历史对话",
+    attachment: "会话附件",
+    scientific_state: "学习状态",
+    evidence_index: "证据索引",
+  };
+  return value ? labels[value] ?? "参考内容" : "参考内容";
 }
 
 function dateLabel(value: string | undefined): string {

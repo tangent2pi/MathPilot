@@ -20,6 +20,7 @@ import {
   type AssistantState,
   BranchPickerPrimitive,
   ComposerPrimitive,
+  type DataMessagePartProps,
   ErrorPrimitive,
   MessagePrimitive,
   SuggestionPrimitive,
@@ -418,6 +419,8 @@ const AssistantActionBar: FC = () => {
 };
 
 const UserMessage: FC = () => {
+  const domainOnly = useAuiState((state) => state.message.parts.length > 0
+    && state.message.parts.every((part) => part.type === "data" && part.name === "mathpilot-domain-ui"));
   return (
     <MessagePrimitive.Root
       data-slot="aui_user-message-root"
@@ -427,8 +430,13 @@ const UserMessage: FC = () => {
       <UserMessageAttachments />
 
       <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
-        <div className="aui-user-message-content bg-muted text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden">
-          <MessagePrimitive.Parts />
+        <div className={cn(
+          "aui-user-message-content text-foreground wrap-break-word empty:hidden",
+          domainOnly ? "bg-transparent p-0" : "bg-muted rounded-xl px-4 py-2",
+        )}>
+          <MessagePrimitive.Parts components={{
+            data: { by_name: { "mathpilot-domain-ui": UserDomainMessagePart } },
+          }} />
         </div>
       </div>
 
@@ -439,6 +447,10 @@ const UserMessage: FC = () => {
     </MessagePrimitive.Root>
   );
 };
+
+const UserDomainMessagePart: FC<DataMessagePartProps> = ({ name, data }) => (
+  <DomainMessagePart name={name} data={data} />
+);
 
 const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
   className,

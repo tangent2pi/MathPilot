@@ -45,6 +45,9 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
         const workspaceProjection = taskSpec.workspace_projection_policy.enabled
           ? await store.loadWorkspaceProjection(input, taskSpec, inputBundle)
           : undefined;
+        if (workspaceProjection) {
+          await store.recordWorkspaceProjection(attemptId, input.tenantId, workspaceProjection);
+        }
         const result = await executor.execute({
           agentAttemptId: attemptId,
           tenantId: input.tenantId,

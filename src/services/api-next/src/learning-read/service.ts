@@ -240,11 +240,26 @@ export class LearningReadService {
         [principal.tenantId, subject.studentId],
       )).rows;
       const operations = await this.threadOperations(client, principal.tenantId, threadId);
-      const request = (await client.query<{ foreground_epoch_id: string; input_artifact_id: string; requested_at: Date | string }>(
-        `select foreground_epoch_id,input_artifact_id,requested_at
-           from science_v3_foreground_request
-          where tenant_id=$1 and conversation_thread_id=$2
-          order by requested_at desc limit 1`,
+      const contextManifest = (await client.query<{
+        workspace_manifest: unknown;
+        requested_at: Date | string;
+        manifest_recorded_at: Date | string;
+      }>(
+        `select attempt.workspace_manifest,request.requested_at,
+                attempt.started_at as manifest_recorded_at
+           from science_v3_foreground_request request
+           join lateral (
+             select candidate.workspace_manifest,candidate.started_at
+               from science_v3_agent_attempt candidate
+              where candidate.tenant_id=request.tenant_id
+                and candidate.operation_id=request.operation_id
+                and candidate.task_type='foreground_teaching'
+                and candidate.workspace_manifest is not null
+              order by candidate.temporal_attempt desc,candidate.started_at desc
+              limit 1
+           ) attempt on true
+          where request.tenant_id=$1 and request.conversation_thread_id=$2
+          order by request.requested_at desc limit 1`,
         [principal.tenantId, threadId],
       )).rows[0];
       const capabilities: CommandCapability[] = [];
@@ -260,7 +275,8 @@ export class LearningReadService {
       return learningView({
         kind: "thread_context", resourceKind: "conversation-thread", resourceId: threadId,
         version: subject.threadVersion,
-        factsThrough: maxDate(currentQuestion?.opened_at, intent?.created_at, request?.requested_at,
+        factsThrough: maxDate(currentQuestion?.opened_at, intent?.created_at,
+          contextManifest?.requested_at, contextManifest?.manifest_recorded_at,
           ...annotations.map((row) => row.created_at), ...operations.map((row) => row.updated_at)),
         permissions: actorPermissions(subject),
         data: {
@@ -279,12 +295,7 @@ export class LearningReadService {
             target_ref: row.target_ref, set_version: Number(row.set_version),
             href: `/learning/memory#${row.annotation_id}`,
           })),
-          agent_context_manifest: request ? {
-            foreground_epoch_id: request.foreground_epoch_id,
-            manifest_ref: `agent-context:${request.input_artifact_id}`,
-            generated_at: asIso(request.requested_at),
-            includes: ["当前对话", ...(currentQuestion ? ["当前题目"] : []), ...annotations.map(() => "相关学习观察")],
-          } : null,
+          agent_context_manifest: contextManifest?.workspace_manifest ?? null,
           operations: operations.map(operationViewData),
         },
         capabilities,

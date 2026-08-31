@@ -51,12 +51,17 @@ interface StorageObjectRow {
   mime_type: string;
   byte_size: string;
   sha256: string;
+  created_at: Date | string;
 }
 
 const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 const jsonl = (values: readonly unknown[]): string => `${values.map((value) => JSON.stringify(value)).join("\n")}\n`;
 const iso = (value: Date | string): string => new Date(value).toISOString();
 const number = (value: string | number): number => Number(value);
+const compactLabel = (value: unknown, fallback: string): string => {
+  const label = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return (label || fallback).slice(0, 160);
+};
 const MATERIALIZABLE_MIME = new Set([
   "application/json", "application/ld+json", "application/xml", "application/yaml",
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp",
@@ -175,7 +180,12 @@ export async function compileWorkspaceProjection(
     )).rows
     : [];
 
-  const attachmentRefs = new Map<string, { name: string; mimeType: string }>();
+  const attachmentRefs = new Map<string, {
+    name: string;
+    mimeType: string;
+    conversationThreadId: string;
+    messageId: string;
+  }>();
   const attachmentMessages = [...messages].sort((left, right) => {
     if (left.message_id === request.triggeringMessageId) return -1;
     if (right.message_id === request.triggeringMessageId) return 1;
@@ -191,11 +201,13 @@ export async function compileWorkspaceProjection(
       attachmentRefs.set(match[1]!, {
         name: typeof value.name === "string" ? value.name : match[1]!,
         mimeType: typeof value.mime_type === "string" ? value.mime_type : "application/octet-stream",
+        conversationThreadId: message.conversation_thread_id,
+        messageId: message.message_id,
       });
     }
   }
   const storedObjects = attachmentRefs.size ? (await client.query<StorageObjectRow>(
-    `select object_id,original_name,mime_type,byte_size,sha256
+    `select object_id,original_name,mime_type,byte_size,sha256,created_at
        from storage_object
       where tenant_id=$1 and owner_user_id=$2 and purpose='thread' and state='ready'
         and sha256 is not null and object_id=any($3::text[])`,
@@ -253,6 +265,14 @@ export async function compileWorkspaceProjection(
       order by revision desc limit 1`,
     [request.tenantId, thread.conversation_thread_id],
   )).rows[0];
+  const currentActivity = typeof currentQuestion?.learning_activity_id === "string"
+    ? (await client.query<Record<string, unknown>>(
+      `select learning_activity_id,goal,source,policy,status,created_at,closed_at,version
+         from science_v3_learning_activity
+        where tenant_id=$1 and student_id=$2 and learning_activity_id=$3`,
+      [request.tenantId, thread.student_id, currentQuestion.learning_activity_id],
+    )).rows[0]
+    : undefined;
 
   const mastery = (await client.query<Record<string, unknown>>(
     `select dimension_id,lineage_version,p_mastery,state,independent_count,
@@ -496,6 +516,10 @@ export async function compileWorkspaceProjection(
         : "# 当前题目\n\n当前没有活动题目。\n",
   });
   files.push({
+    path: "current/learning-activity.json",
+    content: json(currentActivity ?? null),
+  });
+  files.push({
     path: "current/scientific-state.json",
     content: json({
       snapshot_version: snapshotVersion,
@@ -542,6 +566,109 @@ export async function compileWorkspaceProjection(
     }),
   });
 
+  const currentThreadTitle = sessionIndex.find((value) => value.conversation_thread_id === thread.conversation_thread_id)?.title
+    ?? `会话 ${thread.conversation_thread_id}`;
+  const manifestItems: WorkspaceProjection["manifest"]["items"][number][] = [{
+    kind: "current_thread",
+    resource_ref: `conversation-thread:${thread.conversation_thread_id}`,
+    label: currentThreadTitle,
+    freshness: iso(thread.updated_at),
+    href: `/c/${thread.conversation_thread_id}`,
+    version: number(thread.version),
+    detail: "当前对话",
+  }];
+  if (currentQuestion) {
+    manifestItems.push({
+      kind: "current_question",
+      resource_ref: `question-session:${String(currentQuestion.question_session_id)}`,
+      label: compactLabel(questionContent?.stem_markdown, "当前题目"),
+      freshness: typeof currentQuestion.opened_at === "string" || currentQuestion.opened_at instanceof Date
+        ? iso(currentQuestion.opened_at as Date | string) : generatedAt,
+      href: `/c/${thread.conversation_thread_id}#question-${String(currentQuestion.question_session_id)}`,
+      version: Number(currentQuestion.version),
+      detail: questionContent ? `题目版本 ${questionContent.revision_id}` : "外部教学题",
+    });
+  }
+  if (currentActivity) {
+    manifestItems.push({
+      kind: "learning_activity",
+      resource_ref: `learning-activity:${String(currentActivity.learning_activity_id)}`,
+      label: compactLabel(currentActivity.goal, "当前学习活动"),
+      freshness: typeof currentActivity.created_at === "string" || currentActivity.created_at instanceof Date
+        ? iso(currentActivity.created_at as Date | string) : generatedAt,
+      href: "/learning",
+      version: Number(currentActivity.version),
+      detail: `状态：${String(currentActivity.status)}`,
+    });
+  }
+  if (latestIntent) {
+    manifestItems.push({
+      kind: "selection_intent",
+      resource_ref: `selection-intent:${String(latestIntent.selection_intent_id)}`,
+      label: compactLabel(latestIntent.natural_language_request, "当前选题要求"),
+      freshness: typeof latestIntent.created_at === "string" || latestIntent.created_at instanceof Date
+        ? iso(latestIntent.created_at as Date | string) : generatedAt,
+      href: `/c/${thread.conversation_thread_id}`,
+      version: Number(latestIntent.revision),
+      detail: "当前选题要求",
+    });
+  }
+  for (const annotation of annotations) {
+    const annotationId = String(annotation.annotation_id);
+    manifestItems.push({
+      kind: "annotation",
+      resource_ref: `annotation:${annotationId}`,
+      label: compactLabel(annotation.claim, "学习观察"),
+      freshness: typeof annotation.valid_from === "string" || annotation.valid_from instanceof Date
+        ? iso(annotation.valid_from as Date | string) : generatedAt,
+      href: `/learning/memory#${annotationId}`,
+      version: Number(annotation.set_version),
+      detail: "本轮实际装入的学习观察",
+    });
+  }
+  for (const session of sessionIndex) {
+    if (session.conversation_thread_id === thread.conversation_thread_id) continue;
+    manifestItems.push({
+      kind: "history_thread",
+      resource_ref: `conversation-thread:${session.conversation_thread_id}`,
+      label: session.title,
+      freshness: session.updated_at,
+      href: `/c/${session.conversation_thread_id}`,
+      version: session.version,
+      detail: "同账号可见历史对话",
+    });
+  }
+  for (const object of projectionObjects) {
+    const attachment = attachmentRefs.get(object.objectId);
+    const stored = storedObjectById.get(object.objectId);
+    if (!attachment || !stored) continue;
+    manifestItems.push({
+      kind: "attachment",
+      resource_ref: `storage-object:${object.objectId}`,
+      label: compactLabel(attachment.name, "会话附件"),
+      freshness: iso(stored.created_at),
+      href: `/c/${attachment.conversationThreadId}`,
+      detail: `${attachment.mimeType} · ${object.byteSize} bytes`,
+    });
+  }
+  manifestItems.push({
+    kind: "scientific_state",
+    resource_ref: `scientific-state:${thread.student_id}:${snapshotVersion}`,
+    label: "学习状态快照",
+    freshness: generatedAt,
+    href: "/learning/state",
+    version: snapshotVersion,
+    detail: "掌握、保持、错因与当前题事实",
+  }, {
+    kind: "evidence_index",
+    resource_ref: `evidence-index:${thread.student_id}:${snapshotVersion}`,
+    label: `证据索引（${evidence.size} 项）`,
+    freshness: generatedAt,
+    href: "/learning/history",
+    version: snapshotVersion,
+    detail: "本轮可追溯证据引用",
+  });
+
   return {
     snapshotVersion,
     generatedAt,
@@ -549,5 +676,13 @@ export async function compileWorkspaceProjection(
     roles: effectiveRoles,
     files,
     objects: projectionObjects,
+    manifest: {
+      schema: "mathpilot.agent-context-manifest/v1",
+      manifest_ref: `agent-context:${request.operationId}`,
+      foreground_epoch_id: epoch.foreground_epoch_id,
+      snapshot_version: snapshotVersion,
+      generated_at: generatedAt,
+      items: manifestItems,
+    },
   };
 }

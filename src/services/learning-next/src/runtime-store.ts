@@ -31,6 +31,7 @@ export interface RuntimeStore {
   loadInputBundle(input: PiTaskActivityInput, taskSpec: TaskSpec): Promise<unknown>;
   loadWorkspaceProjection(input: PiTaskActivityInput, taskSpec: TaskSpec, inputBundle: unknown): Promise<WorkspaceProjection>;
   startAttempt(value: AttemptStart): Promise<void>;
+  recordWorkspaceProjection(agentAttemptId: string, tenantId: string, projection: WorkspaceProjection): Promise<void>;
   storeStructuredOutput(value: AttemptStart, output: unknown, schemaUri: string): Promise<string>;
   completeAttempt(agentAttemptId: string, tenantId: string, completion: AttemptCompletion): Promise<void>;
   failAttempt(agentAttemptId: string, tenantId: string, error: { code: string; detail: string; cancelled: boolean }): Promise<void>;
@@ -206,6 +207,27 @@ export class PostgresRuntimeStore implements RuntimeStore {
           value.taskSpec.skill_ref,
         ],
       );
+    });
+  }
+
+  async recordWorkspaceProjection(
+    agentAttemptId: string,
+    tenantId: string,
+    projection: WorkspaceProjection,
+  ): Promise<void> {
+    const manifest = safeJson(projection.manifest);
+    await this.withTenant(tenantId, async (client) => {
+      const result = await client.query(
+        `update science_v3_agent_attempt
+            set workspace_manifest=$3::jsonb
+          where tenant_id=$1 and agent_attempt_id=$2 and status='started'
+            and (workspace_manifest is null or workspace_manifest=$3::jsonb)
+          returning agent_attempt_id`,
+        [tenantId, agentAttemptId, manifest],
+      );
+      if (result.rowCount !== 1) {
+        throw new Error("AgentAttempt cannot record its WorkspaceProjection manifest");
+      }
     });
   }
 

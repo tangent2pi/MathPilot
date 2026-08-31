@@ -244,7 +244,14 @@ function canonicalMessage(message: CanonicalMessage): ThreadMessage {
       id: message.message_id,
       role: "user",
       createdAt,
-      content: message.parts.flatMap((part) => part.type === "text" ? [{ type: "text" as const, text: part.text }] : []),
+      content: message.parts.flatMap<ThreadUserMessagePart>((part) => {
+        if (part.type === "text") return [{ type: "text", text: part.text }];
+        if (part.type === "domain_ui") return [{ type: "data", name: "mathpilot-domain-ui", data: part.part }];
+        if (part.type === "teaching_artifact") {
+          return [{ type: "data", name: "mathpilot-teaching-artifact", data: part }];
+        }
+        return [];
+      }),
       attachments: message.parts.flatMap((part, index) => part.type === "attachment"
         ? [canonicalAttachment(message.message_id, index, part.attachment_ref, part.name, part.mime_type)]
         : []),

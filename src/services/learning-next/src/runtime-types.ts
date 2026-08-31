@@ -361,6 +361,26 @@ export interface WorkspaceProjectionObject {
   sha256: string;
 }
 
+export interface WorkspaceProjectionManifestItem {
+  kind: "current_thread" | "current_question" | "learning_activity" | "selection_intent"
+    | "annotation" | "history_thread" | "attachment" | "scientific_state" | "evidence_index";
+  resource_ref: string;
+  label: string;
+  freshness: string;
+  href: string;
+  version?: number;
+  detail?: string;
+}
+
+export interface WorkspaceProjectionManifest {
+  schema: "mathpilot.agent-context-manifest/v1";
+  manifest_ref: string;
+  foreground_epoch_id: string;
+  snapshot_version: number;
+  generated_at: string;
+  items: readonly WorkspaceProjectionManifestItem[];
+}
+
 export interface WorkspaceProjection {
   snapshotVersion: number;
   generatedAt: string;
@@ -368,6 +388,7 @@ export interface WorkspaceProjection {
   roles: readonly ("student" | "teacher")[];
   files: readonly WorkspaceProjectionFile[];
   objects: readonly WorkspaceProjectionObject[];
+  manifest: WorkspaceProjectionManifest;
 }
 
 export interface WorkspaceObjectReader {
