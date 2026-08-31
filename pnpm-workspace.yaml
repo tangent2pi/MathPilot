@@ -8,6 +8,8 @@ allowBuilds:
   esbuild: true
   # No runtime path in MathPilot needs this optional package's install script.
   '@google/genai': false
+  # Temporal's workflow bundler uses SWC's pinned native binding.
+  '@swc/core': true
 minimumReleaseAgeExclude:
   - pi-mcp-adapter@2.26.1
   - '@ai-sdk/gateway@4.0.68'

@@ -17,6 +17,28 @@ services:
       timeout: 3s
       retries: 10
 
+  # Temporal is the sole authority for retry, timer, cancellation, child wait,
+  # Schedule and Continue-As-New in the Next learning runtime.
+  temporal:
+    image: temporalio/auto-setup:1.29.7
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD}
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tctl --address 127.0.0.1:7233 workflow list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "127.0.0.1:${TEMPORAL_PORT:-7233}:7233"
+
   minio:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: ["server", "/data"]
@@ -116,6 +138,30 @@ services:
       - -ce
       - psql "host=postgres user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}" -v ON_ERROR_STOP=1 -q -f /fixtures.sql
     restart: "no"
+
+  learning-next:
+    init: true
+    build:
+      context: ../..
+      dockerfile: src/services/learning-next/Dockerfile
+    environment:
+      DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: mathpilot_learning_next
+      LEARNING_NEXT_TENANT_IDS: ${DEV_TENANT_ID:-tnt_dev00001}
+      LEARNING_NEXT_RUNTIME_ROOT: /var/lib/mathpilot/learning-next
+      MODEL_API_BASE: ${PI_MODEL_API_BASE:-https://api.deepseek.com}
+      MODEL_API_KEY: ${PI_MODEL_API_KEY}
+      MODEL_ID: ${PI_MODEL_ID:-deepseek-v4-flash-vision-exp}
+    volumes:
+      - learning_next_runtime:/var/lib/mathpilot/learning-next
+    depends_on:
+      db-seed:
+        condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
+    restart: unless-stopped
 
   learning:
     build:
@@ -399,3 +445,4 @@ volumes:
     name: ${PI_CHAT_RUNTIME_VOLUME:-mathpilot_pi_chat_runtime}
   minio_data:
     name: ${MINIO_VOLUME:-mathpilot_minio_data}
+  learning_next_runtime:

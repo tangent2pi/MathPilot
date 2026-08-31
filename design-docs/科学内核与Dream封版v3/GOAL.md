@@ -211,11 +211,11 @@
 本节是可更新的恢复记录，不是完成声明。
 
 ```text
-conceptual phase: P0 complete; P1 durable runtime and database foundation
-completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary
-current: implement the new learning-next PostgreSQL facts/outbox/operation foundation and Temporal runtime
-next action: add the clean-database v3 migration, then wire Temporal dev service, worker and outbox relay
-implementation phases accepted: P0 — contracts, rejection examples and permission invariants verified in current tree
+conceptual phase: P0-P1 complete; P2 question facts and cut boundary
+completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime
+current: implement canonical messages, ForegroundAgentEpoch, QuestionSession and Attempt/Judgment/Observation facts on the new schema
+next action: add the P2 facts and atomic CutRequest transaction before wiring FinalizeQuestionWorkflow
+implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime
 external blockers: none recorded
 ```
 
@@ -227,7 +227,13 @@ external blockers: none recorded
   LearningView、DomainUIPart、Command、TaskSpec、policy 与 operation 契约；
 - `nix develop -c pnpm --dir src/packages/contracts test` 当前验证 33 组 examples / 34 个
   schemas，并通过 science-v3 权限、写权威、身份分离和禁旧 mode contract tests；
-- 这只证明 P0，不证明 P1–P7 或真实服务 E2E 完成；
+- `0032_science_v3_runtime.sql` 已从 PostgreSQL 16 干净库按 0001→0032 全量应用，
+  并通过 tenant RLS、重复 outbox ack、数据库响应丢失、跨 Continue-As-New run 的
+  AgentAttempt 身份及不可变结果行为测试；
+- `learning-next` 使用官方 Temporal Worker/Schedules 与 Pi SDK；Temporal 测试服务已验证
+  retry、revision Update/cancel、Continue-As-New、child wait、重复 Workflow start 和 Worker
+  停机期间持久化入队后的替代 Worker 恢复，且 TypeScript typecheck 与 compose config 通过；
+- 以上证明 P0–P1，不证明 P2–P7 或真实服务 E2E 完成；
 - 旧 `learning/profile/agent-runtime` 仅作为待退役现状，不作为 Next 实现来源或兼容目标。
 
 每次恢复 Goal 时先更新：

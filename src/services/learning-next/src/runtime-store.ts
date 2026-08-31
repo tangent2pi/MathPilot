@@ -1,0 +1,325 @@
+import { createHash } from "node:crypto";
+import pg from "pg";
+import type {
+  CommitOperationResultInput,
+  OutboxWorkflowStart,
+  PersistedOperationResult,
+  PiTaskActivityInput,
+  PiTaskActivityResult,
+  TaskSpec,
+} from "./runtime-types.ts";
+
+export interface AttemptStart {
+  agentAttemptId: string;
+  input: PiTaskActivityInput;
+  taskSpec: TaskSpec;
+  workflowRunId: string;
+  temporalActivityId: string;
+  temporalAttempt: number;
+}
+
+export interface AttemptCompletion {
+  outputRef: string;
+  resolvedModelId: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface RuntimeStore {
+  findOperationResult(input: PiTaskActivityInput): Promise<PiTaskActivityResult | undefined>;
+  loadInputBundle(input: PiTaskActivityInput, taskSpec: TaskSpec): Promise<unknown>;
+  startAttempt(value: AttemptStart): Promise<void>;
+  storeStructuredOutput(value: AttemptStart, output: unknown, schemaUri: string): Promise<string>;
+  completeAttempt(agentAttemptId: string, tenantId: string, completion: AttemptCompletion): Promise<void>;
+  failAttempt(agentAttemptId: string, tenantId: string, error: { code: string; detail: string; cancelled: boolean }): Promise<void>;
+  commitOperationResult(input: CommitOperationResultInput): Promise<PersistedOperationResult>;
+  markOperationFailed(input: { tenantId: string; operationId: string; cancelled: boolean; message: string }): Promise<void>;
+  enqueueScheduledDream(input: { tenantId: string; phase: "rem" | "deep"; scheduledAt: string }): Promise<OutboxWorkflowStart>;
+  close(): Promise<void>;
+}
+
+const idFrom = (prefix: string, value: string, length = 24): string =>
+  `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, length)}`;
+
+const artifactIdFromRef = (ref: string): string => {
+  const match = /^agent-artifact:(art_[A-Za-z0-9]{8,})$/.exec(ref);
+  if (!match) throw new Error("inputRef must be an agent-artifact reference");
+  return match[1]!;
+};
+
+const safeJson = (value: unknown): string => {
+  const json = JSON.stringify(value);
+  if (json === undefined) throw new Error("task artifact must be JSON serializable");
+  if (Buffer.byteLength(json, "utf8") > 1024 * 1024) throw new Error("task artifact exceeds 1 MiB");
+  return json;
+};
+
+export class PostgresRuntimeStore implements RuntimeStore {
+  private readonly pool: pg.Pool;
+
+  constructor(connectionString: string) {
+    this.pool = new pg.Pool({ connectionString, max: 8 });
+  }
+
+  private async withTenant<T>(tenantId: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      await client.query(
+        "select set_config('app.current_tenant',$1,true), set_config('app.current_user','',true), set_config('app.current_roles','',true)",
+        [tenantId],
+      );
+      const result = await fn(client);
+      await client.query("commit");
+      return result;
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async findOperationResult(input: PiTaskActivityInput): Promise<PiTaskActivityResult | undefined> {
+    return this.withTenant(input.tenantId, async (client) => {
+      const result = await client.query<{ result_resource_refs: string[] }>(
+        `select result_resource_refs
+           from science_v3_operation_result
+          where tenant_id=$1 and operation_id=$2 and idempotency_key=$3
+          limit 1`,
+        [input.tenantId, input.operationId, input.idempotencyKey],
+      );
+      const outputRef = result.rows[0]?.result_resource_refs[0];
+      return outputRef
+        ? { outputRef, resolvedModelId: "operation-result-cache", inputTokens: 0, outputTokens: 0 }
+        : undefined;
+    });
+  }
+
+  async loadInputBundle(input: PiTaskActivityInput, taskSpec: TaskSpec): Promise<unknown> {
+    const artifactId = artifactIdFromRef(input.inputRef);
+    return this.withTenant(input.tenantId, async (client) => {
+      const result = await client.query<{ payload: unknown; schema_uri: string }>(
+        `select payload,schema_uri
+           from science_v3_agent_artifact
+          where tenant_id=$1 and operation_id=$2 and artifact_id=$3
+            and artifact_kind='input_bundle'
+            and (expires_at is null or expires_at > now())`,
+        [input.tenantId, input.operationId, artifactId],
+      );
+      const artifact = result.rows[0];
+      if (!artifact) throw new Error("frozen task input does not exist or has expired");
+      if (artifact.schema_uri !== taskSpec.input_schema) throw new Error("frozen task input schema does not match TaskSpec");
+      safeJson(artifact.payload);
+      return artifact.payload;
+    });
+  }
+
+  async startAttempt(value: AttemptStart): Promise<void> {
+    await this.withTenant(value.input.tenantId, async (client) => {
+      await client.query(
+        `update science_v3_operation
+            set status='running', user_message='正在处理', updated_at=clock_timestamp(), version=version+1
+          where tenant_id=$1 and operation_id=$2 and status='accepted'`,
+        [value.input.tenantId, value.input.operationId],
+      );
+      const operation = await client.query<{ status: string }>(
+        `select status from science_v3_operation where tenant_id=$1 and operation_id=$2`,
+        [value.input.tenantId, value.input.operationId],
+      );
+      if (!operation.rows[0] || operation.rows[0].status !== "running") {
+        throw new Error("operation is not runnable");
+      }
+      await client.query(
+        `insert into science_v3_agent_attempt (
+           agent_attempt_id,tenant_id,operation_id,workflow_id,workflow_run_id,
+           temporal_activity_id,task_type,task_spec_version,temporal_attempt,input_ref,
+           model_policy_id,prompt_version,skill_ref
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         on conflict (agent_attempt_id) do nothing`,
+        [
+          value.agentAttemptId,
+          value.input.tenantId,
+          value.input.operationId,
+          value.input.workflowId,
+          value.workflowRunId,
+          value.temporalActivityId,
+          value.input.taskType,
+          value.taskSpec.spec_version,
+          value.temporalAttempt,
+          value.input.inputRef,
+          value.taskSpec.model_policy.policy_id,
+          `${value.input.taskType}-prompt@${value.taskSpec.spec_version}`,
+          value.taskSpec.skill_ref,
+        ],
+      );
+    });
+  }
+
+  async storeStructuredOutput(value: AttemptStart, output: unknown, schemaUri: string): Promise<string> {
+    const json = safeJson(output);
+    const sha256 = createHash("sha256").update(json).digest("hex");
+    const artifactId = idFrom("art", `${value.agentAttemptId}\0${sha256}`);
+    return this.withTenant(value.input.tenantId, async (client) => {
+      await client.query(
+        `insert into science_v3_agent_artifact (
+           artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
+         ) values ($1,$2,$3,'structured_output',$4,$5::jsonb,$6)
+         on conflict (artifact_id) do nothing`,
+        [artifactId, value.input.tenantId, value.input.operationId, schemaUri, json, sha256],
+      );
+      const stored = await client.query<{ sha256: string }>(
+        `select sha256 from science_v3_agent_artifact
+          where tenant_id=$1 and operation_id=$2 and artifact_id=$3`,
+        [value.input.tenantId, value.input.operationId, artifactId],
+      );
+      if (stored.rows[0]?.sha256 !== sha256) throw new Error("structured output artifact conflicts with an existing value");
+      return `agent-artifact:${artifactId}`;
+    });
+  }
+
+  async completeAttempt(agentAttemptId: string, tenantId: string, completion: AttemptCompletion): Promise<void> {
+    await this.withTenant(tenantId, async (client) => {
+      await client.query(
+        `update science_v3_agent_attempt
+            set status='succeeded', output_ref=$3, resolved_model_id=$4,
+                input_tokens=$5, output_tokens=$6, completed_at=clock_timestamp()
+          where tenant_id=$1 and agent_attempt_id=$2 and status='started'`,
+        [tenantId, agentAttemptId, completion.outputRef, completion.resolvedModelId, completion.inputTokens, completion.outputTokens],
+      );
+    });
+  }
+
+  async failAttempt(agentAttemptId: string, tenantId: string, error: { code: string; detail: string; cancelled: boolean }): Promise<void> {
+    await this.withTenant(tenantId, async (client) => {
+      await client.query(
+        `update science_v3_agent_attempt
+            set status=$3, error_code=$4, error_detail=$5, completed_at=clock_timestamp()
+          where tenant_id=$1 and agent_attempt_id=$2 and status='started'`,
+        [tenantId, agentAttemptId, error.cancelled ? "cancelled" : "failed", error.code.slice(0, 160), error.detail.slice(0, 2000)],
+      );
+    });
+  }
+
+  async commitOperationResult(input: CommitOperationResultInput): Promise<PersistedOperationResult> {
+    return this.withTenant(input.tenantId, async (client) => {
+      const inserted = await client.query(
+        `insert into science_v3_operation_result (
+           tenant_id,operation_id,idempotency_key,result_status,aggregate_ref,
+           aggregate_version,result_resource_refs
+         ) values ($1,$2,$3,'committed',$4,$5,array[$6]::text[])
+         on conflict (operation_id,idempotency_key) do nothing
+         returning 1`,
+        [input.tenantId, input.operationId, input.idempotencyKey, input.aggregateRef, input.aggregateVersion, input.outputRef],
+      );
+      const existing = await client.query<{
+        aggregate_ref: string;
+        aggregate_version: string;
+        result_resource_refs: string[];
+      }>(
+        `select aggregate_ref,aggregate_version,result_resource_refs
+           from science_v3_operation_result
+          where tenant_id=$1 and operation_id=$2 and idempotency_key=$3`,
+        [input.tenantId, input.operationId, input.idempotencyKey],
+      );
+      const row = existing.rows[0];
+      if (!row || row.aggregate_ref !== input.aggregateRef
+        || Number(row.aggregate_version) !== input.aggregateVersion
+        || row.result_resource_refs[0] !== input.outputRef) {
+        throw new Error("idempotency key is already bound to a different operation result");
+      }
+      await client.query(
+        `update science_v3_operation
+            set status='succeeded', user_message='处理完成', retryable=false,
+                related_resource_refs=array[$3]::text[], updated_at=clock_timestamp(), version=version+1
+          where tenant_id=$1 and operation_id=$2 and status='running'`,
+        [input.tenantId, input.operationId, input.outputRef],
+      );
+      return {
+        resultStatus: inserted.rowCount ? "committed" : "already_committed",
+        outputRef: input.outputRef,
+      };
+    });
+  }
+
+  async markOperationFailed(input: { tenantId: string; operationId: string; cancelled: boolean; message: string }): Promise<void> {
+    await this.withTenant(input.tenantId, async (client) => {
+      await client.query(
+        `update science_v3_operation
+            set status=$3, user_message=$4, retryable=$5,
+                updated_at=clock_timestamp(), version=version+1
+          where tenant_id=$1 and operation_id=$2
+            and status in ('accepted','running','needs_input')`,
+        [
+          input.tenantId,
+          input.operationId,
+          input.cancelled ? "cancelled" : "failed",
+          input.message.slice(0, 1000) || (input.cancelled ? "已取消" : "处理失败"),
+          !input.cancelled,
+        ],
+      );
+    });
+  }
+
+  async enqueueScheduledDream(input: { tenantId: string; phase: "rem" | "deep"; scheduledAt: string }): Promise<OutboxWorkflowStart> {
+    const identity = `${input.tenantId}\0${input.phase}\0${input.scheduledAt}`;
+    const operationId = idFrom("op", identity);
+    const eventId = idFrom("evt", identity);
+    const artifactId = idFrom("art", identity);
+    const eventType = input.phase === "rem" ? "dream.rem_requested" : "dream.deep_requested";
+    const aggregateRef = `dream-sweep:${input.tenantId}:${input.phase}`;
+    const payload = { schema_version: 3, tenant_ref: `tenant:${input.tenantId}`, phase: input.phase, scheduled_at: input.scheduledAt };
+    const json = safeJson(payload);
+    const sha256 = createHash("sha256").update(json).digest("hex");
+    await this.withTenant(input.tenantId, async (client) => {
+      const teacher = await client.query<{ user_id: string }>(
+        `select user_id from identity_user_role
+          where tenant_id=$1 and role='teacher'
+          order by assigned_at,user_id limit 2`,
+        [input.tenantId],
+      );
+      if (teacher.rows.length !== 1) throw new Error("scheduled Dream requires the tenant's sole teacher owner");
+      await client.query(
+        `insert into science_v3_operation (
+           operation_id,tenant_id,requested_by_user_id,kind,status,user_message
+         ) values ($1,$2,$3,'dream','accepted',$4)
+         on conflict (operation_id) do nothing`,
+        [operationId, input.tenantId, teacher.rows[0]!.user_id, `${input.phase.toUpperCase()} 整理已排队`],
+      );
+      await client.query(
+        `insert into science_v3_agent_artifact (
+           artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
+         ) values ($1,$2,$3,'input_bundle',$4,$5::jsonb,$6)
+         on conflict (artifact_id) do nothing`,
+        [artifactId, input.tenantId, operationId, `https://schemas.mathpilot.dev/science-v3/${input.phase}-input/v1`, json, sha256],
+      );
+      await client.query(
+        `insert into infra_outbox (
+           event_id,tenant_id,aggregate_type,aggregate_id,event_type,payload,
+           correlation_id,occurred_at,aggregate_version,payload_ref,operation_id
+         ) values ($1,$2,'dream-sweep',$3,$4,'{}'::jsonb,$5,$6,1,$7,$5)
+         on conflict (event_id) do nothing`,
+        [eventId, input.tenantId, `${input.tenantId}:${input.phase}`, eventType, operationId, input.scheduledAt, `agent-artifact:${artifactId}`],
+      );
+    });
+    return {
+      schemaVersion: 3,
+      eventId,
+      tenantId: input.tenantId,
+      operationId,
+      eventType,
+      aggregateRef,
+      aggregateVersion: 1,
+      payloadRef: `agent-artifact:${artifactId}`,
+      occurredAt: input.scheduledAt,
+    };
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+}
+
+export function agentAttemptId(workflowId: string, workflowRunId: string, activityId: string, attempt: number): string {
+  return idFrom("agt", `${workflowId}\0${workflowRunId}\0${activityId}\0${attempt}`);
+}
