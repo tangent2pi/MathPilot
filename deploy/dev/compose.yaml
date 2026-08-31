@@ -250,7 +250,7 @@ services:
       official-content-import:
         condition: service_completed_successfully
     ports:
-      - "127.0.0.1:3016:3016"
+      - "127.0.0.1:${CONTENT_NEXT_PORT:-3016}:3016"
 
   # MinIO management credentials are confined to this service. It returns
   # short-lived presigned URLs; no URL is persisted in PostgreSQL.
@@ -275,7 +275,7 @@ services:
       minio:
         condition: service_started
     ports:
-      - "127.0.0.1:3017:3017"
+      - "127.0.0.1:${STORAGE_NEXT_PORT:-3017}:3017"
 
   web:
     build:
@@ -317,7 +317,7 @@ services:
       storage-next:
         condition: service_started
     ports:
-      - "127.0.0.1:3101:3101"
+      - "127.0.0.1:${API_PORT:-3101}:3101"
 
 volumes:
   pgdata:
