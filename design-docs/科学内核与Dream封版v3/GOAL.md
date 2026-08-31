@@ -211,11 +211,11 @@
 本节是可更新的恢复记录，不是完成声明。
 
 ```text
-conceptual phase: P0-P4 complete on the Next path; P5 model selection and intent revision
-completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime; atomic question facts, Cut and finalization; versioned EvidencePolicy compiler; replayable OATutor BKT and TS-FSRS projections; replayable ErrorEvidence/ErrorPattern loop; teacher-correction replay
-current: implement the single question_catalog boundary, Selector TaskSpec and stale-intent-safe question commit
-next action: trace the P5 frozen contracts into the existing Next foreground flow, then implement only the missing host and Selector surfaces
-implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime; P2 — canonical messages, QuestionSession isolation, atomic Cut and bounded finalization; P3 — eligible evidence compilation, versioned M/R algorithms and correction replay; P4 — per-candidate diagnostic evidence, replayable C_e and bounded consumer actions on the sole Next application path
+conceptual phase: P0-P5 complete on the Next path; P6 three-phase Dream
+completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime; atomic question facts, Cut and finalization; versioned EvidencePolicy compiler; replayable OATutor BKT and TS-FSRS projections; replayable ErrorEvidence/ErrorPattern loop; teacher-correction replay; stale-safe model selection and intent revision
+current: implement QuestionSession Light, REM compilation and gated Deep Annotation changes without scientific-state write authority
+next action: trace the P6 Annotation contracts through the existing Temporal runtime and implement only the missing Light/REM/Deep facts, gates and rollback surfaces
+implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime; P2 — canonical messages, QuestionSession isolation, atomic Cut and bounded finalization; P3 — eligible evidence compilation, versioned M/R algorithms and correction replay; P4 — per-candidate diagnostic evidence, replayable C_e and bounded consumer actions on the sole Next application path; P5 — one normalized question_catalog capability, revision-signalled Selector and host-revalidated atomic QuestionOpened commit
 external blockers: none recorded
 ```
 
@@ -225,7 +225,7 @@ external blockers: none recorded
 - 设计 Markdown 已通过 ReactMarkdown + GFM 渲染和本地链接检查；
 - `src/packages/contracts/schemas/science-v3/` 已冻结事实、投影、题级流、Annotation、
   LearningView、DomainUIPart、Command、TaskSpec、policy 与 operation 契约；
-- `nix develop -c pnpm --dir src/packages/contracts test` 当前验证 33 组 examples / 34 个
+- `nix develop -c pnpm contracts:validate` 当前验证 35 组 examples / 36 个
   schemas，并通过 science-v3 权限、写权威、身份分离和禁旧 mode contract tests；
 - `0032_science_v3_runtime.sql` 已从 PostgreSQL 16 干净库按 0001→0032 全量应用，
   并通过 tenant RLS、重复 outbox ack、数据库响应丢失、跨 Continue-As-New run 的
@@ -254,7 +254,14 @@ external blockers: none recorded
   Report、Teacher Review 与 ContentInsight 均只有有界消费输出；
 - 官方初始内容导入只读取已提取的 CSV，使用 `krev/trev/qrev/erev/rrev` 规范 revision，
   并发布单候选规则的保守 relation matrix 与验证政策；没有读取、回填或兼容旧表；
-- 以上证明 Next 路径的 P0–P4，不证明 P5–P7 或真实服务 E2E 完成；
+- `0036_science_v3_model_selection.sql` 已从 PostgreSQL 16 干净库按 0001→0036 全量应用；
+  单一 `question_catalog` 只检索当前可见的规范化 `content_*` 题目且不返回答案或解析；
+- Selector 通过固定 Thread Workflow 接收 intent revision Signal，旧 AgentAttempt 被取消并记录
+  supersession；提交事务重验最新 intent、候选页、可见性、硬约束与活动题槽，陈旧结果不能开题；
+- 独立 PostgreSQL 集成测试证明 SelectionDecision、QuestionSession、ForegroundAgentEpoch、
+  QuestionOpened 与权威 QuestionCard 原子提交且响应重放幂等；契约校验、两个服务类型检查及
+  learning-next 19 项测试均通过（16 通过，3 项需显式数据库变量的集成项按设计跳过）；
+- 以上证明 Next 路径的 P0–P5，不证明 P6–P7 或真实服务 E2E 完成；
 - 旧 `learning/profile/agent-runtime` 服务定义与 `web-next/api-next/learning-next` 断开，保留到最终
   组合切换时退役；它们不作为 Next 实现来源、兼容目标或科学状态写入依赖。
 

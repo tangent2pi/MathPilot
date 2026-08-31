@@ -52,7 +52,7 @@
       },
       "data_access_policy": {
         "policy_id": "selector-data-v1",
-        "read_scopes": ["frozen_task_bundle", "question_catalog_candidates"],
+        "read_scopes": ["frozen_task_bundle", "question_catalog_pages"],
         "write_scopes": ["structured_result", "attempt_output"],
         "history_is_untrusted_data": true
       },

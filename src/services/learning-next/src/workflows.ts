@@ -26,6 +26,8 @@ import type {
   QuestionClosureResult,
   ScientificReplayResult,
   ScientificReplayWorkflowInput,
+  SelectionWorkflowResult,
+  SelectionWorkflowState,
   ScheduledDreamTickInput,
   TaskRevision,
   TaskType,
@@ -34,6 +36,8 @@ import type {
 export const reviseTaskSignal = defineSignal<[TaskRevision]>("reviseTask");
 export const reviseTaskUpdate = defineUpdate<AgentTaskWorkflowState, [TaskRevision]>("reviseTaskUpdate");
 export const taskStateQuery = defineQuery<AgentTaskWorkflowState>("taskState");
+export const reviseSelectionSignal = defineSignal<[AgentTaskWorkflowInput]>("reviseSelection");
+export const selectionStateQuery = defineQuery<SelectionWorkflowState>("selectionState");
 
 const refPattern = /^[a-z][a-z0-9+.-]*:[^\s]+$/;
 const idempotencyPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,180}$/;
@@ -328,9 +332,175 @@ const enforceTaskType = (input: AgentTaskWorkflowInput, expected: TaskType): voi
   }
 };
 
-export async function selectQuestionWorkflow(input: AgentTaskWorkflowInput): Promise<AgentTaskWorkflowResult> {
+const assertSelectionWorkflowInput = (input: AgentTaskWorkflowInput): void => {
+  assertWorkflowInput(input);
   enforceTaskType(input, "select_question");
-  return agentTaskWorkflow(input);
+  if (!input.eventId || !idempotencyPattern.test(input.eventId)) {
+    throw ApplicationFailure.nonRetryable("Selector event ID is invalid", "invalid_workflow_input");
+  }
+  if (!/^conversation-thread:thr_[A-Za-z0-9]{8,}$/.test(input.aggregateRef)
+    || input.aggregateVersion !== input.revision) {
+    throw ApplicationFailure.nonRetryable("Selector must be bound to one Thread intent revision", "invalid_workflow_input");
+  }
+};
+
+const selectionSnapshot = (state: SelectionWorkflowState): SelectionWorkflowState => ({ ...state });
+
+export async function selectQuestionWorkflow(initial: AgentTaskWorkflowInput): Promise<SelectionWorkflowResult> {
+  assertSelectionWorkflowInput(initial);
+  let current = { ...initial, resultOwnership: "parent" as const };
+  const continueAfter = Math.min(Math.max(initial.continueAsNewAfter ?? 32, 1), 256);
+  let attemptsThisRun = 0;
+  let attemptsForRevision = 0;
+  let activeScope: CancellationScope | undefined;
+  const state: SelectionWorkflowState = {
+    status: "running",
+    revision: current.revision,
+    operationId: current.operationId,
+    inputRef: current.inputRef,
+    attemptsCompleted: current.carriedAttempts ?? 0,
+  };
+
+  const acceptRevision = (next: AgentTaskWorkflowInput): void => {
+    assertSelectionWorkflowInput(next);
+    if (next.tenantId !== initial.tenantId || next.aggregateRef !== initial.aggregateRef) {
+      throw new Error("selection revision belongs to a different Thread");
+    }
+    if (next.revision < current.revision) return;
+    if (next.revision === current.revision) {
+      if (next.operationId !== current.operationId || next.inputRef !== current.inputRef || next.eventId !== current.eventId) {
+        throw new Error("selection revision is already bound to different immutable inputs");
+      }
+      return;
+    }
+    current = { ...next, resultOwnership: "parent" };
+    attemptsForRevision = 0;
+    state.status = "revising";
+    state.revision = current.revision;
+    state.operationId = current.operationId;
+    state.inputRef = current.inputRef;
+    activeScope?.cancel();
+  };
+
+  setHandler(selectionStateQuery, () => selectionSnapshot(state));
+  setHandler(reviseSelectionSignal, (next) => {
+    try {
+      acceptRevision(next);
+    } catch {
+      // Outbox delivery is at-least-once. Invalid or conflicting signal
+      // payloads are ignored; host-side commit validation remains decisive.
+    }
+  });
+
+  const supersede = async (previous: AgentTaskWorkflowInput, replacement: AgentTaskWorkflowInput): Promise<void> => {
+    await CancellationScope.nonCancellable(() => scheduleActivity<Awaited<ReturnType<LearningNextActivities["markSelectionSuperseded"]>>>(
+      "markSelectionSuperseded",
+      [{
+        tenantId: previous.tenantId,
+        operationId: previous.operationId,
+        replacementOperationId: replacement.operationId,
+      }],
+      durableActivityOptions(`supersede-r${previous.revision}-by-r${replacement.revision}`),
+    ));
+  };
+
+  while (true) {
+    if (attemptsThisRun >= continueAfter || workflowInfo().continueAsNewSuggested) {
+      await continueAsNew<typeof selectQuestionWorkflow>({
+        ...current,
+        carriedAttempts: state.attemptsCompleted,
+      });
+    }
+
+    const scheduled = current;
+    state.status = "running";
+    activeScope = new CancellationScope();
+    let taskResult: PiTaskActivityResult;
+    try {
+      taskResult = await activeScope.run(() => scheduleActivity<PiTaskActivityResult>(
+        "executePiTask",
+        [{
+          ...scheduled,
+          idempotencyKey: idempotencyForRevision(scheduled.idempotencyKey, scheduled.revision),
+          workflowId: workflowInfo().workflowId,
+          resultOwnership: "parent",
+        }],
+        taskActivityOptions("select_question", scheduled.taskSpecVersion, `selector-r${scheduled.revision}-n${attemptsForRevision + 1}`),
+      ));
+      attemptsThisRun += 1;
+      attemptsForRevision += 1;
+      state.attemptsCompleted += 1;
+    } catch (error) {
+      attemptsThisRun += 1;
+      attemptsForRevision += 1;
+      state.attemptsCompleted += 1;
+      activeScope = undefined;
+      if (isCancellation(error) && scheduled.operationId !== current.operationId) {
+        await supersede(scheduled, current);
+        continue;
+      }
+      state.status = isCancellation(error) ? "cancelled" : "failed";
+      await CancellationScope.nonCancellable(() => scheduleActivity<Awaited<ReturnType<LearningNextActivities["markOperationFailed"]>>>(
+        "markOperationFailed",
+        [{
+          tenantId: scheduled.tenantId,
+          operationId: scheduled.operationId,
+          cancelled: isCancellation(error),
+          message: isCancellation(error) ? "选题操作已取消" : "选题任务失败，请稍后重试",
+        }],
+        durableActivityOptions(`mark-selector-${state.status}-r${scheduled.revision}`),
+      ));
+      throw error;
+    } finally {
+      activeScope = undefined;
+    }
+
+    if (scheduled.operationId !== current.operationId) {
+      await supersede(scheduled, current);
+      continue;
+    }
+
+    const committed = await scheduleActivity<Awaited<ReturnType<LearningNextActivities["commitSelectionDecision"]>>>(
+      "commitSelectionDecision",
+      [{
+        tenantId: scheduled.tenantId,
+        operationId: scheduled.operationId,
+        eventId: scheduled.eventId!,
+        outputRef: taskResult.outputRef,
+      }],
+      questionCommitActivityOptions(`commit-selection-r${scheduled.revision}-n${attemptsForRevision}`),
+    );
+
+    if (scheduled.operationId !== current.operationId) {
+      await supersede(scheduled, current);
+      continue;
+    }
+    if (committed.status === "candidate_invalid" && attemptsForRevision < 3) continue;
+    if (committed.status === "candidate_invalid") {
+      state.status = "failed";
+      await scheduleActivity<Awaited<ReturnType<LearningNextActivities["markOperationFailed"]>>>(
+        "markOperationFailed",
+        [{
+          tenantId: scheduled.tenantId,
+          operationId: scheduled.operationId,
+          cancelled: false,
+          message: "候选题已变化，请重新发起选题",
+        }],
+        durableActivityOptions(`mark-selector-candidate-invalid-r${scheduled.revision}`),
+      );
+    } else if (committed.status === "selected" || committed.status === "already_committed") {
+      state.status = "selected";
+    } else if (committed.status === "no_candidate") {
+      state.status = "no_candidate";
+    } else {
+      state.status = "failed";
+    }
+    return {
+      ...committed,
+      operationId: scheduled.operationId,
+      intentRevision: scheduled.revision,
+    };
+  }
 }
 
 export async function lightWorkflow(input: AgentTaskWorkflowInput): Promise<AgentTaskWorkflowResult> {

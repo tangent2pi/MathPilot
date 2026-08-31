@@ -6,6 +6,7 @@ import { OutboxRelay, PostgresOutboxRelayStore } from "./outbox-relay.ts";
 import { createPiSdkTaskExecutorFromEnvironment } from "./pi-task-executor.ts";
 import { PostgresQuestionStore } from "./question-store.ts";
 import { PostgresRuntimeStore } from "./runtime-store.ts";
+import { PostgresSelectionStore } from "./selection-store.ts";
 import { ensureDreamSchedules } from "./schedules.ts";
 
 const required = (name: string): string => {
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
 
   const runtimeStore = new PostgresRuntimeStore(databaseUrl);
   const questionStore = new PostgresQuestionStore(databaseUrl);
+  const selectionStore = new PostgresSelectionStore(databaseUrl);
   const relayStore = new PostgresOutboxRelayStore(databaseUrl);
   const connection = await NativeConnection.connect({ address: temporalAddress });
   const controller = new AbortController();
@@ -45,7 +47,7 @@ async function main(): Promise<void> {
 
   try {
     const executor = await createPiSdkTaskExecutorFromEnvironment();
-    const activities = createActivities({ store: runtimeStore, questionStore, executor });
+    const activities = createActivities({ store: runtimeStore, questionStore, selectionStore, executor });
     worker = await Worker.create({
       connection,
       namespace: temporalNamespace,
@@ -81,7 +83,7 @@ async function main(): Promise<void> {
   } finally {
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
-    await Promise.allSettled([runtimeStore.close(), questionStore.close(), relayStore.close()]);
+    await Promise.allSettled([runtimeStore.close(), questionStore.close(), selectionStore.close(), relayStore.close()]);
     await connection.close();
   }
 }

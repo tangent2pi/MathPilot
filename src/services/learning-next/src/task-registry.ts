@@ -73,13 +73,13 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskSpec>> = Object.freeze
     timeout_policy: { start_to_close_seconds: 300, heartbeat_seconds: 15 },
     data_access_policy: {
       policy_id: "selector-data-v1",
-      read_scopes: ["frozen_task_bundle", "question_catalog_candidates"],
+      read_scopes: ["frozen_task_bundle", "question_catalog_pages"],
       write_scopes: ["structured_result", "attempt_output"],
       history_is_untrusted_data: true,
     },
     workspace_projection_policy: {
       policy_id: "selector-workspace-v1",
-      enabled: true,
+      enabled: false,
       read_only: true,
       include_authorized_sessions: false,
       freshness_required: true,

@@ -82,6 +82,12 @@ test("FinalizeQuestion turns exhausted grading into unresolved and still closes 
     async replayScientificCorrection() {
       throw new Error("unexpected scientific replay Activity");
     },
+    async commitSelectionDecision() {
+      throw new Error("unexpected selection commit Activity");
+    },
+    async markSelectionSuperseded() {
+      throw new Error("unexpected selection supersede Activity");
+    },
   };
   const worker = await Worker.create({
     connection: environment.nativeConnection,

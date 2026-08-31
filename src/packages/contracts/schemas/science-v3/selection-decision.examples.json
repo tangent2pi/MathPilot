@@ -1,0 +1,47 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "decision_type": "selected",
+    "intent_id": "int_a1b2c3d4",
+    "intent_revision": 2,
+    "chosen_question_revision_id": "qrev_area_transfer_v2",
+    "satisfied_requirements": ["需要自行发现辅助线", "计算量较短"],
+    "unsatisfied_preferences": ["题库中没有同时满足远迁移的正式题"],
+    "scientific_purpose": "verify",
+    "target_dimensions": ["krev_area_v1"],
+    "target_error_causes": ["erev_supplementary_v1"],
+    "evidence_refs": ["catalog-page://cpg_a1b2c3d4"],
+    "decision_summary": "选择一题近迁移面积题，保留辅助线识别要求。"
+  },
+  "valid_cases": [{
+    "schema_version": 3,
+    "decision_type": "no_candidate",
+    "intent_id": "int_a1b2c3d4",
+    "intent_revision": 2,
+    "unsatisfied_preferences": ["当前授权题库没有满足正式 rubric 与难度上限的题"],
+    "evidence_refs": ["catalog-page://cpg_z9y8x7w6"],
+    "decision_summary": "暂未找到同时满足硬约束的题目。",
+    "search_summary": "以面积、辅助线和近迁移分别检索三次，结果均为空。"
+  }],
+  "missing_field": {
+    "schema_version": 3,
+    "decision_type": "selected",
+    "intent_id": "int_a1b2c3d4"
+  },
+  "rejected": [{
+    "_reason": "模型不能把标准答案或提交指令放进 SelectionDecision",
+    "schema_version": 3,
+    "decision_type": "selected",
+    "intent_id": "int_a1b2c3d4",
+    "intent_revision": 2,
+    "chosen_question_revision_id": "qrev_area_transfer_v2",
+    "satisfied_requirements": ["面积"],
+    "unsatisfied_preferences": [],
+    "scientific_purpose": "practice",
+    "target_dimensions": [],
+    "target_error_causes": [],
+    "evidence_refs": ["catalog-page://cpg_a1b2c3d4"],
+    "decision_summary": "选择面积题。",
+    "answer": "42"
+  }]
+}

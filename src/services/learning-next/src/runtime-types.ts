@@ -229,6 +229,51 @@ export interface ScientificReplayResult {
   errorPatternProjectionRefs: readonly string[];
 }
 
+export interface CommitSelectionDecisionInput {
+  tenantId: string;
+  operationId: string;
+  eventId: string;
+  outputRef: string;
+}
+
+export type SelectionCommitStatus =
+  | "selected"
+  | "no_candidate"
+  | "stale_intent"
+  | "candidate_invalid"
+  | "already_committed";
+
+export interface SelectionCommitResult {
+  status: SelectionCommitStatus;
+  selectionDecisionId?: string;
+  questionSessionId?: string;
+  messageId?: string;
+  latestIntentRevision?: number;
+}
+
+export interface SelectionWorkflowState {
+  status: "running" | "revising" | "selected" | "no_candidate" | "failed" | "cancelled";
+  revision: number;
+  operationId: string;
+  inputRef: string;
+  attemptsCompleted: number;
+}
+
+export interface SelectionWorkflowResult extends SelectionCommitResult {
+  operationId: string;
+  intentRevision: number;
+}
+
+export interface QuestionCatalogToolInput {
+  query: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface QuestionCatalogCapability {
+  search(toolCallId: string, input: QuestionCatalogToolInput): Promise<unknown>;
+}
+
 export interface PiExecutorRequest {
   agentAttemptId: string;
   tenantId: string;
@@ -237,6 +282,7 @@ export interface PiExecutorRequest {
   inputRef: string;
   inputBundle: unknown;
   taskSpec: TaskSpec;
+  questionCatalog?: QuestionCatalogCapability;
   signal: AbortSignal;
   heartbeat: (detail?: unknown) => void;
 }
@@ -262,4 +308,10 @@ export interface LearningNextActivities {
   recordUnresolvedJudgment(input: RecordUnresolvedJudgmentInput): Promise<void>;
   commitQuestionClosure(input: CommitQuestionClosureInput): Promise<QuestionClosureResult>;
   replayScientificCorrection(input: ScientificReplayWorkflowInput): Promise<ScientificReplayResult>;
+  commitSelectionDecision(input: CommitSelectionDecisionInput): Promise<SelectionCommitResult>;
+  markSelectionSuperseded(input: {
+    tenantId: string;
+    operationId: string;
+    replacementOperationId: string;
+  }): Promise<void>;
 }

@@ -71,7 +71,7 @@
           "items": {
             "enum": [
               "frozen_task_bundle", "current_thread", "current_question_session", "scientific_state",
-              "relevant_annotations", "authorized_session_projection", "gated_rem_candidates", "question_catalog_candidates"
+              "relevant_annotations", "authorized_session_projection", "gated_rem_candidates", "question_catalog_pages"
             ]
           },
           "uniqueItems": true

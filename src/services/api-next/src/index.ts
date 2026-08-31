@@ -4,6 +4,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { auth, authenticate, bootstrapAuthUsers, requireRole, AuthError, type Principal } from "./auth.ts";
 import { createPool, startService, withTenant } from "./lib.ts";
+import { reviseSelectionIntent, SelectionCommandError } from "./learning-selection.ts";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
 const runtimeUrl = process.env.PI_CHAT_RUNTIME_URL ?? "http://127.0.0.1:3105";
@@ -135,6 +136,19 @@ await startService({
     app.get("/api/me", async (request, reply) => {
       const principal = await principalOf(request, reply); if (!principal) return;
       return { uid: principal.uid, user_id: principal.userId, tenant_id: principal.tenantId, roles: principal.roles, via: "better_auth", name: principal.name, email: principal.email };
+    });
+
+    app.post("/api/learning/selection-intents", async (request, reply) => {
+      const principal = await principalOf(request,reply); if (!principal) return;
+      try {
+        const result = await reviseSelectionIntent(pool,principal,request.body);
+        return reply.code(result.created ? 202 : 200).send(result);
+      } catch (error) {
+        if (error instanceof SelectionCommandError) {
+          return reply.code(error.status).send({ error: error.message });
+        }
+        throw error;
+      }
     });
 
     app.route({

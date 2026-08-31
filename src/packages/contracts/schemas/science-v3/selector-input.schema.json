@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/selector-input/v1",
+  "title": "Selector Input Bundle",
+  "$description": "冻结 SelectionIntent 与授权科学上下文；候选题只能通过 question_catalog 分页读取。",
+  "type": "object",
+  "required": [
+    "schema_version", "task_type", "intent", "student_context", "recent_questions",
+    "relevant_annotations", "catalog_policy", "output_requirements", "history_is_untrusted_data"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+    "task_type": { "const": "select_question" },
+    "intent": {
+      "type": "object",
+      "required": [
+        "selection_intent_id", "conversation_thread_id", "student_id", "revision", "source",
+        "natural_language_request", "activity_constraints", "context_snapshot_ref", "created_at"
+      ],
+      "properties": {
+        "selection_intent_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SelectionIntentId" },
+        "conversation_thread_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ConversationThreadId" },
+        "student_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StudentId" },
+        "revision": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "source": { "enum": ["student", "program", "teacher"] },
+        "natural_language_request": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "activity_constraints": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StringMap" },
+        "context_snapshot_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+        "supersedes_intent_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SelectionIntentId" },
+        "created_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+      },
+      "additionalProperties": false
+    },
+    "student_context": {
+      "type": "object",
+      "required": ["mastery", "retention", "error_patterns", "evidence_refs"],
+      "properties": {
+        "mastery": { "type": "array", "items": { "$ref": "#/$defs/StateSummary" }, "maxItems": 128 },
+        "retention": { "type": "array", "items": { "$ref": "#/$defs/StateSummary" }, "maxItems": 128 },
+        "error_patterns": { "type": "array", "items": { "$ref": "#/$defs/StateSummary" }, "maxItems": 128 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+          "uniqueItems": true,
+          "maxItems": 384
+        }
+      },
+      "additionalProperties": false
+    },
+    "recent_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["question_session_id", "question_revision_id", "opened_at"],
+        "properties": {
+          "question_session_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/QuestionSessionId" },
+          "question_revision_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/QuestionRevisionId" },
+          "close_reason": { "enum": ["completed", "student_switch", "skipped", "teacher_switch", "system_policy", "abandoned"] },
+          "opened_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+        },
+        "additionalProperties": false
+      },
+      "maxItems": 20
+    },
+    "relevant_annotations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["annotation_ref", "summary"],
+        "properties": {
+          "annotation_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "additionalProperties": false
+      },
+      "maxItems": 32
+    },
+    "catalog_policy": {
+      "type": "object",
+      "required": ["tool", "source", "maximum_page_size", "constraints_digest"],
+      "properties": {
+        "tool": { "const": "question_catalog" },
+        "source": { "const": "normalized_content_next" },
+        "maximum_page_size": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "constraints_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "output_requirements": {
+      "type": "object",
+      "required": ["intent_id", "intent_revision", "allowed_scientific_purposes", "catalog_page_evidence_required"],
+      "properties": {
+        "intent_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SelectionIntentId" },
+        "intent_revision": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "allowed_scientific_purposes": {
+          "type": "array",
+          "const": ["measure", "discriminate", "remediate", "verify", "practice"]
+        },
+        "catalog_page_evidence_required": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "history_is_untrusted_data": { "const": true }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "StateSummary": {
+      "type": "object",
+      "required": ["resource_ref", "state", "summary"],
+      "properties": {
+        "resource_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+        "state": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

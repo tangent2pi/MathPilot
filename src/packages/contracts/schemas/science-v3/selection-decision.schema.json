@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/selection-decision/v1",
+  "title": "Selection Decision",
+  "$description": "Selector 的非权威提议；宿主仍须重验最新 Intent、候选资格、可见性与选题槽。",
+  "oneOf": [
+    { "$ref": "#/$defs/Selected" },
+    { "$ref": "#/$defs/NoCandidate" }
+  ],
+  "$defs": {
+    "DecisionBase": {
+      "type": "object",
+      "required": [
+        "schema_version", "decision_type", "intent_id", "intent_revision",
+        "unsatisfied_preferences", "evidence_refs", "decision_summary"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "decision_type": { "enum": ["selected", "no_candidate"] },
+        "intent_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SelectionIntentId" },
+        "intent_revision": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "unsatisfied_preferences": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "uniqueItems": true,
+          "maxItems": 16
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "decision_summary": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "Selected": {
+      "allOf": [
+        { "$ref": "#/$defs/DecisionBase" },
+        {
+          "type": "object",
+          "required": [
+            "chosen_question_revision_id", "satisfied_requirements", "scientific_purpose",
+            "target_dimensions", "target_error_causes"
+          ],
+          "properties": {
+            "decision_type": { "const": "selected" },
+            "chosen_question_revision_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/QuestionRevisionId" },
+            "satisfied_requirements": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+              "minItems": 1,
+              "maxItems": 16,
+              "uniqueItems": true
+            },
+            "scientific_purpose": { "enum": ["measure", "discriminate", "remediate", "verify", "practice"] },
+            "target_dimensions": {
+              "type": "array",
+              "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/DimensionRevisionId" },
+              "maxItems": 32,
+              "uniqueItems": true
+            },
+            "target_error_causes": {
+              "type": "array",
+              "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ErrorCauseRevisionId" },
+              "maxItems": 32,
+              "uniqueItems": true
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "NoCandidate": {
+      "allOf": [
+        { "$ref": "#/$defs/DecisionBase" },
+        {
+          "type": "object",
+          "required": ["search_summary"],
+          "properties": {
+            "decision_type": { "const": "no_candidate" },
+            "search_summary": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

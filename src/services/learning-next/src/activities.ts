@@ -2,18 +2,20 @@ import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
 import { agentAttemptId, type RuntimeStore } from "./runtime-store.ts";
 import type { QuestionStore } from "./question-store.ts";
+import type { SelectionStore } from "./selection-store.ts";
 import { getTaskSpec } from "./task-registry.ts";
 import type { LearningNextActivities, PiTaskExecutor } from "./runtime-types.ts";
 
 export interface ActivityDependencies {
   store: RuntimeStore;
   questionStore: QuestionStore;
+  selectionStore: SelectionStore;
   executor: PiTaskExecutor;
 }
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
-export function createActivities({ store, questionStore, executor }: ActivityDependencies): LearningNextActivities {
+export function createActivities({ store, questionStore, selectionStore, executor }: ActivityDependencies): LearningNextActivities {
   return {
     async executePiTask(input) {
       const context = Context.current();
@@ -44,6 +46,17 @@ export function createActivities({ store, questionStore, executor }: ActivityDep
           inputRef: input.inputRef,
           inputBundle,
           taskSpec,
+          ...(input.taskType === "select_question" ? {
+            questionCatalog: {
+              search: (toolCallId, params) => selectionStore.searchCatalog({
+                tenantId: input.tenantId,
+                operationId: input.operationId,
+                agentAttemptId: attemptId,
+                toolCallId,
+                ...params,
+              }),
+            },
+          } : {}),
           signal: context.cancellationSignal,
           heartbeat: (detail) => context.heartbeat(detail ?? { stage: "model", attemptId }),
         });
@@ -75,5 +88,7 @@ export function createActivities({ store, questionStore, executor }: ActivityDep
     recordUnresolvedJudgment: (input) => questionStore.recordUnresolvedJudgment(input),
     commitQuestionClosure: (input) => questionStore.commitClosure(input),
     replayScientificCorrection: (input) => questionStore.replayCorrection(input),
+    commitSelectionDecision: (input) => selectionStore.commitDecision(input),
+    markSelectionSuperseded: (input) => selectionStore.markSuperseded(input),
   };
 }

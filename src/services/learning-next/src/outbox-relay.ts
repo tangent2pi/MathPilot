@@ -126,7 +126,17 @@ export class OutboxRelay {
         result.deferred += 1;
         continue;
       }
-      const workflowId = `${event.eventType}:${event.eventId}`;
+      const selectionThread = event.eventType === "selection.intent_revised"
+        ? /^conversation-thread:(thr_[A-Za-z0-9]{8,})$/.exec(event.aggregateRef)?.[1]
+        : undefined;
+      if (event.eventType === "selection.intent_revised" && !selectionThread) {
+        result.failed += 1;
+        await this.store.markFailed(event.eventId, "selection intent outbox event is not bound to a Thread").catch(() => undefined);
+        continue;
+      }
+      const workflowId = selectionThread
+        ? `select-question:${event.tenantId}:${selectionThread}`
+        : `${event.eventType}:${event.eventId}`;
       try {
         let duplicate = false;
         try {
@@ -135,13 +145,25 @@ export class OutboxRelay {
             : route.workflowType === "replayScientificStateWorkflow"
               ? scientificReplayInputFromOutbox(event)
               : workflowInputFromOutbox(event, route.taskType);
-          await this.client.start(route.workflowType, {
-            args: [workflowInput],
-            taskQueue: this.options.taskQueue,
-            workflowId,
-            workflowIdReusePolicy: WorkflowIdReusePolicy.REJECT_DUPLICATE,
-            workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
-          });
+          if (event.eventType === "selection.intent_revised") {
+            await this.client.signalWithStart(route.workflowType, {
+              args: [workflowInput],
+              signal: "reviseSelection",
+              signalArgs: [workflowInput],
+              taskQueue: this.options.taskQueue,
+              workflowId,
+              workflowIdReusePolicy: WorkflowIdReusePolicy.ALLOW_DUPLICATE,
+              workflowIdConflictPolicy: WorkflowIdConflictPolicy.USE_EXISTING,
+            });
+          } else {
+            await this.client.start(route.workflowType, {
+              args: [workflowInput],
+              taskQueue: this.options.taskQueue,
+              workflowId,
+              workflowIdReusePolicy: WorkflowIdReusePolicy.REJECT_DUPLICATE,
+              workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
+            });
+          }
         } catch (error) {
           if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
           duplicate = true;

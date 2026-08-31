@@ -9,6 +9,7 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { parseSelectionDecision } from "./selection-core.ts";
 import type { PiExecutorRequest, PiExecutorResult, PiTaskExecutor } from "./runtime-types.ts";
 
 const PROVIDER = "mathpilot-deepseek";
@@ -57,6 +58,9 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
     if (jsonSize(request.inputBundle) > 1024 * 1024) throw new Error("frozen task bundle exceeds 1 MiB");
     const unsupported = request.taskSpec.allowed_capability_tools.filter((name) => name !== "question_catalog");
     if (unsupported.length) throw new Error(`PiTaskExecutor does not host foreground/delegation capabilities: ${unsupported.join(",")}`);
+    if (request.taskSpec.allowed_capability_tools.includes("question_catalog") && !request.questionCatalog) {
+      throw new Error("question_catalog capability is missing for this AgentAttempt");
+    }
 
     const workspace = path.join(this.options.runtimeRoot, "attempts", request.agentAttemptId);
     await rm(workspace, { recursive: true, force: true });
@@ -74,7 +78,18 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
           throw new Error("structured result must be a JSON object");
         }
         if (jsonSize(params.output) > 1024 * 1024) throw new Error("structured result exceeds 1 MiB");
-        structuredOutput = params.output;
+        if (request.taskSpec.task_type === "select_question") {
+          const requirements = objectValue(objectValue(request.inputBundle).output_requirements);
+          if (typeof requirements.intent_id !== "string" || !Number.isSafeInteger(requirements.intent_revision)) {
+            throw new Error("Selector input bundle is missing its frozen intent binding");
+          }
+          structuredOutput = parseSelectionDecision(params.output, {
+            intentId: requirements.intent_id,
+            intentRevision: Number(requirements.intent_revision),
+          });
+        } else {
+          structuredOutput = params.output;
+        }
         return {
           content: [{ type: "text" as const, text: "structured result accepted" }],
           details: { accepted: true },
@@ -85,15 +100,24 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
     const catalog = defineTool({
       name: "question_catalog",
       label: "Question catalog",
-      description: "Return only the authorization-filtered question candidates frozen into this task bundle.",
-      parameters: Type.Object({ limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })) }),
-      async execute(_toolCallId, params) {
-        const candidates = objectValue(request.inputBundle).question_catalog_candidates;
-        if (!Array.isArray(candidates)) throw new Error("task bundle does not contain question_catalog_candidates");
-        const bounded = candidates.slice(0, params.limit ?? 20);
+      description: "Search the current authorization-filtered normalized Next question catalog. Results never include answers or private analysis.",
+      parameters: Type.Object({
+        query: Type.String({ maxLength: 500 }),
+        cursor: Type.Optional(Type.String({ maxLength: 512 })),
+        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+      }),
+      async execute(toolCallId, params) {
+        if (!request.questionCatalog) throw new Error("question_catalog is unavailable");
+        const page = await request.questionCatalog.search(toolCallId, params);
+        const details = objectValue(page);
+        const candidates = Array.isArray(details.candidates) ? details.candidates : [];
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ candidates: bounded }) }],
-          details: { count: bounded.length },
+          content: [{ type: "text" as const, text: JSON.stringify(page) }],
+          details: {
+            count: candidates.length,
+            page_ref: details.page_ref,
+            has_more: typeof details.next_cursor === "string",
+          },
         };
       },
     });

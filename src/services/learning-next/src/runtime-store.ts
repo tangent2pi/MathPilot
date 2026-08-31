@@ -118,14 +118,12 @@ export class PostgresRuntimeStore implements RuntimeStore {
 
   async startAttempt(value: AttemptStart): Promise<void> {
     await this.withTenant(value.input.tenantId, async (client) => {
-      if (value.input.resultOwnership !== "parent") {
-        await client.query(
-          `update science_v3_operation
-              set status='running', user_message='正在处理', updated_at=clock_timestamp(), version=version+1
-            where tenant_id=$1 and operation_id=$2 and status='accepted'`,
-          [value.input.tenantId, value.input.operationId],
-        );
-      }
+      await client.query(
+        `update science_v3_operation
+            set status='running', user_message='正在处理', updated_at=clock_timestamp(), version=version+1
+          where tenant_id=$1 and operation_id=$2 and status='accepted'`,
+        [value.input.tenantId, value.input.operationId],
+      );
       const operation = await client.query<{ status: string }>(
         `select status from science_v3_operation where tenant_id=$1 and operation_id=$2`,
         [value.input.tenantId, value.input.operationId],

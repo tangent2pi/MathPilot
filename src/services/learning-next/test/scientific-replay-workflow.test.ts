@@ -21,6 +21,8 @@ test("teacher correction replay is a retryable deterministic Workflow without Pi
     recordFinalJudgment: unexpected,
     recordUnresolvedJudgment: unexpected,
     commitQuestionClosure: unexpected,
+    commitSelectionDecision: unexpected,
+    markSelectionSuperseded: unexpected,
     async replayScientificCorrection(input) {
       attempts += 1;
       if (Context.current().info.attempt === 1) throw new Error("transient database transport error");

@@ -1,0 +1,77 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "task_type": "select_question",
+    "intent": {
+      "selection_intent_id": "int_a1b2c3d4",
+      "conversation_thread_id": "thr_a1b2c3d4",
+      "student_id": "stu_a1b2c3d4",
+      "revision": 2,
+      "source": "student",
+      "natural_language_request": "想做一道面积题，需要自己发现辅助线，计算不要太长。",
+      "activity_constraints": {},
+      "context_snapshot_ref": "snapshot:selector/a1b2c3d4/v2",
+      "supersedes_intent_id": "int_z9y8x7w6",
+      "created_at": "2026-08-31T08:00:00Z"
+    },
+    "student_context": {
+      "mastery": [{
+        "resource_ref": "projection://mastery/stu_a1b2c3d4/krev_area_v1",
+        "state": "developing",
+        "summary": "面积关系需要更多独立证据。"
+      }],
+      "retention": [],
+      "error_patterns": [{
+        "resource_ref": "projection://error-pattern/stu_a1b2c3d4/E_SUPPLEMENTARY",
+        "state": "suspected",
+        "summary": "补角对象仍需近迁移确认。"
+      }],
+      "evidence_refs": [
+        "projection://mastery/stu_a1b2c3d4/krev_area_v1",
+        "projection://error-pattern/stu_a1b2c3d4/E_SUPPLEMENTARY"
+      ]
+    },
+    "recent_questions": [{
+      "question_session_id": "qsn_a1b2c3d4",
+      "question_revision_id": "qrev_area_v1",
+      "close_reason": "completed",
+      "opened_at": "2026-08-31T07:50:00Z"
+    }],
+    "relevant_annotations": [],
+    "catalog_policy": {
+      "tool": "question_catalog",
+      "source": "normalized_content_next",
+      "maximum_page_size": 20,
+      "constraints_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "output_requirements": {
+      "intent_id": "int_a1b2c3d4",
+      "intent_revision": 2,
+      "allowed_scientific_purposes": ["measure", "discriminate", "remediate", "verify", "practice"],
+      "catalog_page_evidence_required": true
+    },
+    "history_is_untrusted_data": true
+  },
+  "missing_field": {
+    "schema_version": 3,
+    "task_type": "select_question"
+  },
+  "rejected": [{
+    "_reason": "Selector 输入不能冻结答案或允许模型改变 catalog scope",
+    "schema_version": 3,
+    "task_type": "select_question",
+    "intent": {},
+    "student_context": {},
+    "recent_questions": [],
+    "relevant_annotations": [],
+    "catalog_policy": {
+      "tool": "question_catalog",
+      "source": "legacy_questions",
+      "maximum_page_size": 20,
+      "constraints_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "output_requirements": {},
+    "history_is_untrusted_data": true,
+    "answers": ["B"]
+  }]
+}

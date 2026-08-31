@@ -17,6 +17,7 @@ import {
   agentTaskWorkflow,
   allowedChildTasksWorkflow,
   reviseTaskUpdate,
+  selectQuestionWorkflow,
 } from "../src/workflows.ts";
 
 const taskInput = (
@@ -54,7 +55,7 @@ const waitForActivityCancellation = async (context: Context): Promise<never> => 
   }
 };
 
-test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-New, child wait and duplicate start", { timeout: 120_000 }, async () => {
+test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-New, child wait and Selector signals", { timeout: 120_000 }, async () => {
   const environment = await TestWorkflowEnvironment.createTimeSkipping();
   const taskQueue = "learning-next-runtime-test";
   const executions: Array<{
@@ -64,6 +65,7 @@ test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-
     runId: string | undefined;
   }> = [];
   const failedOperations: Array<{ operationId: string; cancelled: boolean }> = [];
+  const supersededSelections: Array<{ operationId: string; replacementOperationId: string }> = [];
   const activities: LearningNextActivities = {
     async executePiTask(input: PiTaskActivityInput) {
       const context = Context.current();
@@ -77,7 +79,8 @@ test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-
         throw new Error("transient model transport error");
       }
       if ((input.operationId.startsWith("op_revision") && input.revision === 1)
-        || input.operationId.startsWith("op_cancel")) {
+        || input.operationId.startsWith("op_cancel")
+        || input.operationId.startsWith("op_selectold")) {
         await waitForActivityCancellation(context);
       }
       return {
@@ -116,6 +119,18 @@ test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-
     },
     async replayScientificCorrection() {
       throw new Error("unexpected scientific replay Activity in generic runtime test");
+    },
+    async commitSelectionDecision(input) {
+      if (!input.operationId.startsWith("op_selectnew")) throw new Error("stale Selector result reached commit");
+      return {
+        status: "selected",
+        selectionDecisionId: "sdec_runtime0001",
+        questionSessionId: "qsn_runtime0001",
+        messageId: "msg_runtime0001",
+      };
+    },
+    async markSelectionSuperseded(input) {
+      supersededSelections.push({ operationId: input.operationId, replacementOperationId: input.replacementOperationId });
     },
   };
   const worker = await Worker.create({
@@ -188,28 +203,48 @@ test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-
       });
       assert.deepEqual(childResults.map((value) => value.taskType), ["grade", "light"]);
 
-      const event: OutboxWorkflowStart = {
+      const oldSelection: OutboxWorkflowStart = {
         schemaVersion: 3,
-        eventId: "evt_outbox00000001",
+        eventId: "evt_selectold0001",
         tenantId: "tnt_test00001",
-        operationId: "op_outbox00000001",
+        operationId: "op_selectold0001",
         eventType: "selection.intent_revised",
-        aggregateRef: "selection-intent:intent-outbox",
+        aggregateRef: "conversation-thread:thr_select0001",
         aggregateVersion: 1,
-        payloadRef: "agent-artifact:art_outbox00000001",
+        payloadRef: "agent-artifact:art_selectold0001",
         occurredAt: "2026-08-31T00:00:00.000Z",
       };
+      const newSelection: OutboxWorkflowStart = {
+        ...oldSelection,
+        eventId: "evt_selectnew0001",
+        operationId: "op_selectnew0001",
+        aggregateVersion: 2,
+        payloadRef: "agent-artifact:art_selectnew0001",
+        occurredAt: "2026-08-31T00:00:01.000Z",
+      };
       const marked: string[] = [];
+      const batches = [[oldSelection],[newSelection]];
       const relayStore: OutboxRelayStore = {
-        async pending() { return [event]; },
+        async pending() { return batches.shift() ?? []; },
         async markStarted(eventId) { marked.push(eventId); },
         async markFailed(_eventId, error) { throw new Error(error); },
         async close() {},
       };
       const relay = new OutboxRelay(environment.client.workflow, relayStore, { taskQueue });
       assert.equal((await relay.pollOnce()).started, 1);
-      assert.equal((await relay.pollOnce()).duplicates, 1);
-      assert.deepEqual(marked, [event.eventId, event.eventId]);
+      await waitUntil(() => executions.some((value) => value.operationId === oldSelection.operationId));
+      assert.equal((await relay.pollOnce()).started, 1);
+      const selectorHandle = environment.client.workflow.getHandle<typeof selectQuestionWorkflow>(
+        "select-question:tnt_test00001:thr_select0001",
+      );
+      const selectionResult = await selectorHandle.result();
+      assert.equal(selectionResult.intentRevision,2);
+      assert.equal(selectionResult.status,"selected");
+      assert.deepEqual(supersededSelections,[{
+        operationId: oldSelection.operationId,
+        replacementOperationId: newSelection.operationId,
+      }]);
+      assert.deepEqual(marked,[oldSelection.eventId,newSelection.eventId]);
 
     });
 
