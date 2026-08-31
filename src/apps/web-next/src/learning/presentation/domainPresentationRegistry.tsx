@@ -99,9 +99,10 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
   const alreadySubmitted = submitted || Boolean(interaction.data?.data.submitted_attempt_ref)
     || (interaction.data?.data.question_session?.status !== undefined && interaction.data.data.question_session.status !== "open");
   const canSubmit = Boolean(submitCommand) && !alreadySubmitted;
-  const canSkip = Boolean(cutCommand) && part.action_slots.includes("skip_question") && !alreadySubmitted;
+  const canSkip = Boolean(cutCommand) && !alreadySubmitted;
+  const canComplete = Boolean(cutCommand) && alreadySubmitted;
 
-  const runCommand = async (kind: "submit" | "skip") => {
+  const runCommand = async (kind: "submit" | "cut") => {
     setSubmitting(true);
     setError("");
     try {
@@ -116,8 +117,8 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
         await learningApi.command(
           cutCommand!.href,
           cutCommand!.expected_version,
-          { reason: "skipped" },
-          "skip",
+          { reason: alreadySubmitted ? "completed" : "skipped" },
+          alreadySubmitted ? "complete-question" : "skip",
         );
       }
       setSubmitted(true);
@@ -186,11 +187,16 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
             </Button>
           )}
           {canSkip && (
-            <Button size="sm" variant="ghost" disabled={submitting} onClick={() => void runCommand("skip")}>
+            <Button size="sm" variant="ghost" disabled={submitting} onClick={() => void runCommand("cut")}>
               <SkipForwardIcon />跳过本题
             </Button>
           )}
-          {submitted && <span className="text-muted-foreground text-xs">已提交，状态将自动更新</span>}
+          {canComplete && (
+            <Button size="sm" variant="outline" disabled={submitting} onClick={() => void runCommand("cut")}>
+              <ClipboardCheckIcon />{submitting ? "正在完成…" : "完成本题"}
+            </Button>
+          )}
+          {submitted && canComplete && <span className="text-muted-foreground text-xs">回答已提交，完成本题后进入判定</span>}
         </footer>
         {error && <p role="alert" className="text-destructive text-xs">{error}</p>}
         <p className="text-muted-foreground border-t pt-3 text-xs">

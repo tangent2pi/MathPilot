@@ -757,7 +757,9 @@ export class PostgresSelectionStore implements SelectionStore {
             },
             redactions: ["answer","analysis","private_rubric"],
           },
-          action_slots: ["submit_attempt","skip_question","request_cut","revise_intent"],
+          // Mutable authorization is returned by QuestionInteractionView.
+          // The immutable event snapshot must not retain stale command slots.
+          action_slots: [],
           occurred_at: now.toISOString(),
           origin: "domain_projector",
           domain_event_ref: `event://question-opened/${questionOpenedId}`,

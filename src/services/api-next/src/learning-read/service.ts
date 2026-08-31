@@ -250,7 +250,9 @@ export class LearningReadService {
       const capabilities: CommandCapability[] = [];
       if (subject.actorMode === "self" && subject.threadStatus === "active") {
         capabilities.push(capability("send_message", `/api/learning/threads/${threadId}/messages`, subject.threadVersion));
-        capabilities.push(capability("revise_selection_intent", `/api/learning/threads/${threadId}/intent-revisions`, subject.threadVersion));
+        if (!currentQuestion) {
+          capabilities.push(capability("revise_selection_intent", `/api/learning/threads/${threadId}/intent-revisions`, subject.threadVersion));
+        }
         if (currentQuestion?.lifecycle === "active") {
           capabilities.push(capability("request_cut", `/api/learning/question-sessions/${currentQuestion.question_session_id}/cut-requests`, Number(currentQuestion.version)));
         }
