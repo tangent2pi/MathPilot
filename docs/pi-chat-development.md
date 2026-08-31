@@ -93,8 +93,9 @@ PI_GATEWAY_SECRET=<shared-development-secret> \
 PI_CHAT_RUNTIME_ROOT=<runtime-root> \
 PI_CHAT_WORKSPACE_ROOT=<runtime-root>/sessions \
 MODEL_API_BASE=https://api.deepseek.com \
-MODEL_ID=deepseek-v4-flash-vision-exp \
 MODEL_API_KEY=<key> \
+MODEL_ID_MAIN=deepseek-v4-flash-vision-exp \
+MODEL_ID_AUX=deepseek-v4-flash-vision-exp \
 CONTENT_NEXT_URL=http://127.0.0.1:3016 \
 CONTENT_NEXT_SECRET=<shared-development-secret> \
 STORAGE_NEXT_URL=http://127.0.0.1:3017 \
@@ -113,8 +114,9 @@ nix develop -c pnpm --filter @mathpilot/web-next dev
 ```
 
 前端入口是 `http://localhost:5174`。Vite 只在开发态把 `/api/*` 代理到
-`api-next`。切换模型只修改 Pi runtime 的 `MODEL_API_BASE/MODEL_ID/MODEL_API_KEY`
-并重启该服务；Pi 会继续从原生 JSONL 恢复线程。
+`api-next`。切换供应商配置只修改 Pi runtime 的 `MODEL_API_BASE`、`MODEL_API_KEY`、
+`MODEL_ID_MAIN`、`MODEL_ID_AUX` 并重启该服务；当前协议为标准 Responses API，Pi
+会继续从原生 JSONL 恢复线程。
 
 ## 容器数据
 

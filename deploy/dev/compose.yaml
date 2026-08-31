@@ -169,9 +169,10 @@ services:
       TEMPORAL_TASK_QUEUE: mathpilot_learning_next
       LEARNING_NEXT_TENANT_IDS: ${DEV_TENANT_ID:-tnt_dev00001}
       LEARNING_NEXT_RUNTIME_ROOT: /var/lib/mathpilot/learning-next
-      MODEL_API_BASE: ${PI_MODEL_API_BASE:-${MODEL_API_BASE:-https://api.deepseek.com}}
-      MODEL_API_KEY: ${PI_MODEL_API_KEY:-${MODEL_API_KEY:-}}
-      MODEL_ID: deepseek-v4-flash-vision-exp
+      MODEL_API_BASE: ${PI_MODEL_API_BASE:-${MODEL_API_BASE:?MODEL_API_BASE is required}}
+      MODEL_API_KEY: ${PI_MODEL_API_KEY:-${MODEL_API_KEY:?MODEL_API_KEY is required}}
+      MODEL_ID_MAIN: ${PI_MODEL_ID_MAIN:-${MODEL_ID_MAIN:?MODEL_ID_MAIN is required}}
+      MODEL_ID_AUX: ${PI_MODEL_ID_AUX:-${MODEL_ID_AUX:?MODEL_ID_AUX is required}}
       STORAGE_NEXT_URL: http://storage-next:3017
       STORAGE_NEXT_SECRET: ${STORAGE_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}
     volumes:
@@ -203,9 +204,10 @@ services:
       PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}
       PI_CHAT_RUNTIME_ROOT: /var/lib/mathpilot/pi-chat
       PI_CHAT_WORKSPACE_ROOT: /var/lib/mathpilot/pi-chat/sessions
-      MODEL_API_BASE: ${PI_MODEL_API_BASE:-${MODEL_API_BASE:-https://api.deepseek.com}}
-      MODEL_API_KEY: ${PI_MODEL_API_KEY:-${MODEL_API_KEY:-}}
-      MODEL_ID: deepseek-v4-flash-vision-exp
+      MODEL_API_BASE: ${PI_MODEL_API_BASE:-${MODEL_API_BASE:?MODEL_API_BASE is required}}
+      MODEL_API_KEY: ${PI_MODEL_API_KEY:-${MODEL_API_KEY:?MODEL_API_KEY is required}}
+      MODEL_ID_MAIN: ${PI_MODEL_ID_MAIN:-${MODEL_ID_MAIN:?MODEL_ID_MAIN is required}}
+      MODEL_ID_AUX: ${PI_MODEL_ID_AUX:-${MODEL_ID_AUX:?MODEL_ID_AUX is required}}
       CONTENT_LIBRARY_URL: http://content-next:3016
       CONTENT_NEXT_URL: http://content-next:3016
       CONTENT_NEXT_SECRET: ${CONTENT_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}

@@ -17,11 +17,15 @@ const CAPABILITIES_SOURCE = process.env.PI_CHAT_CAPABILITIES_SOURCE
 const SKILLS_SOURCE = process.env.PI_CHAT_SKILLS_SOURCE
   ?? fileURLToPath(new URL("../skills", import.meta.url));
 
-// Pi 对话 runtime 沿用已验证的 DeepSeek 配置；它与旧批处理 runtime
-// 的主/辅模型配置相互独立，不能读取 MODEL_ID_MAIN 回退到 Qwen。
+// Pi 对话 runtime 使用显式注入的 DeepSeek 主模型；后台任务可独立选择
+// 同一 provider 下的副模型。协议、端点、密钥和两个模型 ID 都由宿主配置。
 const PROVIDER = "mathpilot-deepseek";
-const DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_MODEL_ID = "deepseek-v4-flash-vision-exp";
+
+const requiredModelSetting = (name: "MODEL_API_BASE" | "MODEL_API_KEY" | "MODEL_ID_MAIN" | "MODEL_ID_AUX"): string => {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required by pi-chat-runtime`);
+  return value;
+};
 
 async function syncDirectory(source: string, target: string): Promise<void> {
   await mkdir(target, { recursive: true });
@@ -154,28 +158,33 @@ export async function createPiChatRuntime(): Promise<PiChatRuntime> {
   process.env.PI_CHAT_SANDBOX_SKILLS_ROOT = sandboxSkillsRoot;
   await refreshExistingWorkspaces(sessionsRoot, sandboxSkillsRoot);
 
-  const apiKey = process.env.MODEL_API_KEY ?? "";
-  const baseUrl = process.env.MODEL_API_BASE ?? DEFAULT_BASE_URL;
-  const modelId = process.env.MODEL_ID ?? DEFAULT_MODEL_ID;
+  const apiKey = requiredModelSetting("MODEL_API_KEY");
+  const baseUrl = requiredModelSetting("MODEL_API_BASE");
+  const mainModelId = requiredModelSetting("MODEL_ID_MAIN");
+  const auxiliaryModelId = requiredModelSetting("MODEL_ID_AUX");
+  const modelIds = [...new Set([mainModelId, auxiliaryModelId])];
   const modelsPath = path.join(agentDir, "models.json");
   await writeFile(modelsPath, JSON.stringify({
     providers: {
       [PROVIDER]: {
         baseUrl,
-        api: "openai-completions",
+        api: "openai-responses",
         apiKey: "$MODEL_API_KEY",
-        compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
-        models: [{ id: modelId, reasoning: true, input: ["text", "image"] }],
+        compat: {
+          supportsDeveloperRole: false,
+          supportsLongCacheRetention: false,
+          supportsStrictMode: false,
+          supportsOpenAIGrammarTools: false,
+          sessionAffinityFormat: "openai-nosession",
+        },
+        models: modelIds.map((id) => ({ id, reasoning: true, input: ["text", "image"] })),
       },
     },
   }, null, 2), { encoding: "utf8", mode: 0o600 });
   await chmod(modelsPath, 0o600);
   const authPath = path.join(agentDir, "auth.json");
-  if (apiKey) {
-    await writeFile(authPath, JSON.stringify({ [PROVIDER]: { type: "api_key", key: apiKey } }, null, 2), { encoding: "utf8", mode: 0o600 });
-    await chmod(authPath, 0o600);
-  }
-  else await rm(authPath, { force: true });
+  await writeFile(authPath, JSON.stringify({ [PROVIDER]: { type: "api_key", key: apiKey } }, null, 2), { encoding: "utf8", mode: 0o600 });
+  await chmod(authPath, 0o600);
 
   const models = await ModelRuntime.create({
     authPath,
@@ -183,7 +192,11 @@ export async function createPiChatRuntime(): Promise<PiChatRuntime> {
     allowModelNetwork: false,
   });
   await models.refresh({ allowNetwork: false });
-  const model = models.getModel(PROVIDER, modelId);
+  const model = models.getModel(PROVIDER, mainModelId);
+  if (!model) throw new Error(`configured main model ${PROVIDER}/${mainModelId} was not loaded`);
+  if (!models.getModel(PROVIDER, auxiliaryModelId)) {
+    throw new Error(`configured auxiliary model ${PROVIDER}/${auxiliaryModelId} was not loaded`);
+  }
   return {
     client: createPiNodeClient({ workspacePath: sessionsRoot, agentDir, model }),
     runtimeRoot,

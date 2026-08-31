@@ -20,8 +20,12 @@ import type { PiExecutorRequest, PiExecutorResult, PiTaskExecutor, WorkspaceObje
 import { StorageNextObjectReader } from "./storage-object-reader.ts";
 
 const PROVIDER = "mathpilot-deepseek";
-const DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_MODEL_ID = "deepseek-v4-flash-vision-exp";
+
+const requiredModelSetting = (name: "MODEL_API_BASE" | "MODEL_API_KEY" | "MODEL_ID_MAIN" | "MODEL_ID_AUX"): string => {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required by learning-next PiTaskExecutor`);
+  return value;
+};
 
 const isWithin = (root: string, candidate: string): boolean => {
   const relative = path.relative(root, candidate);
@@ -131,7 +135,8 @@ const usageFromMessages = (messages: readonly unknown[]): { inputTokens: number;
 
 export interface PiSdkTaskExecutorOptions {
   modelRuntime: ModelRuntime;
-  model: NonNullable<ReturnType<ModelRuntime["getModel"]>>;
+  mainModel: NonNullable<ReturnType<ModelRuntime["getModel"]>>;
+  auxiliaryModel: NonNullable<ReturnType<ModelRuntime["getModel"]>>;
   runtimeRoot: string;
   skillsRoot: string;
   workspaceObjectReader?: WorkspaceObjectReader;
@@ -324,6 +329,9 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         },
       }));
     }
+    const model = request.taskSpec.model_policy.model_family === "fast"
+      ? this.options.auxiliaryModel
+      : this.options.mainModel;
     const resourceLoader = new DefaultResourceLoader({
       cwd: agentCwd,
       agentDir: path.join(this.options.runtimeRoot, "agent"),
@@ -353,7 +361,7 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       cwd: agentCwd,
       agentDir: path.join(this.options.runtimeRoot, "agent"),
       modelRuntime: this.options.modelRuntime,
-      model: this.options.model,
+      model,
       thinkingLevel: request.taskSpec.model_policy.model_family === "fast" ? "low" : "high",
       noTools: "all",
       tools: tools.map((tool) => tool.name),
@@ -375,7 +383,7 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       const usage = usageFromMessages(session.messages);
       return {
         output: structuredOutput,
-        resolvedModelId: this.options.model.id,
+        resolvedModelId: model.id,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
       };
@@ -395,20 +403,27 @@ export async function createPiSdkTaskExecutorFromEnvironment(): Promise<PiSdkTas
   await mkdir(agentDir, { recursive: true, mode: 0o700 });
   await chmod(agentDir, 0o700);
 
-  const apiKey = process.env.MODEL_API_KEY ?? "";
-  if (!apiKey) throw new Error("MODEL_API_KEY is required by learning-next PiTaskExecutor");
-  const baseUrl = process.env.MODEL_API_BASE ?? DEFAULT_BASE_URL;
-  const modelId = process.env.MODEL_ID ?? DEFAULT_MODEL_ID;
+  const apiKey = requiredModelSetting("MODEL_API_KEY");
+  const baseUrl = requiredModelSetting("MODEL_API_BASE");
+  const mainModelId = requiredModelSetting("MODEL_ID_MAIN");
+  const auxiliaryModelId = requiredModelSetting("MODEL_ID_AUX");
+  const modelIds = [...new Set([mainModelId, auxiliaryModelId])];
   const modelsPath = path.join(agentDir, "models.json");
   const authPath = path.join(agentDir, "auth.json");
   await writeFile(modelsPath, JSON.stringify({
     providers: {
       [PROVIDER]: {
         baseUrl,
-        api: "openai-completions",
+        api: "openai-responses",
         apiKey: "$MODEL_API_KEY",
-        compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
-        models: [{ id: modelId, reasoning: true, input: ["text", "image"] }],
+        compat: {
+          supportsDeveloperRole: false,
+          supportsLongCacheRetention: false,
+          supportsStrictMode: false,
+          supportsOpenAIGrammarTools: false,
+          sessionAffinityFormat: "openai-nosession",
+        },
+        models: modelIds.map((id) => ({ id, reasoning: true, input: ["text", "image"] })),
       },
     },
   }, null, 2), { encoding: "utf8", mode: 0o600 });
@@ -416,11 +431,13 @@ export async function createPiSdkTaskExecutorFromEnvironment(): Promise<PiSdkTas
   await Promise.all([chmod(modelsPath, 0o600), chmod(authPath, 0o600)]);
   const modelRuntime = await ModelRuntime.create({ authPath, modelsPath, allowModelNetwork: false });
   await modelRuntime.refresh({ allowNetwork: false });
-  const model = modelRuntime.getModel(PROVIDER, modelId);
-  if (!model) throw new Error(`configured model ${PROVIDER}/${modelId} was not loaded`);
+  const mainModel = modelRuntime.getModel(PROVIDER, mainModelId);
+  const auxiliaryModel = modelRuntime.getModel(PROVIDER, auxiliaryModelId);
+  if (!mainModel) throw new Error(`configured main model ${PROVIDER}/${mainModelId} was not loaded`);
+  if (!auxiliaryModel) throw new Error(`configured auxiliary model ${PROVIDER}/${auxiliaryModelId} was not loaded`);
   const workspaceObjectReader = new StorageNextObjectReader(
     process.env.STORAGE_NEXT_URL ?? "",
     process.env.STORAGE_NEXT_SECRET ?? "",
   );
-  return new PiSdkTaskExecutor({ modelRuntime, model, runtimeRoot, skillsRoot, workspaceObjectReader });
+  return new PiSdkTaskExecutor({ modelRuntime, mainModel, auxiliaryModel, runtimeRoot, skillsRoot, workspaceObjectReader });
 }

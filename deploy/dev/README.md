@@ -32,24 +32,27 @@ browser / assistant-ui
         ▼
 web-next ──same-origin──▶ api-next ──▶ PostgreSQL science-v3 facts/read models
                                   │
-                                  ├─outbox──▶ Temporal ──▶ learning-next ──▶ fixed DeepSeek model
+                                  ├─outbox──▶ Temporal ──▶ learning-next ──▶ configured DeepSeek model
                                   ├────────▶ content-next ──▶ normalized official/teacher content
                                   └────────▶ storage-next ──▶ MinIO
 
 pi-chat-runtime ──▶ content-next candidate work only
 ```
 
-学习对话不经过 `pi-chat-runtime`。后台与前台模型调用都固定使用
-`deepseek-v4-flash-vision-exp`；不得改成旧主/辅模型。新的环境变量是：
+学习对话不经过 `pi-chat-runtime`。前台对话和 `reasoning` 任务使用主模型，`fast`
+任务使用副模型；当前两者都配置为 `deepseek-v4-flash-vision-exp`。端点、密钥和两个
+模型 ID 均由环境变量显式注入，运行时代码及 Compose 不提供隐藏回退：
 
 ```sh
-PI_MODEL_API_BASE=https://api.scnet.cn/api/llm/v1
+PI_MODEL_API_BASE=https://api.deepseek.com
 PI_MODEL_API_KEY=<provider-key>
+PI_MODEL_ID_MAIN=deepseek-v4-flash-vision-exp
+PI_MODEL_ID_AUX=deepseek-v4-flash-vision-exp
 ```
 
-已有本地 `.env` 若仍保存为 `MODEL_API_BASE`/`MODEL_API_KEY`，Compose 会直接把这两个
-现有值注入 Next 服务，不改写密钥文件；显式 `PI_MODEL_API_BASE`/`PI_MODEL_API_KEY`
-时以新变量为准。模型 ID 在组合中固定，不从本地旧变量读取。
+本地 `.env` 也可使用不带 `PI_` 前缀的 `MODEL_API_BASE`、`MODEL_API_KEY`、
+`MODEL_ID_MAIN`、`MODEL_ID_AUX`；显式 `PI_MODEL_*` 时优先。两个 Next runtime 都使用
+Pi 的 `openai-responses` provider 访问官方 DeepSeek Responses API。
 
 ## MinIO 浏览器端点
 
