@@ -1,0 +1,19 @@
+{
+  "oracle": "pyBKT",
+  "oracle_version": "1.4.3",
+  "upstream_revision": "CAHLR/pyBKT@06fc180ae72c117458acc527f8ec90cc8e0581c1",
+  "online_source": "CAHLR/OATutor@6c729b7192c084367348b87486f70846463e3902:src/models/BKT/BKT-brain.js",
+  "parameter_set": {
+    "prior": 0.3,
+    "learn": 0.0,
+    "slip": 0.1,
+    "guess": 0.2
+  },
+  "cases": [
+    { "outcomes": [], "p_mastery": 0.3 },
+    { "outcomes": ["success"], "p_mastery": 0.6585365853658537 },
+    { "outcomes": ["failure"], "p_mastery": 0.05084745762711865 },
+    { "outcomes": ["success", "success", "failure"], "p_mastery": 0.5203426124197005 },
+    { "outcomes": ["success", "success", "success", "success", "success"], "p_mastery": 0.998737110350621 }
+  ]
+}

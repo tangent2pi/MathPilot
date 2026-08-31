@@ -10,6 +10,7 @@ import pg from "pg";
 import {
   directWorkflowRoute,
   finalizeQuestionInputFromOutbox,
+  scientificReplayInputFromOutbox,
   workflowInputFromOutbox,
 } from "./outbox-routing.ts";
 import { OUTBOX_EVENT_TYPES, type OutboxEventType, type OutboxWorkflowStart } from "./runtime-types.ts";
@@ -131,7 +132,9 @@ export class OutboxRelay {
         try {
           const workflowInput = route.workflowType === "finalizeQuestionWorkflow"
             ? finalizeQuestionInputFromOutbox(event)
-            : workflowInputFromOutbox(event, route.taskType);
+            : route.workflowType === "replayScientificStateWorkflow"
+              ? scientificReplayInputFromOutbox(event)
+              : workflowInputFromOutbox(event, route.taskType);
           await this.client.start(route.workflowType, {
             args: [workflowInput],
             taskQueue: this.options.taskQueue,

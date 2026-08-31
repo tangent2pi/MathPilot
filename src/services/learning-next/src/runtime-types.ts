@@ -210,6 +210,24 @@ export interface QuestionClosureResult {
   observationRefs: readonly string[];
 }
 
+export interface ScientificReplayWorkflowInput {
+  schemaVersion: 3;
+  tenantId: string;
+  operationId: string;
+  eventId: string;
+  studentId: string;
+  teacherCorrectionId: string;
+  aggregateVersion: number;
+  inputRef: string;
+}
+
+export interface ScientificReplayResult {
+  teacherCorrectionId: string;
+  questionSessionId: string;
+  masteryProjectionRefs: readonly string[];
+  retentionProjectionRefs: readonly string[];
+}
+
 export interface PiExecutorRequest {
   agentAttemptId: string;
   tenantId: string;
@@ -242,4 +260,5 @@ export interface LearningNextActivities {
   recordFinalJudgment(input: RecordFinalJudgmentInput): Promise<void>;
   recordUnresolvedJudgment(input: RecordUnresolvedJudgmentInput): Promise<void>;
   commitQuestionClosure(input: CommitQuestionClosureInput): Promise<QuestionClosureResult>;
+  replayScientificCorrection(input: ScientificReplayWorkflowInput): Promise<ScientificReplayResult>;
 }

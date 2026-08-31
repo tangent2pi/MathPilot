@@ -211,11 +211,11 @@
 本节是可更新的恢复记录，不是完成声明。
 
 ```text
-conceptual phase: P0-P2 complete; P3 M/R scientific projections
-completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime; atomic question facts, Cut and finalization
-current: implement EvidencePolicy and deterministic JudgmentCompiler against immutable P2 facts
-next action: add the versioned Observation compiler before the BKT and FSRS thin adapters
-implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime; P2 — canonical messages, QuestionSession isolation, atomic Cut and bounded finalization
+conceptual phase: P0-P3 complete on the Next path; P4 error-evidence consumption loop
+completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime; atomic question facts, Cut and finalization; versioned EvidencePolicy compiler; replayable OATutor BKT and TS-FSRS projections; teacher-correction replay
+current: implement ErrorCause, DiagnosisRule, ErrorEvidence and the deterministic ErrorPattern reducer
+next action: freeze the P4 fact/projection schema and diagnosis relation matrix before adding consumers
+implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime; P2 — canonical messages, QuestionSession isolation, atomic Cut and bounded finalization; P3 — eligible evidence compilation, versioned M/R algorithms and correction replay on the sole Next application path
 external blockers: none recorded
 ```
 
@@ -239,8 +239,16 @@ external blockers: none recorded
 - `FinalizeQuestionWorkflow` 已验证单个评分子任务耗尽重试时落显式 unresolved，随后仍只提交
   一个 QuestionClosure；QuestionStore 集成测试验证关闭事务与响应丢失重放，且软异步任务不
   拥有父 operation 的结果；
-- 以上证明 P0–P2，不证明 P3–P7 或真实服务 E2E 完成；
-- 旧 `learning/profile/agent-runtime` 仅作为待退役现状，不作为 Next 实现来源或兼容目标。
+- `0034_science_v3_scientific_core.sql` 已从 PostgreSQL 16 干净库按 0001→0034 全量应用；
+  EvidencePolicy 表驱动拒绝例、Observation/LearningOpportunity、DelayedReviewEvent、参数集、
+  M/R projection 与仅 teacher 可调用的纠错命令均通过权限和原子重放测试；
+- OATutor BKT 薄适配与 pyBKT 1.4.3 离线 golden fixtures 对拍一致，且增量更新等于全量重放；
+  固定版本 `ts-fsrs` 5.4.1 的 due、stability、difficulty、retrievability、rollback 与重放结果通过；
+- 教师纠错在 Temporal Activity 瞬时失败后重试成功，不调用 Pi；数据库响应丢失重放只产生一份
+  OperationResult，并以 supersession 排除旧 Judgment，未双计 M/R；
+- 以上证明 Next 路径的 P0–P3，不证明 P4–P7 或真实服务 E2E 完成；
+- 旧 `learning/profile/agent-runtime` 服务定义与 `web-next/api-next/learning-next` 断开，保留到最终
+  组合切换时退役；它们不作为 Next 实现来源、兼容目标或科学状态写入依赖。
 
 每次恢复 Goal 时先更新：
 

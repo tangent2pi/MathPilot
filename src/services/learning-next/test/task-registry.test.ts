@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TASK_REGISTRY, directTaskTypeForEvent } from "../src/task-registry.ts";
-import { directWorkflowRoute, workflowInputFromOutbox } from "../src/outbox-routing.ts";
+import { directWorkflowRoute, scientificReplayInputFromOutbox, workflowInputFromOutbox } from "../src/outbox-routing.ts";
 
 test("Task Registry grants only the documented minimum capabilities", () => {
   for (const task of ["grade", "diagnose", "teach_summary", "light", "rem", "deep"] as const) {
@@ -17,6 +17,7 @@ test("domain workflows are not collapsed into unrelated Pi tasks", () => {
   assert.throws(() => directTaskTypeForEvent("question.cut_requested"), /FinalizeQuestionWorkflow/);
   assert.throws(() => directTaskTypeForEvent("teacher.correction_recorded"), /deterministic replay/);
   assert.equal(directWorkflowRoute("question.cut_requested")?.workflowType, "finalizeQuestionWorkflow");
+  assert.equal(directWorkflowRoute("teacher.correction_recorded")?.workflowType, "replayScientificStateWorkflow");
   const soft = workflowInputFromOutbox({
     schemaVersion: 3,
     eventId: "evt_closed00000001",
@@ -29,4 +30,21 @@ test("domain workflows are not collapsed into unrelated Pi tasks", () => {
     occurredAt: "2026-08-31T08:00:00.000Z",
   }, "light");
   assert.equal(soft.resultOwnership, "parent");
+});
+
+test("teacher correction routes reference-only deterministic replay input", () => {
+  const input = scientificReplayInputFromOutbox({
+    schemaVersion: 3,
+    eventId: "evt_teacher001",
+    tenantId: "tnt_dev00001",
+    operationId: "op_teacher001",
+    eventType: "teacher.correction_recorded",
+    aggregateRef: "student:stu_student01",
+    aggregateVersion: 2,
+    payloadRef: "teacher-correction:tcor_teacher001",
+    occurredAt: "2026-08-31T00:00:00.000Z",
+  });
+  assert.equal(input.studentId,"stu_student01");
+  assert.equal(input.teacherCorrectionId,"tcor_teacher001");
+  assert.equal(input.inputRef,"teacher-correction:tcor_teacher001");
 });

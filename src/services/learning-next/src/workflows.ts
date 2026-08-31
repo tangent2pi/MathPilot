@@ -24,6 +24,8 @@ import type {
   LearningNextActivities,
   PiTaskActivityResult,
   QuestionClosureResult,
+  ScientificReplayResult,
+  ScientificReplayWorkflowInput,
   ScheduledDreamTickInput,
   TaskRevision,
   TaskType,
@@ -300,6 +302,24 @@ export async function finalizeQuestionWorkflow(input: FinalizeQuestionWorkflowIn
       questionCommitActivityOptions("commit-question-closure"),
     );
   });
+}
+
+export async function replayScientificStateWorkflow(input: ScientificReplayWorkflowInput): Promise<ScientificReplayResult> {
+  if (input.schemaVersion !== 3
+    || !idempotencyPattern.test(input.operationId)
+    || !idempotencyPattern.test(input.eventId)
+    || !/^stu_[A-Za-z0-9]{8,}$/.test(input.studentId)
+    || !/^tcor_[A-Za-z0-9]{8,}$/.test(input.teacherCorrectionId)
+    || input.inputRef !== `teacher-correction:${input.teacherCorrectionId}`
+    || !Number.isSafeInteger(input.aggregateVersion)
+    || input.aggregateVersion < 2) {
+    throw ApplicationFailure.nonRetryable("invalid scientific replay input", "invalid_workflow_input");
+  }
+  return CancellationScope.nonCancellable(() => scheduleActivity<ScientificReplayResult>(
+    "replayScientificCorrection",
+    [input],
+    questionCommitActivityOptions("replay-scientific-correction"),
+  ));
 }
 
 const enforceTaskType = (input: AgentTaskWorkflowInput, expected: TaskType): void => {

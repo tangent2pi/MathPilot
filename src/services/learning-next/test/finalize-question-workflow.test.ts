@@ -79,6 +79,9 @@ test("FinalizeQuestion turns exhausted grading into unresolved and still closes 
         observationRefs: [],
       };
     },
+    async replayScientificCorrection() {
+      throw new Error("unexpected scientific replay Activity");
+    },
   };
   const worker = await Worker.create({
     connection: environment.nativeConnection,

@@ -114,6 +114,9 @@ test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-
     async commitQuestionClosure() {
       throw new Error("unexpected FinalizeQuestion commit in generic runtime test");
     },
+    async replayScientificCorrection() {
+      throw new Error("unexpected scientific replay Activity in generic runtime test");
+    },
   };
   const worker = await Worker.create({
     connection: environment.nativeConnection,

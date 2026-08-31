@@ -74,5 +74,6 @@ export function createActivities({ store, questionStore, executor }: ActivityDep
     recordFinalJudgment: (input) => questionStore.recordFinalJudgment(input),
     recordUnresolvedJudgment: (input) => questionStore.recordUnresolvedJudgment(input),
     commitQuestionClosure: (input) => questionStore.commitClosure(input),
+    replayScientificCorrection: (input) => questionStore.replayCorrection(input),
   };
 }

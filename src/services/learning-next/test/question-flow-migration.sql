@@ -62,7 +62,7 @@ select * from mathpilot_science_v3_open_question_session(
     "rubric_revision_id":"rubric-flowtest-v1",
     "dimension_revision_ids":["krev_flowtest_v1"],
     "diagnosis_rule_revision_ids":[],
-    "evidence_policy_version":"evidence-policy-v1",
+    "evidence_policy_version":"evidence-policy-production-v1@1",
     "frozen_at":"2026-08-31T08:00:00Z"
   }'::jsonb,
   null,'fge_flowtest01','snapshot:foreground/flowtest/v1',1,

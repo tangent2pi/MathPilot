@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import pg from "pg";
+import { compileAndProjectQuestion } from "./scientific-store.ts";
 import type {
   AgentTaskWorkflowInput,
   CommitQuestionClosureInput,
@@ -8,6 +9,8 @@ import type {
   QuestionClosureResult,
   RecordFinalJudgmentInput,
   RecordUnresolvedJudgmentInput,
+  ScientificReplayResult,
+  ScientificReplayWorkflowInput,
 } from "./runtime-types.ts";
 
 const idFrom = (prefix: string, value: string, length = 24): string =>
@@ -87,6 +90,7 @@ export interface QuestionStore {
   recordFinalJudgment(input: RecordFinalJudgmentInput): Promise<void>;
   recordUnresolvedJudgment(input: RecordUnresolvedJudgmentInput): Promise<void>;
   commitClosure(input: CommitQuestionClosureInput): Promise<QuestionClosureResult>;
+  replayCorrection(input: ScientificReplayWorkflowInput): Promise<ScientificReplayResult>;
   close(): Promise<void>;
 }
 
@@ -352,6 +356,9 @@ export class PostgresQuestionStore implements QuestionStore {
           evidence_refs: itemEvidence,
         };
       });
+      if (new Set(rubricResults.map((item) => item.rubric_item_id)).size !== rubricResults.length) {
+        throw new Error("rubric_results contains duplicate rubric items");
+      }
       const rubricById = new Map(rubricResults.map((item) => [item.rubric_item_id, item.status]));
       if (!Array.isArray(proposal.dimension_proposals)) throw new Error("dimension_proposals is invalid");
       const frozenDimensions = new Set(stringArray(row.frozen_measurement_contract.dimension_revision_ids, "frozen dimensions"));
@@ -367,6 +374,9 @@ export class PostgresQuestionStore implements QuestionStore {
         }
         return { dimension_revision_id: dimension, rubric_item_id: rubricItem, outcome };
       });
+      if (new Set(dimensionProposals.map((item) => item.dimension_revision_id)).size !== dimensionProposals.length) {
+        throw new Error("dimension_proposals contains duplicate dimensions");
+      }
 
       await client.query(
         `insert into science_v3_judgment (
@@ -482,6 +492,14 @@ export class PostgresQuestionStore implements QuestionStore {
       );
       if (missing.rows[0]) throw new Error(`Attempt ${missing.rows[0].attempt_id} has no final Judgment`);
 
+      const closedAt = new Date();
+      const scientific = await compileAndProjectQuestion(client, {
+        tenantId: input.tenantId,
+        questionSessionId: input.questionSessionId,
+        frozenAttemptSequence: Number(cut.frozen_attempt_sequence),
+        projectedAt: closedAt.toISOString(),
+      });
+
       const judgments = await client.query<{ ref: string }>(
         `select 'judgment://' || j.judgment_id as ref
            from science_v3_judgment j join science_v3_attempt a
@@ -504,6 +522,14 @@ export class PostgresQuestionStore implements QuestionStore {
               select 1 from science_v3_observation newer
                where newer.tenant_id=o.tenant_id and newer.supersedes_observation_id=o.observation_id
             )
+            and not exists (
+              select 1 from science_v3_judgment newer_j
+               where newer_j.tenant_id=j.tenant_id and newer_j.supersedes_judgment_id=j.judgment_id
+            )
+            and not exists (
+              select 1 from science_v3_attempt newer_a
+               where newer_a.tenant_id=a.tenant_id and newer_a.supersedes_attempt_id=a.attempt_id
+            )
           order by o.occurred_at,o.observation_id`,
         [input.tenantId, input.questionSessionId, cut.frozen_attempt_sequence],
       );
@@ -512,7 +538,6 @@ export class PostgresQuestionStore implements QuestionStore {
       const closureId = idFrom("qcl", input.cutRequestId);
       const artifactId = idFrom("art", `${input.cutRequestId}\0question-closed`);
       const closedEventId = idFrom("evt", `${input.cutRequestId}\0question-closed`);
-      const closedAt = new Date();
       const sessionVersion = Number(cut.session_version) + 1;
       const status = cut.reason === "abandoned" ? "abandoned" : "closed";
       const diagnosticStatus = cut.reason === "skipped" || cut.reason === "abandoned" ? "skipped" : "unclassified";
@@ -523,6 +548,8 @@ export class PostgresQuestionStore implements QuestionStore {
         close_reason: cut.reason,
         judgment_refs: judgmentRefs,
         observation_refs: observationRefs,
+        mastery_projection_refs: scientific.masteryProjectionRefs,
+        retention_projection_refs: scientific.retentionProjectionRefs,
         closed_at: closedAt.toISOString(),
       };
       const artifact = jsonArtifact(payload);
@@ -582,6 +609,103 @@ export class PostgresQuestionStore implements QuestionStore {
         sessionVersion,
         judgmentRefs,
         observationRefs,
+      };
+    });
+  }
+
+  async replayCorrection(input: ScientificReplayWorkflowInput): Promise<ScientificReplayResult> {
+    return this.withTenant(input.tenantId, async (client) => {
+      const correction = await client.query<{
+        teacher_correction_id: string;
+        operation_id: string;
+        operation_status: string;
+        idempotency_key: string;
+        student_id: string;
+        question_session_id: string;
+        fact_version: string;
+        requested_at: Date | string;
+        frozen_attempt_sequence: string;
+        event_id: string;
+        payload_ref: string;
+      }>(
+        `select c.teacher_correction_id,c.operation_id,o.status as operation_status,
+                c.idempotency_key,c.student_id,c.question_session_id,c.fact_version,c.requested_at,
+                q.frozen_attempt_sequence,e.event_id,e.payload_ref
+           from science_v3_teacher_correction c
+           join science_v3_operation o
+             on o.tenant_id=c.tenant_id and o.operation_id=c.operation_id
+           join science_v3_question_session q
+             on q.tenant_id=c.tenant_id and q.question_session_id=c.question_session_id
+           join infra_outbox e
+             on e.tenant_id=c.tenant_id and e.operation_id=c.operation_id
+            and e.event_type='teacher.correction_recorded'
+          where c.tenant_id=$1 and c.teacher_correction_id=$2 and c.operation_id=$3
+            and e.event_id=$4
+          for update of o`,
+        [input.tenantId,input.teacherCorrectionId,input.operationId,input.eventId],
+      );
+      const row = correction.rows[0];
+      if (!row || row.student_id !== input.studentId
+          || Number(row.fact_version) !== input.aggregateVersion
+          || row.payload_ref !== input.inputRef
+          || row.event_id !== input.eventId
+          || row.frozen_attempt_sequence === null) {
+        throw new Error("teacher correction replay envelope does not match its fact");
+      }
+      const existing = await client.query<{ result_resource_refs: string[] }>(
+        `select result_resource_refs from science_v3_operation_result
+          where tenant_id=$1 and operation_id=$2 and idempotency_key=$3`,
+        [input.tenantId,input.operationId,row.idempotency_key],
+      );
+      if (existing.rows[0]) {
+        return {
+          teacherCorrectionId: row.teacher_correction_id,
+          questionSessionId: row.question_session_id,
+          masteryProjectionRefs: existing.rows[0].result_resource_refs.filter((ref) => ref.startsWith("mastery-projection:")),
+          retentionProjectionRefs: existing.rows[0].result_resource_refs.filter((ref) => ref.startsWith("retention-projection:")),
+        };
+      }
+      if (row.operation_status === "accepted") {
+        await client.query(
+          `update science_v3_operation
+              set status='running',user_message='正在重放科学状态',updated_at=clock_timestamp(),version=version+1
+            where tenant_id=$1 and operation_id=$2 and status='accepted'`,
+          [input.tenantId,input.operationId],
+        );
+      } else if (row.operation_status !== "running") {
+        throw new Error("teacher correction operation is not replayable");
+      }
+      const scientific = await compileAndProjectQuestion(client, {
+        tenantId: input.tenantId,
+        questionSessionId: row.question_session_id,
+        frozenAttemptSequence: Number(row.frozen_attempt_sequence),
+        projectedAt: new Date(row.requested_at).toISOString(),
+      });
+      const resourceRefs = [
+        `teacher-correction:${row.teacher_correction_id}`,
+        ...scientific.masteryProjectionRefs,
+        ...scientific.retentionProjectionRefs,
+      ].slice(0,32);
+      await client.query(
+        `insert into science_v3_operation_result (
+           tenant_id,operation_id,idempotency_key,result_status,aggregate_ref,
+           aggregate_version,result_resource_refs
+         ) values ($1,$2,$3,'committed',$4,$5,$6)`,
+        [input.tenantId,input.operationId,row.idempotency_key,
+          `student:${row.student_id}`,input.aggregateVersion,resourceRefs],
+      );
+      await client.query(
+        `update science_v3_operation
+            set status='succeeded',user_message='教师纠正已重放',retryable=false,
+                related_resource_refs=$3,updated_at=clock_timestamp(),version=version+1
+          where tenant_id=$1 and operation_id=$2 and status='running'`,
+        [input.tenantId,input.operationId,resourceRefs],
+      );
+      return {
+        teacherCorrectionId: row.teacher_correction_id,
+        questionSessionId: row.question_session_id,
+        masteryProjectionRefs: resourceRefs.filter((ref) => ref.startsWith("mastery-projection:")),
+        retentionProjectionRefs: resourceRefs.filter((ref) => ref.startsWith("retention-projection:")),
       };
     });
   }

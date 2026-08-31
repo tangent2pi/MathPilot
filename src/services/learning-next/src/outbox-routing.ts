@@ -3,6 +3,7 @@ import type {
   AgentTaskWorkflowInput,
   FinalizeQuestionWorkflowInput,
   OutboxWorkflowStart,
+  ScientificReplayWorkflowInput,
   TaskType,
 } from "./runtime-types.ts";
 
@@ -23,9 +24,14 @@ export interface FinalizeQuestionWorkflowRoute {
   taskType?: undefined;
 }
 
-export function directWorkflowRoute(eventType: string): DirectWorkflowRoute | FinalizeQuestionWorkflowRoute | undefined {
+export interface ScientificReplayWorkflowRoute {
+  workflowType: "replayScientificStateWorkflow";
+  taskType?: undefined;
+}
+
+export function directWorkflowRoute(eventType: string): DirectWorkflowRoute | FinalizeQuestionWorkflowRoute | ScientificReplayWorkflowRoute | undefined {
   if (eventType === "question.cut_requested") return { workflowType: "finalizeQuestionWorkflow" };
-  if (eventType === "teacher.correction_recorded") return undefined;
+  if (eventType === "teacher.correction_recorded") return { workflowType: "replayScientificStateWorkflow" };
   const taskType = directTaskTypeForEvent(eventType);
   if (!(taskType in DIRECT_WORKFLOW_TYPES)) throw new Error(`task ${taskType} has no direct outbox Workflow`);
   return {
@@ -60,6 +66,24 @@ export function finalizeQuestionInputFromOutbox(event: OutboxWorkflowStart): Fin
     operationId: event.operationId,
     eventId: event.eventId,
     questionSessionId: match[1]!,
+    aggregateVersion: event.aggregateVersion,
+    inputRef: event.payloadRef,
+  };
+}
+
+export function scientificReplayInputFromOutbox(event: OutboxWorkflowStart): ScientificReplayWorkflowInput {
+  const student = /^student:(stu_[A-Za-z0-9]{8,})$/.exec(event.aggregateRef);
+  const correction = /^teacher-correction:(tcor_[A-Za-z0-9]{8,})$/.exec(event.payloadRef);
+  if (!student || !correction || event.eventType !== "teacher.correction_recorded") {
+    throw new Error("invalid teacher correction outbox envelope");
+  }
+  return {
+    schemaVersion: 3,
+    tenantId: event.tenantId,
+    operationId: event.operationId,
+    eventId: event.eventId,
+    studentId: student[1]!,
+    teacherCorrectionId: correction[1]!,
     aggregateVersion: event.aggregateVersion,
     inputRef: event.payloadRef,
   };
