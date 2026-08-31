@@ -4,6 +4,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY patches ./patches
 COPY src/services/learning-next/package.json ./src/services/learning-next/package.json
 RUN --mount=type=cache,id=mathpilot-next-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \
     corepack enable && \
