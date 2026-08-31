@@ -3,6 +3,7 @@
  * JSON Schema 位于 ../schemas（唯一契约源）；本文件导出 Provider TS 接口。
  */
 export * from "./errors.js";
+export type * from "./science-v3-learning.js";
 export type * from "./providers/model.js";
 export type * from "./providers/ocr.js";
 export type * from "./providers/search.js";

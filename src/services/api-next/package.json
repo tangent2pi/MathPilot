@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@mathpilot/contracts": "workspace:*",
     "better-auth": "1.6.23",
     "fastify": "^5.2.0",
     "pg": "^8.13.1",

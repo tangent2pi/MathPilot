@@ -12,7 +12,7 @@
     "schema": { "type": "string", "pattern": "^mathpilot\\.learning-view/[a-z0-9_-]+/v[1-9][0-9]*$" },
     "view_kind": {
       "enum": [
-        "thread_messages", "thread_context", "question_interaction", "judgment", "question_closure",
+        "thread_list", "thread_messages", "thread_context", "question_interaction", "judgment", "question_closure",
         "learning_overview", "learning_history", "scientific_state", "error_pattern_list",
         "memory_ledger", "annotation_detail", "review_queue", "evidence_bundle",
         "learning_activity", "agent_context_manifest", "operation"
@@ -56,6 +56,7 @@
       "properties": {
         "action": {
           "enum": [
+            "create_thread", "send_message", "rename_thread", "archive_thread",
             "submit_attempt", "request_cut", "revise_selection_intent", "start_review",
             "annotation_feedback", "set_context_preference", "cancel_operation", "teacher_supersede_fact"
           ]
