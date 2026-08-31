@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/foreground-teaching-output/v1",
+  "title": "Foreground Teaching Output",
+  "$description": "前台 Agent 的公开回复提案。权威 DomainUIPart 不在此联合中，只能由 MessageProjector 产生。",
+  "type": "object",
+  "required": [
+    "schema_version", "conversation_thread_id", "foreground_epoch_id",
+    "reply_to_message_id", "parts"
+  ],
+  "properties": {
+    "schema_version": { "const": 3 },
+    "conversation_thread_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ConversationThreadId" },
+    "foreground_epoch_id": { "type": "string", "pattern": "^fge_[A-Za-z0-9]{8,}$" },
+    "reply_to_message_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/MessageId" },
+    "parts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["type", "text"],
+            "properties": {
+              "type": { "const": "text" },
+              "text": { "type": "string", "minLength": 1, "maxLength": 50000 }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["type", "artifact_ref", "artifact_schema", "summary"],
+            "properties": {
+              "type": { "const": "teaching_artifact" },
+              "artifact_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+              "artifact_schema": { "type": "string", "pattern": "^mathpilot\\.teaching-artifact/[a-z0-9_-]+/v[1-9][0-9]*$" },
+              "summary": { "type": "string", "minLength": 1, "maxLength": 1000 }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

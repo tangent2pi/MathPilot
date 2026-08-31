@@ -1,0 +1,23 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "conversation_thread_id": "thr_a1b2c3d4",
+    "foreground_epoch_id": "fge_a1b2c3d4",
+    "reply_to_message_id": "msg_a1b2c3d4",
+    "parts": [{ "type": "text", "text": "可以把这一步看成先固定底边，再比较高。" }]
+  },
+  "missing_field": {
+    "schema_version": 3,
+    "conversation_thread_id": "thr_a1b2c3d4"
+  },
+  "rejected": [
+    {
+      "_reason": "Agent 输出不能伪造权威领域卡",
+      "schema_version": 3,
+      "conversation_thread_id": "thr_a1b2c3d4",
+      "foreground_epoch_id": "fge_a1b2c3d4",
+      "reply_to_message_id": "msg_a1b2c3d4",
+      "parts": [{ "type": "domain_ui", "part": { "view_kind": "judgment" } }]
+    }
+  ]
+}

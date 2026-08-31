@@ -1,0 +1,30 @@
+{
+  "valid": {
+    "action": "present_validated_artifact",
+    "artifact_schema": "mathpilot.teaching-artifact/explanation/v1",
+    "summary": "用面积守恒比较两个三角形。",
+    "content": { "kind": "comparison", "items": ["同底", "等高"] }
+  },
+  "valid_cases": [
+    { "action": "request_cut", "reason": "student_switch", "next_natural_language_request": "换一道更简单的。" },
+    { "action": "revise_selection_intent", "natural_language_request": "不要计算量大的题。" }
+  ],
+  "missing_field": {
+    "action": "present_validated_artifact",
+    "summary": "缺少内容。"
+  },
+  "rejected": [
+    {
+      "_reason": "不得直接写掌握状态",
+      "action": "set_mastery",
+      "dimension_id": "dim_demo",
+      "value": 1
+    },
+    {
+      "_reason": "Agent 不能指定租户或数据库目标",
+      "action": "request_cut",
+      "reason": "student_switch",
+      "tenant_id": "tnt_other"
+    }
+  ]
+}

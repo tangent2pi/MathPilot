@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/learning-action/v1",
+  "title": "Bounded Learning Action",
+  "$description": "前台 Agent 唯一可写能力的判别联合。宿主从当前 Attempt 绑定租户、学生、Thread 和 QuestionSession，不接受这些授权边界作为可改参数。",
+  "oneOf": [
+    { "$ref": "#/$defs/RequestCut" },
+    { "$ref": "#/$defs/ReviseSelectionIntent" },
+    { "$ref": "#/$defs/PresentValidatedArtifact" }
+  ],
+  "$defs": {
+    "RequestCut": {
+      "type": "object",
+      "required": ["action", "reason"],
+      "properties": {
+        "action": { "const": "request_cut" },
+        "reason": { "enum": ["completed", "student_switch", "skipped", "system_policy", "abandoned"] },
+        "next_natural_language_request": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      },
+      "additionalProperties": false
+    },
+    "ReviseSelectionIntent": {
+      "type": "object",
+      "required": ["action", "natural_language_request"],
+      "properties": {
+        "action": { "const": "revise_selection_intent" },
+        "natural_language_request": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      },
+      "additionalProperties": false
+    },
+    "PresentValidatedArtifact": {
+      "type": "object",
+      "required": ["action", "artifact_schema", "summary", "content"],
+      "properties": {
+        "action": { "const": "present_validated_artifact" },
+        "artifact_schema": { "type": "string", "pattern": "^mathpilot\\.teaching-artifact/[a-z0-9_-]+/v[1-9][0-9]*$" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "content": { "type": "object", "maxProperties": 64 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

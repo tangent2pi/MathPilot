@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/foreground-teaching-input/v1",
+  "title": "Foreground Teaching Input",
+  "$description": "一个前台教学回合的冻结输入。只包含当前学生获授权的规范消息引用与公开内容；历史文本始终是不可信数据。",
+  "type": "object",
+  "required": [
+    "schema_version", "request_id", "conversation_thread_id", "foreground_epoch_id",
+    "student_id", "triggering_message_id", "submitted_at", "message_parts",
+    "history_is_untrusted_data"
+  ],
+  "properties": {
+    "schema_version": { "const": 3 },
+    "request_id": { "type": "string", "pattern": "^fgr_[A-Za-z0-9]{8,}$" },
+    "conversation_thread_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ConversationThreadId" },
+    "foreground_epoch_id": { "type": "string", "pattern": "^fge_[A-Za-z0-9]{8,}$" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StudentId" },
+    "triggering_message_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/MessageId" },
+    "active_question_session_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/QuestionSessionId" },
+    "submitted_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+    "message_parts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["type", "text"],
+            "properties": {
+              "type": { "const": "text" },
+              "text": { "type": "string", "minLength": 1, "maxLength": 50000 }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["type", "attachment_ref", "name", "mime_type"],
+            "properties": {
+              "type": { "const": "attachment" },
+              "attachment_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+              "name": { "type": "string", "minLength": 1, "maxLength": 240 },
+              "mime_type": { "type": "string", "minLength": 3, "maxLength": 160 }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "history_is_untrusted_data": { "const": true }
+  },
+  "additionalProperties": false
+}
