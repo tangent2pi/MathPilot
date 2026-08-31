@@ -69,7 +69,7 @@ type QuestionOption = { id: string; text: string };
 
 function QuestionCard({ part }: { part: DomainUIPart }) {
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<string>();
+  const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [answer, setAnswer] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -88,9 +88,10 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
   });
   const prompt = stringValue(data.stem_markdown) ?? part.snapshot.summary;
   const format = stringValue(data.stem_format) ?? "short_answer";
+  const multiple = format === "multiple_choice";
   const options = useMemo(() => optionValues(data.options), [data.options]);
   const response = options.length > 0
-    ? selected ? `${selected}. ${options.find((option) => option.id === selected)?.text ?? ""}` : ""
+    ? selectedOptions.map((id) => `${id}. ${options.find((option) => option.id === id)?.text ?? ""}`).join("；")
     : answer.trim();
   const commands = interaction.data?.data.commands ?? interaction.data?.command_capabilities ?? [];
   const submitCommand = commands.find((command) => command.action === "submit_attempt");
@@ -141,25 +142,30 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
         {options.length > 0 ? (
           <div className="grid gap-2">
             {options.map((option, index) => {
-              const checked = selected === option.id;
+              const checked = selectedOptions.includes(option.id);
               return (
-                <button
+                <label
                   key={option.id}
-                  type="button"
-                  aria-pressed={checked}
-                  disabled={!canSubmit || submitting}
-                  onClick={() => setSelected(option.id)}
                   className={cn(
-                    "flex w-full items-start gap-3 rounded-xl border px-3.5 py-3 text-start transition-colors",
+                    "flex w-full cursor-pointer items-start gap-3 rounded-xl border px-3.5 py-3 text-start transition-colors",
                     checked ? "border-primary bg-primary/5" : "hover:bg-muted/60",
                     (!canSubmit || submitting) && "cursor-default opacity-65",
                   )}
                 >
-                  <span className={cn("mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border text-[11px]", checked && "border-primary bg-primary text-primary-foreground")}>
-                    {checked ? <CheckCircle2Icon className="size-3.5" /> : String.fromCharCode(65 + index)}
-                  </span>
+                  <input
+                    type={multiple ? "checkbox" : "radio"}
+                    name={`question-${sessionId}`}
+                    value={option.id}
+                    checked={checked}
+                    disabled={!canSubmit || submitting}
+                    onChange={() => setSelectedOptions((current) => multiple
+                      ? current.includes(option.id) ? current.filter((id) => id !== option.id) : [...current, option.id]
+                      : [option.id])}
+                    className="border-input text-primary focus-visible:ring-ring mt-1 size-4 shrink-0 accent-current focus-visible:ring-2"
+                  />
+                  <span className="text-muted-foreground mt-0.5 text-xs font-medium">{String.fromCharCode(65 + index)}</span>
                   <MathContent className="min-w-0 flex-1 text-sm leading-6">{option.text}</MathContent>
-                </button>
+                </label>
               );
             })}
           </div>

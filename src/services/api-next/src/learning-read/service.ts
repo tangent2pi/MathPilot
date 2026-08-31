@@ -852,6 +852,7 @@ export class LearningReadService {
         uncertainty: string | null; decision_summary: string | null; evidence_refs: string[] | null;
         model_id: string | null; prompt_version: string | null; created_at: Date | string;
         fact_version: string | null; superseded_by: string | null;
+        superseded_by_verdict: string | null; superseded_by_summary: string | null;
       }>(
         `select session.question_session_id,session.conversation_thread_id,session.question_revision_id,
                 question.stem_markdown,attempt.attempt_id,attempt.kind attempt_kind,message.parts attempt_parts,
@@ -862,7 +863,13 @@ export class LearningReadService {
                 judgment.fact_version,
                 (select newer.judgment_id from science_v3_judgment newer
                   where newer.tenant_id=judgment.tenant_id and newer.supersedes_judgment_id=judgment.judgment_id
-                  order by newer.fact_version desc limit 1) superseded_by
+                  order by newer.fact_version desc limit 1) superseded_by,
+                (select newer.verdict from science_v3_judgment newer
+                  where newer.tenant_id=judgment.tenant_id and newer.supersedes_judgment_id=judgment.judgment_id
+                  order by newer.fact_version desc limit 1) superseded_by_verdict,
+                (select newer.decision_summary from science_v3_judgment newer
+                  where newer.tenant_id=judgment.tenant_id and newer.supersedes_judgment_id=judgment.judgment_id
+                  order by newer.fact_version desc limit 1) superseded_by_summary
            from science_v3_question_session session
            left join content_question_revision question
              on question.tenant_id=session.tenant_id and question.revision_id=session.question_revision_id
@@ -889,8 +896,12 @@ export class LearningReadService {
             independent: row.hint_level === 0, content_parts: row.attempt_parts ?? [],
           } } : {}),
           ...(row.judgment_id ? { judgment: {
+            id: row.judgment_id, fact_version: Number(row.fact_version ?? 1),
             verdict: row.verdict, rubric_items: row.rubric_results ?? [], uncertainty: row.uncertainty,
             summary: row.decision_summary, evidence_links: row.evidence_refs ?? [], superseded_by: row.superseded_by,
+            ...(row.superseded_by ? { replacement: {
+              id: row.superseded_by, verdict: row.superseded_by_verdict, summary: row.superseded_by_summary,
+            } } : {}),
           } } : {}),
           scientific_relations: row.hint_level && row.hint_level > 0
             ? [{ layer: "M", relation: "excluded_from_independent_mastery", explanation: "本次使用了提示，仅用于教学连续性。" }]
@@ -898,6 +909,9 @@ export class LearningReadService {
           provenance: { occurred_at: asIso(row.created_at), model_version: row.model_id, prompt_version: row.prompt_version },
           thread_href: `/c/${row.conversation_thread_id}#question-${row.question_session_id}`,
         },
+        capabilities: subject.actorMode === "teacher" && row.judgment_id && !row.superseded_by
+          ? [capability("teacher_supersede_fact", `/api/learning/judgments/${row.judgment_id}/corrections`, Number(row.fact_version ?? 1))]
+          : [],
       });
     });
   }

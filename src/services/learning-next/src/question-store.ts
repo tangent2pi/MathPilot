@@ -60,6 +60,31 @@ const enumValue = <T extends string>(value: unknown, name: string, choices: read
   return value as T;
 };
 
+const publicRubricResults = (value: unknown): Array<{ rubric_item_id: string; status: string }> => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+    const item = candidate as Record<string, unknown>;
+    return typeof item.rubric_item_id === "string" && typeof item.status === "string"
+      ? [{ rubric_item_id: item.rubric_item_id, status: item.status }]
+      : [];
+  });
+};
+
+const verdictTitle = (value: string): string => ({
+  correct: "回答正确",
+  partially_correct: "部分正确",
+  incorrect: "需要调整",
+  unresolved: "尚不能形成正式判定",
+})[value] ?? "判定结果";
+
+const closureSummary = (reason: string, judgmentCount: number, observationCount: number): string => {
+  if (reason === "skipped") return "本题已按跳过处理，没有把跳过伪装成答错。";
+  if (reason === "abandoned") return "本题已结束；未完成内容只保留教学连续性。";
+  if (!judgmentCount) return "本题已结束，暂未形成正式判定。";
+  return `本题已结束，形成 ${judgmentCount} 条判定与 ${observationCount} 条可用学习证据。`;
+};
+
 interface PreparedRow {
   operation_id: string;
   operation_status: string;
@@ -462,6 +487,7 @@ export class PostgresQuestionStore implements QuestionStore {
         operation_status: string;
         idempotency_key: string;
         reason: string;
+        conversation_thread_id: string;
         frozen_attempt_sequence: string;
         lifecycle: string;
         session_version: string;
@@ -472,7 +498,7 @@ export class PostgresQuestionStore implements QuestionStore {
         learning_activity_id: string | null;
       }>(
         `select c.operation_id,o.status as operation_status,c.idempotency_key,c.reason,
-                c.frozen_attempt_sequence,q.lifecycle,q.version as session_version,q.student_id,
+                q.conversation_thread_id,c.frozen_attempt_sequence,q.lifecycle,q.version as session_version,q.student_id,
                 q.question_revision_id,q.external_question_ref,q.frozen_measurement_contract,q.learning_activity_id
            from science_v3_cut_request c
            join science_v3_question_session q
@@ -531,12 +557,23 @@ export class PostgresQuestionStore implements QuestionStore {
         [input.tenantId,input.questionSessionId,cut.frozen_attempt_sequence],
       );
       const judgments = await client.query<{
+        judgment_id: string;
         ref: string;
+        verdict: string;
+        rubric_results: unknown;
+        uncertainty: string;
         summary: string;
         dimension_revision_ids: string[];
         evidence_refs: string[];
+        model_id: string;
+        prompt_version: string;
+        skill_version: string;
+        fact_version: string;
+        created_at: Date | string;
       }>(
-        `select 'judgment://' || j.judgment_id as ref,j.decision_summary as summary,j.evidence_refs,
+        `select j.judgment_id,'judgment://' || j.judgment_id as ref,j.verdict,j.rubric_results,
+                j.uncertainty,j.decision_summary as summary,j.evidence_refs,j.model_id,
+                j.prompt_version,j.skill_version,j.fact_version,j.created_at,
                 coalesce(array(
                   select distinct proposal->>'dimension_revision_id'
                     from jsonb_array_elements(j.dimension_proposals) proposal
@@ -708,6 +745,87 @@ export class PostgresQuestionStore implements QuestionStore {
           where tenant_id=$1 and active_question_session_id=$2 and ended_at is null`,
         [input.tenantId, input.questionSessionId, closedAt],
       );
+      const thread = (await client.query<{ next_message_sequence: string }>(
+        `select next_message_sequence from science_v3_conversation_thread
+          where tenant_id=$1 and conversation_thread_id=$2 for update`,
+        [input.tenantId, cut.conversation_thread_id],
+      )).rows[0];
+      if (!thread) throw new Error("question closure lost its ConversationThread");
+      const closureMessageId = idFrom("msg", `${closureId}\0domain-presentation`);
+      const judgmentParts = judgments.rows.map((judgment) => ({
+        type: "domain_ui",
+        part: {
+          schema: "mathpilot.message-part/domain-ui/v1",
+          part_id: idFrom("part", `${judgment.judgment_id}\0presentation`),
+          view_kind: "judgment",
+          resource_ref: `judgment:${judgment.judgment_id}`,
+          resource_version: Number(judgment.fact_version),
+          snapshot: {
+            schema: "mathpilot.view/judgment/v1",
+            title: verdictTitle(judgment.verdict),
+            summary: judgment.summary,
+            data: {
+              judgment_id: judgment.judgment_id,
+              verdict: judgment.verdict,
+              rubric_results: publicRubricResults(judgment.rubric_results),
+              uncertainty: judgment.uncertainty,
+              evidence_count: judgment.evidence_refs.length,
+              model_id: judgment.model_id,
+              prompt_version: judgment.prompt_version,
+              skill_version: judgment.skill_version,
+            },
+          },
+          action_slots: ["view_evidence"],
+          occurred_at: toIso(judgment.created_at),
+          origin: "domain_projector",
+          domain_event_ref: `fact://judgment/${judgment.judgment_id}`,
+        },
+      }));
+      const closurePart = {
+        type: "domain_ui",
+        part: {
+          schema: "mathpilot.message-part/domain-ui/v1",
+          part_id: idFrom("part", `${closureId}\0presentation`),
+          view_kind: "question_closure",
+          resource_ref: `question-closure:${closureId}`,
+          resource_version: 1,
+          snapshot: {
+            schema: "mathpilot.view/question_closure/v1",
+            title: "本题已结束",
+            summary: closureSummary(cut.reason, judgmentRefs.length, observationRefs.length),
+            data: {
+              question_closure_id: closureId,
+              question_session_id: input.questionSessionId,
+              close_reason: cut.reason,
+              diagnostic_status: diagnosticStatus,
+              judgment_count: judgmentRefs.length,
+              observation_count: observationRefs.length,
+            },
+          },
+          action_slots: [],
+          occurred_at: closedAt.toISOString(),
+          origin: "domain_projector",
+          domain_event_ref: `event://question-closed/${closedEventId}`,
+        },
+      };
+      const insertedMessage = await client.query(
+        `insert into science_v3_canonical_message(
+           message_id,tenant_id,conversation_thread_id,sequence,author_kind,lifecycle,
+           parts,question_session_id,editable,lock_reason,created_at,version
+         ) values($1,$2,$3,$4,'system','committed',$5::jsonb,$6,false,'domain_event',$7,1)
+         on conflict (tenant_id,message_id) do nothing returning 1`,
+        [closureMessageId,input.tenantId,cut.conversation_thread_id,Number(thread.next_message_sequence),
+          JSON.stringify([...judgmentParts,closurePart]),input.questionSessionId,closedAt],
+      );
+      if (insertedMessage.rowCount) {
+        await client.query(
+          `update science_v3_conversation_thread
+              set next_message_sequence=next_message_sequence+1,
+                  updated_at=clock_timestamp(),version=version+1
+            where tenant_id=$1 and conversation_thread_id=$2`,
+          [input.tenantId,cut.conversation_thread_id],
+        );
+      }
       await client.query(
         `insert into science_v3_agent_artifact (
            artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
@@ -765,6 +883,11 @@ export class PostgresQuestionStore implements QuestionStore {
         idempotency_key: string;
         student_id: string;
         question_session_id: string;
+        conversation_thread_id: string;
+        teacher_user_id: string;
+        target_judgment_id: string;
+        replacement_judgment_id: string;
+        reason: string;
         fact_version: string;
         requested_at: Date | string;
         frozen_attempt_sequence: string;
@@ -772,8 +895,9 @@ export class PostgresQuestionStore implements QuestionStore {
         payload_ref: string;
       }>(
         `select c.teacher_correction_id,c.operation_id,o.status as operation_status,
-                c.idempotency_key,c.student_id,c.question_session_id,c.fact_version,c.requested_at,
-                q.frozen_attempt_sequence,e.event_id,e.payload_ref
+                c.idempotency_key,c.student_id,c.question_session_id,q.conversation_thread_id,
+                c.teacher_user_id,c.target_judgment_id,c.replacement_judgment_id,c.reason,
+                c.fact_version,c.requested_at,q.frozen_attempt_sequence,e.event_id,e.payload_ref
            from science_v3_teacher_correction c
            join science_v3_operation o
              on o.tenant_id=c.tenant_id and o.operation_id=c.operation_id
@@ -903,6 +1027,76 @@ export class PostgresQuestionStore implements QuestionStore {
           where tenant_id=$1 and operation_id=$2 and status='running'`,
         [input.tenantId,input.operationId,resourceRefs],
       );
+      const replacement = (await client.query<{
+        verdict: string; rubric_results: unknown; uncertainty: string; decision_summary: string;
+        evidence_refs: string[]; model_id: string; prompt_version: string; skill_version: string;
+        fact_version: string; created_at: Date | string;
+      }>(
+        `select verdict,rubric_results,uncertainty,decision_summary,evidence_refs,
+                model_id,prompt_version,skill_version,fact_version,created_at
+           from science_v3_judgment
+          where tenant_id=$1 and judgment_id=$2`,
+        [input.tenantId,row.replacement_judgment_id],
+      )).rows[0];
+      if (!replacement) throw new Error("teacher correction replacement Judgment is missing");
+      const thread = (await client.query<{ next_message_sequence: string }>(
+        `select next_message_sequence from science_v3_conversation_thread
+          where tenant_id=$1 and conversation_thread_id=$2 for update`,
+        [input.tenantId,row.conversation_thread_id],
+      )).rows[0];
+      if (!thread) throw new Error("teacher correction lost its ConversationThread");
+      const messageId = idFrom("msg", `${row.teacher_correction_id}\0domain-presentation`);
+      const part = {
+        type: "domain_ui",
+        part: {
+          schema: "mathpilot.message-part/domain-ui/v1",
+          part_id: idFrom("part", `${row.replacement_judgment_id}\0presentation`),
+          view_kind: "judgment",
+          resource_ref: `judgment:${row.replacement_judgment_id}`,
+          resource_version: Number(replacement.fact_version),
+          snapshot: {
+            schema: "mathpilot.view/judgment/v1",
+            title: `判定已更正 · ${verdictTitle(replacement.verdict)}`,
+            summary: replacement.decision_summary,
+            data: {
+              judgment_id: row.replacement_judgment_id,
+              verdict: replacement.verdict,
+              rubric_results: publicRubricResults(replacement.rubric_results),
+              uncertainty: replacement.uncertainty,
+              evidence_count: replacement.evidence_refs.length,
+              model_id: replacement.model_id,
+              prompt_version: replacement.prompt_version,
+              skill_version: replacement.skill_version,
+              supersedes_judgment_id: row.target_judgment_id,
+              teacher_correction_id: row.teacher_correction_id,
+              correction_reason: row.reason,
+              corrected_by: row.teacher_user_id,
+            },
+          },
+          action_slots: ["view_evidence"],
+          occurred_at: toIso(replacement.created_at),
+          origin: "domain_projector",
+          domain_event_ref: `event://teacher-correction/${row.teacher_correction_id}`,
+        },
+      };
+      const insertedMessage = await client.query(
+        `insert into science_v3_canonical_message(
+           message_id,tenant_id,conversation_thread_id,sequence,author_kind,lifecycle,
+           parts,question_session_id,editable,lock_reason,created_at,version
+         ) values($1,$2,$3,$4,'system','committed',$5::jsonb,$6,false,'domain_event',$7,1)
+         on conflict (tenant_id,message_id) do nothing returning 1`,
+        [messageId,input.tenantId,row.conversation_thread_id,Number(thread.next_message_sequence),
+          JSON.stringify([part]),row.question_session_id,replacement.created_at],
+      );
+      if (insertedMessage.rowCount) {
+        await client.query(
+          `update science_v3_conversation_thread
+              set next_message_sequence=next_message_sequence+1,
+                  updated_at=clock_timestamp(),version=version+1
+            where tenant_id=$1 and conversation_thread_id=$2`,
+          [input.tenantId,row.conversation_thread_id],
+        );
+      }
       return {
         teacherCorrectionId: row.teacher_correction_id,
         questionSessionId: row.question_session_id,

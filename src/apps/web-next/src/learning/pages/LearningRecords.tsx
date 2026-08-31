@@ -14,7 +14,7 @@ import {
   RefreshCwIcon,
   UsersIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link, Outlet, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/auth";
 import { Button } from "@/components/ui/button";
@@ -146,7 +146,7 @@ function LearningViewContent({ view }: { view: LearningView }) {
     case "error_pattern_list": return <ScientificState data={data} />;
     case "memory_ledger": return <Memories data={data} />;
     case "review_queue": return <Reviews data={data} />;
-    case "evidence_bundle": return <Evidence data={data} />;
+    case "evidence_bundle": return <Evidence data={data} capabilities={view.command_capabilities} />;
     default: return <EmptyState text={stringValue(data.empty_state) ?? "这里暂时没有可展示的学习事实。"} />;
   }
 }
@@ -303,16 +303,33 @@ function ReviewCard({ entry }: { entry: Record<string, unknown> }) {
   );
 }
 
-function Evidence({ data }: { data: Record<string, unknown> }) {
+function Evidence({ data, capabilities }: { data: Record<string, unknown>; capabilities: CommandCapability[] }) {
   const subject = objectValue(data.subject);
   const question = objectValue(data.question);
+  const judgment = objectValue(data.judgment);
+  const replacement = objectValue(judgment.replacement);
   const relations = arrayValue(data.scientific_relations);
+  const correction = capabilities.find((command) => command.action === "teacher_supersede_fact");
   return (
     <div className="mt-8 space-y-5">
+      {stringValue(replacement.id) && (
+        <section className="border-primary/30 bg-primary/5 rounded-2xl border p-5">
+          <div className="text-primary text-xs font-medium">此判定后来已更正</div>
+          <h2 className="mt-2 text-lg font-semibold">{verdictLabel(stringValue(replacement.verdict))}</h2>
+          <p className="text-muted-foreground mt-2 text-sm leading-6">{stringValue(replacement.summary) ?? "请以替代判定为准。"}</p>
+        </section>
+      )}
       <section className="rounded-2xl border p-5">
-        <div className="text-muted-foreground text-xs font-medium">当前结论</div>
+        <div className="text-muted-foreground text-xs font-medium">{stringValue(replacement.id) ? "历史结论" : "当前结论"}</div>
         <h2 className="mt-2 text-lg font-semibold">{stringValue(subject.label) ?? "学习依据"}</h2>
         <p className="text-muted-foreground mt-3 text-sm leading-6">{stringValue(question.prompt_summary) ?? "跨题学习观察"}</p>
+        {stringValue(judgment.verdict) && (
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <span className="bg-muted rounded-full px-2.5 py-1">{verdictLabel(stringValue(judgment.verdict))}</span>
+            <span className="bg-muted rounded-full px-2.5 py-1">不确定性：{stringValue(judgment.uncertainty) ?? "未标注"}</span>
+            <span className="bg-muted rounded-full px-2.5 py-1">事实版本：{numberValue(judgment.fact_version)}</span>
+          </div>
+        )}
       </section>
       <Section title="科学关系" icon={<BrainCircuitIcon className="size-4" />}>
         {relations.length ? relations.map((relation, index) => {
@@ -320,8 +337,80 @@ function Evidence({ data }: { data: Record<string, unknown> }) {
           return <div key={index} className="rounded-xl border p-3 text-sm"><span className="font-medium">{stringValue(item.relation) ?? "关系"}</span><p className="text-muted-foreground mt-1 leading-6">{stringValue(item.explanation) ?? "—"}</p></div>;
         }) : <EmptyState text="没有额外关系说明。" />}
       </Section>
+      {correction && <TeacherCorrectionForm data={data} capability={correction} />}
       {stringValue(data.thread_href) && <TextLink href={stringValue(data.thread_href)!}>返回相关对话</TextLink>}
     </div>
+  );
+}
+
+function TeacherCorrectionForm({ data, capability }: { data: Record<string, unknown>; capability: CommandCapability }) {
+  const judgment = objectValue(data.judgment);
+  const [verdict, setVerdict] = useState(stringValue(judgment.verdict) ?? "unresolved");
+  const [summary, setSummary] = useState(stringValue(judgment.summary) ?? "");
+  const [reason, setReason] = useState("");
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: () => learningApi.command(
+      capability.href,
+      capability.expected_version,
+      { verdict, decision_summary: summary.trim(), reason: reason.trim() },
+      "teacher-correction",
+    ),
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: learningKeys.all }); },
+  });
+  const ready = Boolean(summary.trim() && reason.trim());
+  return (
+    <section className="rounded-2xl border p-5">
+      <h2 className="text-sm font-semibold">提交教师纠正</h2>
+      <p className="text-muted-foreground mt-1 text-xs leading-5">会追加替代判定并重放科学状态，历史判定不会被覆盖。</p>
+      <div className="mt-4 grid gap-3">
+        <label className="grid gap-1.5 text-sm">
+          <span className="font-medium">替代结论</span>
+          <select
+            value={verdict}
+            disabled={mutation.isPending || mutation.isSuccess}
+            onChange={(event) => setVerdict(event.target.value)}
+            className="border-input bg-background focus-visible:ring-ring min-h-10 rounded-lg border px-3 outline-none focus-visible:ring-2"
+          >
+            <option value="correct">正确</option>
+            <option value="partially_correct">部分正确</option>
+            <option value="incorrect">需要调整</option>
+            <option value="unresolved">尚不能判定</option>
+          </select>
+        </label>
+        <label className="grid gap-1.5 text-sm">
+          <span className="font-medium">判定说明</span>
+          <textarea
+            rows={3}
+            maxLength={2000}
+            value={summary}
+            disabled={mutation.isPending || mutation.isSuccess}
+            onChange={(event) => setSummary(event.target.value)}
+            className="border-input bg-background focus-visible:ring-ring min-h-20 resize-y rounded-lg border px-3 py-2 outline-none focus-visible:ring-2"
+          />
+        </label>
+        <label className="grid gap-1.5 text-sm">
+          <span className="font-medium">更正原因</span>
+          <textarea
+            rows={3}
+            maxLength={2000}
+            required
+            value={reason}
+            disabled={mutation.isPending || mutation.isSuccess}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="说明为什么需要替代原判定"
+            className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-20 resize-y rounded-lg border px-3 py-2 outline-none focus-visible:ring-2"
+          />
+        </label>
+        <div className="flex items-center gap-3">
+          <Button size="sm" disabled={!ready || mutation.isPending || mutation.isSuccess} onClick={() => mutation.mutate()}>
+            {mutation.isPending ? "正在提交…" : mutation.isSuccess ? "纠正已记录" : "提交纠正"}
+          </Button>
+          {mutation.isSuccess && <span className="text-muted-foreground text-xs">科学状态正在重放</span>}
+        </div>
+        {mutation.error && <p role="alert" className="text-destructive text-xs">{mutation.error.message}</p>}
+      </div>
+    </section>
   );
 }
 

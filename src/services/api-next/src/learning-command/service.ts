@@ -2,13 +2,14 @@ import { createHash } from "node:crypto";
 import type { CanonicalMessagePart, DomainUIPart } from "@mathpilot/contracts";
 import type pg from "pg";
 import type { Principal } from "../auth.ts";
-import { newId, withPrincipal } from "../lib.ts";
+import { withPrincipal } from "../lib.ts";
 import { assertThreadAccess, ensureOwnStudent } from "../learning-read/acl.ts";
 import { LearningReadError } from "../learning-read/cursor.ts";
 
 const idempotencyPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/;
 const threadPattern = /^thr_[A-Za-z0-9]{8,}$/;
 const questionSessionPattern = /^qsn_[A-Za-z0-9]{8,}$/;
+const judgmentPattern = /^jdg_[A-Za-z0-9]{8,}$/;
 const annotationPattern = /^ann_[A-Za-z0-9]{8,}$/;
 const operationPattern = /^op_[A-Za-z0-9]{8,}$/;
 const opaqueRefPattern = /^[a-z][a-z0-9+.-]*:[^\s]+$/;
@@ -382,6 +383,111 @@ export class LearningCommandService {
         operation: { operation_id: result.command_operation_id, status: "accepted", user_message: "正在保存本题记录" },
         cut_request_id: result.accepted_cut_request_id,
         question_session_version: Number(result.session_version),
+      };
+    });
+  }
+
+  async teacherCorrectJudgment(principal: Principal, judgmentId: string, value: unknown, headerKey: unknown) {
+    if (!judgmentPattern.test(judgmentId)) throw new LearningCommandError(404, "judgment_not_found", "判定不存在");
+    if (!principal.roles.includes("teacher")) throw new LearningCommandError(403, "teacher_role_required", "当前账号不是教师账号");
+    const body = objectValue(value);
+    const key = idempotencyKey(headerKey, body);
+    const version = expectedVersion(body);
+    const at = requestedAt(body);
+    const verdict = typeof body.verdict === "string" ? body.verdict : "";
+    if (!new Set(["correct", "partially_correct", "incorrect", "unresolved"]).has(verdict)) {
+      throw new LearningCommandError(422, "invalid_verdict", "更正后的判定结果无效");
+    }
+    const summary = typeof body.decision_summary === "string" ? body.decision_summary.trim() : "";
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    if (!summary || summary.length > 2000) throw new LearningCommandError(422, "invalid_summary", "判定说明需包含 1–2000 个字符");
+    if (!reason || reason.length > 2000) throw new LearningCommandError(422, "invalid_reason", "更正原因需包含 1–2000 个字符");
+
+    return withPrincipal(this.pool, principal, async (client) => {
+      const target = (await client.query<{
+        attempt_id: string; rubric_results: unknown; dimension_proposals: unknown;
+        uncertainty: string; evidence_refs: string[]; fact_version: string;
+        question_session_id: string; conversation_thread_id: string; student_id: string;
+        lifecycle: string; superseded_by: string | null;
+      }>(
+        `select judgment.attempt_id,judgment.rubric_results,judgment.dimension_proposals,
+                judgment.uncertainty,judgment.evidence_refs,judgment.fact_version,
+                session.question_session_id,session.conversation_thread_id,session.student_id,session.lifecycle,
+                (select newer.judgment_id from science_v3_judgment newer
+                  where newer.tenant_id=judgment.tenant_id
+                    and newer.supersedes_judgment_id=judgment.judgment_id
+                  order by newer.fact_version desc limit 1) superseded_by
+           from science_v3_judgment judgment
+           join science_v3_attempt attempt
+             on attempt.tenant_id=judgment.tenant_id and attempt.attempt_id=judgment.attempt_id
+           join science_v3_question_session session
+             on session.tenant_id=attempt.tenant_id and session.question_session_id=attempt.question_session_id
+          where judgment.tenant_id=$1 and judgment.judgment_id=$2`,
+        [principal.tenantId, judgmentId],
+      )).rows[0];
+      if (!target) throw new LearningCommandError(404, "judgment_not_found", "判定不存在");
+      const subject = await assertThreadAccess(client, principal, target.conversation_thread_id);
+      if (subject.actorMode !== "teacher" || subject.studentId !== target.student_id) {
+        throw new LearningCommandError(404, "judgment_not_found", "判定不存在");
+      }
+
+      const existing = (await client.query<{
+        teacher_user_id: string; teacher_correction_id: string; operation_id: string;
+        target_judgment_id: string; replacement_judgment_id: string; reason: string;
+        fact_version: string; verdict: string; decision_summary: string;
+      }>(
+        `select correction.teacher_user_id,correction.teacher_correction_id,correction.operation_id,
+                correction.target_judgment_id,correction.replacement_judgment_id,correction.reason,
+                correction.fact_version,replacement.verdict,replacement.decision_summary
+           from science_v3_teacher_correction correction
+           join science_v3_judgment replacement
+             on replacement.tenant_id=correction.tenant_id
+            and replacement.judgment_id=correction.replacement_judgment_id
+          where correction.tenant_id=$1 and correction.idempotency_key=$2`,
+        [principal.tenantId, key],
+      )).rows[0];
+      if (existing) {
+        if (existing.teacher_user_id !== principal.userId || existing.target_judgment_id !== judgmentId
+          || existing.verdict !== verdict || existing.decision_summary !== summary || existing.reason !== reason) {
+          throw new LearningCommandError(409, "idempotency_conflict", "该幂等键已用于另一条教师纠正");
+        }
+        return {
+          accepted: true, created: false,
+          teacher_correction_id: existing.teacher_correction_id,
+          replacement_judgment_id: existing.replacement_judgment_id,
+          aggregate_version: Number(existing.fact_version),
+          operation: { operation_id: existing.operation_id, status: "accepted", user_message: "教师纠正已记录，正在重放科学状态" },
+        };
+      }
+      if (target.superseded_by) throw new LearningCommandError(409, "judgment_superseded", "该判定后来已被更正");
+      if (!new Set(["closed", "abandoned"]).has(target.lifecycle)) {
+        throw new LearningCommandError(409, "question_not_closed", "题目结束后才能提交教师纠正");
+      }
+      if (Number(target.fact_version) !== version) {
+        throw new LearningCommandError(409, "version_conflict", `当前判定版本为 ${target.fact_version}`, Number(target.fact_version));
+      }
+
+      const correctionId = deterministicId("tcor", principal.tenantId, principal.userId, key);
+      const replacementId = deterministicId("jdg", principal.tenantId, principal.userId, key, "replacement");
+      const operationId = deterministicId("op", principal.tenantId, principal.userId, key, "teacher-correction");
+      const eventId = deterministicId("evt", principal.tenantId, principal.userId, key, "teacher-correction");
+      const result = (await client.query<{
+        operation_id: string; teacher_correction_id: string; aggregate_version: string; status: string;
+      }>(
+        `select * from mathpilot_science_v3_record_teacher_correction(
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14::text[],$15,$16
+        )`,
+        [principal.tenantId, correctionId, operationId, eventId, key, principal.userId,
+          judgmentId, replacementId, verdict, JSON.stringify(target.rubric_results),
+          JSON.stringify(target.dimension_proposals), target.uncertainty, summary,
+          target.evidence_refs, reason, at],
+      )).rows[0]!;
+      return {
+        accepted: true, created: true,
+        teacher_correction_id: result.teacher_correction_id,
+        replacement_judgment_id: replacementId,
+        aggregate_version: Number(result.aggregate_version),
+        operation: { operation_id: result.operation_id, status: result.status, user_message: "教师纠正已记录，正在重放科学状态" },
       };
     });
   }

@@ -180,6 +180,18 @@ export function registerLearningHttp(
     try { return sendView(request, reply, await reads.evidence(principal, params(request).evidenceHandle!)); }
     catch (error) { return problem(reply, error); }
   });
+  app.post("/api/learning/judgments/:judgmentId/corrections", async (request, reply) => {
+    const principal = await principalOf(request, reply); if (!principal) return;
+    try {
+      const result = await commands.teacherCorrectJudgment(
+        principal,
+        params(request).judgmentId!,
+        request.body,
+        headerKey(request),
+      );
+      return reply.code(result.created ? 202 : 200).send(result);
+    } catch (error) { return problem(reply, error); }
+  });
   app.get("/api/learning/annotations/:annotationId", async (request, reply) => {
     const principal = await principalOf(request, reply); if (!principal) return;
     try { return sendView(request, reply, await reads.annotation(principal, params(request).annotationId!)); }
