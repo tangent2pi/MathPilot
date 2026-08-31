@@ -1,0 +1,85 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "projection_type": "mastery",
+    "student_id": "stu_a1b2c3d4",
+    "dimension_id": "K_TRIANGLE_AREA",
+    "lineage_version": 1,
+    "p_mastery": 0.81,
+    "state": "learning",
+    "independent_count": 3,
+    "transfer_evidence": 1,
+    "parameter_set_id": "bkt-prior-v1",
+    "calibration_status": "prior_only",
+    "input_observation_ids": ["obs_a1b2c3d4", "obs_b1c2d3e4"],
+    "projection_version": 4,
+    "projector_version": "mastery-projector-v1",
+    "projected_at": "2026-08-31T08:05:00Z"
+  },
+  "valid_cases": [
+    {
+      "schema_version": 3,
+      "projection_type": "retention",
+      "student_id": "stu_a1b2c3d4",
+      "retention_unit_revision_id": "rurev_triangle_area_v1",
+      "dimension_revision_id": "krev_triangle_area_v1",
+      "scope_facets": { "method": "standard_formula" },
+      "due_at": "2026-09-03T08:00:00Z",
+      "stability": 3.2,
+      "difficulty": 5.4,
+      "retrievability": 0.9,
+      "card_state": "review",
+      "last_review_event_id": "drv_a1b2c3d4",
+      "review_count": 1,
+      "parameter_set_id": "fsrs-v6-default-v1",
+      "input_review_event_ids": ["drv_a1b2c3d4"],
+      "projection_version": 1,
+      "projector_version": "retention-projector-v1",
+      "projected_at": "2026-08-31T08:05:00Z"
+    },
+    {
+      "schema_version": 3,
+      "projection_type": "error_pattern",
+      "student_id": "stu_a1b2c3d4",
+      "error_cause_id": "E_SUPPLEMENT_CONFUSION",
+      "active_definition_revision_id": "erev_supplement_v1",
+      "state": "confirmed",
+      "support_count": 2,
+      "counter_count": 1,
+      "independent_session_count": 2,
+      "recurrence_count": 0,
+      "verification_due_at": "2026-09-02T08:00:00Z",
+      "effective_evidence_ids": ["eev_a1b2c3d4", "eev_b1c2d3e4"],
+      "policy_version": "error-reducer-v1",
+      "projection_version": 3,
+      "projector_version": "error-projector-v1",
+      "projected_at": "2026-08-31T08:05:00Z"
+    }
+  ],
+  "missing_field": {
+    "schema_version": 3,
+    "projection_type": "mastery",
+    "student_id": "stu_a1b2c3d4"
+  },
+  "rejected": [
+    {
+      "_reason": "投影不能声称由模型或 Dream 写入",
+      "schema_version": 3,
+      "projection_type": "mastery",
+      "student_id": "stu_a1b2c3d4",
+      "dimension_id": "K_TRIANGLE_AREA",
+      "lineage_version": 1,
+      "p_mastery": 0.81,
+      "state": "learning",
+      "independent_count": 3,
+      "transfer_evidence": 1,
+      "parameter_set_id": "bkt-prior-v1",
+      "calibration_status": "prior_only",
+      "input_observation_ids": ["obs_a1b2c3d4"],
+      "projection_version": 4,
+      "projector_version": "mastery-projector-v1",
+      "projected_at": "2026-08-31T08:05:00Z",
+      "model_id": "deepseek-v4-flash-vision-exp"
+    }
+  ]
+}

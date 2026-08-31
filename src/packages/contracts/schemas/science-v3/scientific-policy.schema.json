@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/scientific-policy/v1",
+  "title": "Scientific Policy",
+  "$description": "EvidencePolicy 与 ErrorReducerPolicy 的版本化确定性配置；模型输出不能临时修改这些规则。",
+  "oneOf": [
+    { "$ref": "#/$defs/EvidencePolicy" },
+    { "$ref": "#/$defs/ErrorReducerPolicy" }
+  ],
+  "$defs": {
+    "EvidencePolicy": {
+      "type": "object",
+      "required": [
+        "schema_version", "policy_type", "policy_id", "policy_version", "effective_from",
+        "independent_measurement", "delayed_review", "external_content", "supersession"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "policy_type": { "const": "evidence" },
+        "policy_id": { "type": "string", "pattern": "^evidence-policy-[a-z0-9._-]+$" },
+        "policy_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "effective_from": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+        "independent_measurement": {
+          "type": "object",
+          "required": [
+            "required_hint_level", "require_frozen_question_revision", "require_reliable_rubric",
+            "reject_same_question_correction", "reject_prior_solution_exposure", "exclude_superseded"
+          ],
+          "properties": {
+            "required_hint_level": { "const": 0 },
+            "require_frozen_question_revision": { "const": true },
+            "require_reliable_rubric": { "const": true },
+            "reject_same_question_correction": { "const": true },
+            "reject_prior_solution_exposure": { "const": true },
+            "exclude_superseded": { "const": true }
+          },
+          "additionalProperties": false
+        },
+        "delayed_review": {
+          "type": "object",
+          "required": ["minimum_delay_minutes", "success_rating", "failure_rating", "allow_hard", "allow_easy"],
+          "properties": {
+            "minimum_delay_minutes": { "type": "integer", "minimum": 1 },
+            "success_rating": { "const": "good" },
+            "failure_rating": { "const": "again" },
+            "allow_hard": { "const": false },
+            "allow_easy": { "const": false }
+          },
+          "additionalProperties": false
+        },
+        "external_content": {
+          "type": "object",
+          "required": ["unverified_measurement", "unverified_error_evidence"],
+          "properties": {
+            "unverified_measurement": { "const": "reject" },
+            "unverified_error_evidence": { "const": "provisional_only" }
+          },
+          "additionalProperties": false
+        },
+        "supersession": {
+          "type": "object",
+          "required": ["append_only", "replay_required", "idempotent"],
+          "properties": {
+            "append_only": { "const": true },
+            "replay_required": { "const": true },
+            "idempotent": { "const": true }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "ErrorReducerPolicy": {
+      "type": "object",
+      "required": [
+        "schema_version", "policy_type", "policy_id", "policy_version", "effective_from",
+        "confirmation", "improvement", "resolution", "recurrence", "exclusions", "supersession"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "policy_type": { "const": "error_reducer" },
+        "policy_id": { "type": "string", "pattern": "^error-reducer-[a-z0-9._-]+$" },
+        "policy_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "effective_from": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+        "confirmation": {
+          "type": "object",
+          "required": ["independent_session_supports", "decisive_requires_additional_independent_support"],
+          "properties": {
+            "independent_session_supports": { "type": "integer", "minimum": 2 },
+            "decisive_requires_additional_independent_support": { "const": true }
+          },
+          "additionalProperties": false
+        },
+        "improvement": {
+          "type": "object",
+          "required": ["require_prior_confirmed", "required_counter_kind", "require_independent"],
+          "properties": {
+            "require_prior_confirmed": { "const": true },
+            "required_counter_kind": { "const": "near_transfer" },
+            "require_independent": { "const": true }
+          },
+          "additionalProperties": false
+        },
+        "resolution": {
+          "type": "object",
+          "required": ["accepted_verification_sets"],
+          "properties": {
+            "accepted_verification_sets": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": { "enum": ["near_transfer", "far_transfer", "delayed_verification"] },
+                "minItems": 2,
+                "uniqueItems": true
+              },
+              "minItems": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "recurrence": {
+          "type": "object",
+          "required": ["from_state", "minimum_support_quality", "target_state", "append_event"],
+          "properties": {
+            "from_state": { "const": "resolved" },
+            "minimum_support_quality": { "enum": ["strong", "decisive"] },
+            "target_state": { "const": "confirmed" },
+            "append_event": { "const": true }
+          },
+          "additionalProperties": false
+        },
+        "exclusions": {
+          "type": "object",
+          "required": ["provisional", "non_discriminating", "same_question_prompted_correction"],
+          "properties": {
+            "provisional": { "const": true },
+            "non_discriminating": { "const": true },
+            "same_question_prompted_correction": { "const": true }
+          },
+          "additionalProperties": false
+        },
+        "supersession": {
+          "type": "object",
+          "required": ["exclude_replaced_facts", "full_replay", "mark_dependent_annotations_stale"],
+          "properties": {
+            "exclude_replaced_facts": { "const": true },
+            "full_replay": { "const": true },
+            "mark_dependent_annotations_stale": { "const": true }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

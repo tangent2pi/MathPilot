@@ -211,11 +211,11 @@
 本节是可更新的恢复记录，不是完成声明。
 
 ```text
-conceptual phase: baseline audit
-completed: authoritative design suite only
-current: inspect current worktree and build requirement → implementation → evidence matrix
-next action: audit schemas, services, migrations, runtime and web-next against P0–P7
-implementation phases accepted: none until current evidence proves their gates
+conceptual phase: P0 complete; P1 durable runtime and database foundation
+completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary
+current: implement the new learning-next PostgreSQL facts/outbox/operation foundation and Temporal runtime
+next action: add the clean-database v3 migration, then wire Temporal dev service, worker and outbox relay
+implementation phases accepted: P0 — contracts, rejection examples and permission invariants verified in current tree
 external blockers: none recorded
 ```
 
@@ -223,8 +223,12 @@ external blockers: none recorded
 
 - `README.md` 与 01–07 已完成并互相链接；
 - 设计 Markdown 已通过 ReactMarkdown + GFM 渲染和本地链接检查；
-- 这只证明设计完整，不证明实现完成；
-- 当前工作树存在其他在途改动，实施前必须逐文件辨别并保护。
+- `src/packages/contracts/schemas/science-v3/` 已冻结事实、投影、题级流、Annotation、
+  LearningView、DomainUIPart、Command、TaskSpec、policy 与 operation 契约；
+- `nix develop -c pnpm --dir src/packages/contracts test` 当前验证 33 组 examples / 34 个
+  schemas，并通过 science-v3 权限、写权威、身份分离和禁旧 mode contract tests；
+- 这只证明 P0，不证明 P1–P7 或真实服务 E2E 完成；
+- 旧 `learning/profile/agent-runtime` 仅作为待退役现状，不作为 Next 实现来源或兼容目标。
 
 每次恢复 Goal 时先更新：
 

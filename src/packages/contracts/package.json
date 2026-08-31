@@ -10,7 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "python3 test/validate_examples.py"
+    "test": "python3 test/validate_examples.py && python3 test/science_v3_permissions.py"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

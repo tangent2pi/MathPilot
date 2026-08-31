@@ -1,0 +1,68 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "record_type": "operation_view",
+    "operation_id": "op_a1b2c3d4",
+    "kind": "finalize_question",
+    "status": "running",
+    "user_message": "正在保存本题记录并按新要求找题。",
+    "related_resource_refs": ["question-session:qsn_a1b2c3d4"],
+    "retryable": true,
+    "started_at": "2026-08-31T08:10:00Z",
+    "updated_at": "2026-08-31T08:10:02Z",
+    "version": 2
+  },
+  "valid_cases": [
+    {
+      "schema_version": 3,
+      "record_type": "operation_result",
+      "operation_id": "op_a1b2c3d4",
+      "idempotency_key": "cut:cut_a1b2c3d4",
+      "result_status": "committed",
+      "aggregate_ref": "question-session:qsn_a1b2c3d4",
+      "aggregate_version": 3,
+      "result_resource_refs": ["question-closed:event_a1b2c3d4"],
+      "recorded_at": "2026-08-31T08:10:04Z"
+    },
+    {
+      "schema_version": 3,
+      "record_type": "workflow_correlation",
+      "operation_id": "op_a1b2c3d4",
+      "event_id": "evt_a1b2c3d4",
+      "workflow_id": "finalize-question:cut_a1b2c3d4",
+      "aggregate_ref": "question-session:qsn_a1b2c3d4",
+      "aggregate_version": 2,
+      "task_queue": "mathpilot-learning-v3",
+      "created_at": "2026-08-31T08:10:00Z"
+    },
+    {
+      "schema_version": 3,
+      "record_type": "outbox_workflow_start",
+      "event_id": "evt_a1b2c3d4",
+      "event_type": "question.cut_requested",
+      "aggregate_ref": "question-session:qsn_a1b2c3d4",
+      "aggregate_version": 2,
+      "payload_ref": "bundle:cut/cut_a1b2c3d4/v1",
+      "occurred_at": "2026-08-31T08:10:00Z"
+    }
+  ],
+  "missing_field": {
+    "schema_version": 3,
+    "record_type": "operation_view",
+    "operation_id": "op_a1b2c3d4"
+  },
+  "rejected": [
+    {
+      "_reason": "Temporal history 只保存引用，outbox 不携带大文本或秘密 payload",
+      "schema_version": 3,
+      "record_type": "outbox_workflow_start",
+      "event_id": "evt_a1b2c3d4",
+      "event_type": "question.cut_requested",
+      "aggregate_ref": "question-session:qsn_a1b2c3d4",
+      "aggregate_version": 2,
+      "payload_ref": "bundle:cut/cut_a1b2c3d4/v1",
+      "payload": { "student_answer": "sensitive content" },
+      "occurred_at": "2026-08-31T08:10:00Z"
+    }
+  ]
+}

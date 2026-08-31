@@ -2,9 +2,9 @@
 """契约样例校验（ADR-003）。
 
 规则：
-- 每个 *.examples.json 的 valid 必须通过对应 schema 校验；
-- missing_field 必须被拒绝（identity $defs 库除外，无根实例语义）；
-- invalid_source 为说明性反例，由更高层契约测试（权限/来源/越界）覆盖。
+- 每个 *.examples.json 的 valid 与可选 valid_cases 必须通过对应 schema 校验；
+- missing_field 与可选 rejected 必须被拒绝（identity $defs 库除外，无根实例语义）；
+- invalid_source 为历史说明性反例，由更高层契约测试（权限/来源/越界）覆盖。
 
 运行（仓库根目录）：
   nix shell --impure --expr 'with import (builtins.getFlake "nixpkgs") { system = "x86_64-linux"; }; python3.withPackages (ps: [ ps.jsonschema ps.referencing ])' -c python3 src/packages/contracts/test/validate_examples.py
@@ -53,12 +53,21 @@ def main() -> int:
                 if errs:
                     failures.append((f, f"valid.{key}", errs[0].message))
         else:
-            errs = list(v.iter_errors(valid))
-            if errs:
-                failures.append((f, "valid", errs[0].message))
+            valid_cases = [("valid", valid)] + [
+                (f"valid_cases[{index}]", case)
+                for index, case in enumerate(examples.get("valid_cases", []))
+            ]
+            for case_name, case in valid_cases:
+                errs = list(v.iter_errors(case))
+                if errs:
+                    failures.append((f, case_name, errs[0].message))
             mf = {k: val for k, val in examples["missing_field"].items() if not k.startswith("_")}
             if not list(v.iter_errors(mf)):
                 failures.append((f, "missing_field", "expected to FAIL but passed"))
+            for index, rejected in enumerate(examples.get("rejected", [])):
+                case = {k: val for k, val in rejected.items() if not k.startswith("_")}
+                if not list(v.iter_errors(case)):
+                    failures.append((f, f"rejected[{index}]", "expected to FAIL but passed"))
 
     print(f"checked {len(example_files)} example files against {len(schemas)} schemas")
     if len(example_files) == 0 or len(schemas) == 0:
@@ -68,7 +77,7 @@ def main() -> int:
         for f, case, msg in failures:
             print(f"  FAIL {f} [{case}]: {msg[:200]}")
         return 1
-    print("PASS: all valid examples validate; all missing_field examples are rejected")
+    print("PASS: all valid examples validate; all missing/rejected examples are rejected")
     return 0
 
 

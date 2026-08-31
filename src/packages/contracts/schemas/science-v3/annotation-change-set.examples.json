@@ -1,0 +1,83 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "change_set_id": "acs_a1b2c3d4",
+    "student_id": "stu_a1b2c3d4",
+    "dream_run_id": "drm_a1b2c3d4",
+    "expected_annotation_set_version": 2,
+    "operations": [{
+      "op": "add",
+      "annotation": {
+        "target_kind": "dimension",
+        "target_ref": "dimension:krev_triangle_area_v1",
+        "claim": "给出辅助线时方法稳定；需要自行补线时启动步骤仍不稳定。",
+        "scope": { "representation": "implicit_auxiliary_line" },
+        "support_refs": ["observation://obs_a1b2c3d4", "session://qsn_b1c2d3e4"],
+        "counter_refs": ["observation://obs_c1d2e3f4"],
+        "confidence": "medium",
+        "action_hint": "后续优先安排一题不同图形的自行补线验证。",
+        "valid_from": "2026-08-31T08:30:00Z"
+      }
+    }],
+    "source_refs": ["rem://candidate_a1b2c3d4"],
+    "policy_version": "deep-gate-v1",
+    "model_id": "deepseek-v4-flash-vision-exp",
+    "prompt_version": "deep-v1",
+    "skill_version": "dream-deep-v1",
+    "created_at": "2026-08-31T08:30:00Z"
+  },
+  "missing_field": {
+    "schema_version": 3,
+    "change_set_id": "acs_a1b2c3d4",
+    "student_id": "stu_a1b2c3d4"
+  },
+  "rejected": [
+    {
+      "_reason": "Deep 不得写 p_mastery",
+      "schema_version": 3,
+      "change_set_id": "acs_a1b2c3d4",
+      "student_id": "stu_a1b2c3d4",
+      "dream_run_id": "drm_a1b2c3d4",
+      "expected_annotation_set_version": 2,
+      "operations": [{
+        "op": "add",
+        "annotation": {
+          "target_kind": "dimension",
+          "target_ref": "dimension:krev_triangle_area_v1",
+          "claim": "方法不稳定。",
+          "scope": {},
+          "support_refs": ["observation://obs_a1b2c3d4"],
+          "counter_refs": [],
+          "confidence": "medium",
+          "valid_from": "2026-08-31T08:30:00Z",
+          "p_mastery": 0.4
+        }
+      }],
+      "source_refs": ["rem://candidate_a1b2c3d4"],
+      "policy_version": "deep-gate-v1",
+      "model_id": "deepseek-v4-flash-vision-exp",
+      "prompt_version": "deep-v1",
+      "skill_version": "dream-deep-v1",
+      "created_at": "2026-08-31T08:30:00Z"
+    },
+    {
+      "_reason": "Deep 不得直接改错因状态或删除记忆",
+      "schema_version": 3,
+      "change_set_id": "acs_b1c2d3e4",
+      "student_id": "stu_a1b2c3d4",
+      "dream_run_id": "drm_a1b2c3d4",
+      "expected_annotation_set_version": 2,
+      "operations": [{
+        "op": "delete",
+        "annotation_id": "ann_a1b2c3d4",
+        "error_pattern_state": "resolved"
+      }],
+      "source_refs": ["rem://candidate_a1b2c3d4"],
+      "policy_version": "deep-gate-v1",
+      "model_id": "deepseek-v4-flash-vision-exp",
+      "prompt_version": "deep-v1",
+      "skill_version": "dream-deep-v1",
+      "created_at": "2026-08-31T08:30:00Z"
+    }
+  ]
+}

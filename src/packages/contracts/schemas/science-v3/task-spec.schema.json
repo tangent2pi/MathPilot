@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/task-spec/v1",
+  "title": "Agent Task Specification",
+  "$description": "统一 Runtime 的版本化能力事实源。学习、科学和 Dream Task 不包含 Bash、SQL、任意网络或凭据能力。",
+  "type": "object",
+  "required": [
+    "schema_version", "task_type", "spec_version", "purpose", "input_schema", "output_schema",
+    "skill_ref", "allowed_capability_tools", "allowed_child_task_types", "model_policy",
+    "timeout_policy", "retry_policy", "data_access_policy", "workspace_projection_policy"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+    "task_type": {
+      "enum": ["grade", "diagnose", "teach_summary", "select_question", "light", "rem", "deep", "foreground_teaching", "semantic_decomposition"]
+    },
+    "spec_version": { "type": "string", "pattern": "^v[1-9][0-9]*(?:\\.[0-9]+){0,2}$" },
+    "purpose": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "input_schema": { "type": "string", "format": "uri", "pattern": "^https://schemas\\.mathpilot\\.dev/" },
+    "output_schema": { "type": "string", "format": "uri", "pattern": "^https://schemas\\.mathpilot\\.dev/" },
+    "skill_ref": { "type": "string", "pattern": "^skill:[a-z0-9][a-z0-9_-]+@v[1-9][0-9]*(?:\\.[0-9]+){0,2}$" },
+    "allowed_capability_tools": {
+      "type": "array",
+      "items": { "enum": ["question_catalog", "read", "grep", "learning_action", "delegate"] },
+      "uniqueItems": true,
+      "maxItems": 3
+    },
+    "allowed_child_task_types": {
+      "type": "array",
+      "items": { "enum": ["grade", "diagnose", "teach_summary", "select_question", "light", "rem", "deep", "semantic_decomposition"] },
+      "uniqueItems": true,
+      "maxItems": 8
+    },
+    "model_policy": {
+      "type": "object",
+      "required": ["policy_id", "model_family", "allow_fallback"],
+      "properties": {
+        "policy_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "model_family": { "enum": ["reasoning", "fast", "vision"] },
+        "allow_fallback": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "timeout_policy": {
+      "type": "object",
+      "required": ["start_to_close_seconds", "heartbeat_seconds"],
+      "properties": {
+        "start_to_close_seconds": { "type": "integer", "minimum": 1, "maximum": 7200 },
+        "heartbeat_seconds": { "type": "integer", "minimum": 1, "maximum": 600 }
+      },
+      "additionalProperties": false
+    },
+    "retry_policy": {
+      "type": "object",
+      "required": ["maximum_attempts", "initial_interval_seconds", "backoff_coefficient", "maximum_interval_seconds"],
+      "properties": {
+        "maximum_attempts": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "initial_interval_seconds": { "type": "integer", "minimum": 1, "maximum": 600 },
+        "backoff_coefficient": { "type": "number", "minimum": 1, "maximum": 10 },
+        "maximum_interval_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
+      },
+      "additionalProperties": false
+    },
+    "data_access_policy": {
+      "type": "object",
+      "required": ["policy_id", "read_scopes", "write_scopes", "history_is_untrusted_data"],
+      "properties": {
+        "policy_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "read_scopes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "frozen_task_bundle", "current_thread", "current_question_session", "scientific_state",
+              "relevant_annotations", "authorized_session_projection", "gated_rem_candidates", "question_catalog_candidates"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "write_scopes": {
+          "type": "array",
+          "items": { "enum": ["structured_result", "attempt_output", "workspace_output", "workspace_tmp"] },
+          "uniqueItems": true
+        },
+        "history_is_untrusted_data": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "workspace_projection_policy": {
+      "type": "object",
+      "required": ["policy_id", "enabled", "read_only", "include_authorized_sessions", "freshness_required"],
+      "properties": {
+        "policy_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "enabled": { "type": "boolean" },
+        "read_only": { "const": true },
+        "include_authorized_sessions": { "type": "boolean" },
+        "freshness_required": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "task_type": { "enum": ["grade", "diagnose", "teach_summary", "light", "rem", "deep"] } },
+        "required": ["task_type"]
+      },
+      "then": {
+        "properties": {
+          "allowed_capability_tools": { "const": [] },
+          "allowed_child_task_types": { "const": [] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "task_type": { "const": "select_question" } }, "required": ["task_type"] },
+      "then": {
+        "properties": {
+          "allowed_capability_tools": { "const": ["question_catalog"] },
+          "allowed_child_task_types": { "const": [] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "task_type": { "const": "foreground_teaching" } }, "required": ["task_type"] },
+      "then": { "properties": { "allowed_capability_tools": { "const": ["read", "grep", "learning_action"] } } }
+    },
+    {
+      "if": { "properties": { "task_type": { "const": "semantic_decomposition" } }, "required": ["task_type"] },
+      "then": { "properties": { "allowed_capability_tools": { "const": ["delegate"] } } }
+    }
+  ],
+  "additionalProperties": false
+}

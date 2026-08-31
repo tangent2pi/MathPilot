@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/scientific-projection/v1",
+  "title": "Scientific Projection",
+  "$description": "仅由版本化程序 projector 从生效事实重放得到的 M/R/C_e 投影。该契约不是命令输入。",
+  "oneOf": [
+    { "$ref": "#/$defs/MasteryProjection" },
+    { "$ref": "#/$defs/RetentionProjection" },
+    { "$ref": "#/$defs/ErrorPatternProjection" }
+  ],
+  "$defs": {
+    "ProjectionHeader": {
+      "type": "object",
+      "required": ["schema_version", "projection_version", "projector_version", "projected_at"],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "projection_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "projector_version": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "projected_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+      }
+    },
+    "MasteryProjection": {
+      "type": "object",
+      "required": [
+        "schema_version", "projection_type", "student_id", "dimension_id", "lineage_version",
+        "p_mastery", "state", "independent_count", "transfer_evidence", "parameter_set_id",
+        "calibration_status", "input_observation_ids", "projection_version", "projector_version", "projected_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "projection_type": { "const": "mastery" },
+        "student_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StudentId" },
+        "dimension_id": { "type": "string", "pattern": "^(K|T)_[A-Z0-9_]{2,}$" },
+        "lineage_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "p_mastery": { "type": "number", "minimum": 0, "maximum": 1 },
+        "state": { "enum": ["insufficient_evidence", "weak", "learning", "possibly_mastered", "mastered"] },
+        "independent_count": { "type": "integer", "minimum": 0 },
+        "transfer_evidence": { "type": "integer", "minimum": 0 },
+        "parameter_set_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "calibration_status": { "enum": ["prior_only", "calibrated"] },
+        "input_observation_ids": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ObservationId" },
+          "uniqueItems": true
+        },
+        "projection_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "projector_version": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "projected_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+      },
+      "additionalProperties": false
+    },
+    "RetentionProjection": {
+      "type": "object",
+      "required": [
+        "schema_version", "projection_type", "student_id", "retention_unit_revision_id",
+        "dimension_revision_id", "scope_facets", "due_at", "stability", "difficulty",
+        "retrievability", "card_state", "last_review_event_id", "review_count", "parameter_set_id",
+        "input_review_event_ids", "projection_version", "projector_version", "projected_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "projection_type": { "const": "retention" },
+        "student_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StudentId" },
+        "retention_unit_revision_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/RetentionUnitRevisionId" },
+        "dimension_revision_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/DimensionRevisionId" },
+        "scope_facets": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StringMap" },
+        "due_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+        "stability": { "type": "number", "exclusiveMinimum": 0 },
+        "difficulty": { "type": "number", "minimum": 1, "maximum": 10 },
+        "retrievability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "card_state": { "enum": ["new", "learning", "review", "relearning"] },
+        "last_review_event_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/DelayedReviewEventId" },
+        "review_count": { "type": "integer", "minimum": 1 },
+        "parameter_set_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "input_review_event_ids": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/DelayedReviewEventId" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "projection_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "projector_version": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "projected_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+      },
+      "additionalProperties": false
+    },
+    "ErrorPatternProjection": {
+      "type": "object",
+      "required": [
+        "schema_version", "projection_type", "student_id", "error_cause_id",
+        "active_definition_revision_id", "state", "support_count", "counter_count",
+        "independent_session_count", "recurrence_count", "effective_evidence_ids",
+        "policy_version", "projection_version", "projector_version", "projected_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "projection_type": { "const": "error_pattern" },
+        "student_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StudentId" },
+        "error_cause_id": { "type": "string", "pattern": "^E_[A-Z0-9_]{2,}$" },
+        "active_definition_revision_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ErrorCauseRevisionId" },
+        "state": { "enum": ["suspected", "confirmed", "improving", "resolved", "superseded"] },
+        "support_count": { "type": "integer", "minimum": 0 },
+        "counter_count": { "type": "integer", "minimum": 0 },
+        "independent_session_count": { "type": "integer", "minimum": 0 },
+        "recurrence_count": { "type": "integer", "minimum": 0 },
+        "verification_due_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+        "effective_evidence_ids": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ErrorEvidenceId" },
+          "uniqueItems": true
+        },
+        "superseded_by_error_cause_revision_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ErrorCauseRevisionId" },
+        "policy_version": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "projection_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "projector_version": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "projected_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

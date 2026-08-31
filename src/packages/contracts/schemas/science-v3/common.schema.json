@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/common/v1",
+  "title": "MathPilot Science v3 Common Types",
+  "$description": "科学内核 v3 的独立身份、版本和引用类型。仅作为 $defs 引用，不复用旧 session/mode/run 身份。",
+  "type": "object",
+  "$defs": {
+    "TenantId": { "type": "string", "pattern": "^tnt_[A-Za-z0-9]{8,}$" },
+    "UserId": { "type": "string", "pattern": "^usr_[A-Za-z0-9]{8,}$" },
+    "StudentId": { "type": "string", "pattern": "^stu_[A-Za-z0-9]{8,}$" },
+    "ConversationThreadId": { "type": "string", "pattern": "^thr_[A-Za-z0-9]{8,}$" },
+    "ForegroundEpochId": { "type": "string", "pattern": "^fge_[A-Za-z0-9]{8,}$" },
+    "QuestionSessionId": { "type": "string", "pattern": "^qsn_[A-Za-z0-9]{8,}$" },
+    "LearningActivityId": { "type": "string", "pattern": "^lac_[A-Za-z0-9]{8,}$" },
+    "SelectionIntentId": { "type": "string", "pattern": "^int_[A-Za-z0-9]{8,}$" },
+    "CutRequestId": { "type": "string", "pattern": "^cut_[A-Za-z0-9]{8,}$" },
+    "AttemptId": { "type": "string", "pattern": "^att_[A-Za-z0-9]{8,}$" },
+    "JudgmentId": { "type": "string", "pattern": "^jdg_[A-Za-z0-9]{8,}$" },
+    "ObservationId": { "type": "string", "pattern": "^obs_[A-Za-z0-9]{8,}$" },
+    "LearningOpportunityId": { "type": "string", "pattern": "^lop_[A-Za-z0-9]{8,}$" },
+    "DelayedReviewEventId": { "type": "string", "pattern": "^drv_[A-Za-z0-9]{8,}$" },
+    "DiagnosticClaimId": { "type": "string", "pattern": "^dcl_[A-Za-z0-9]{8,}$" },
+    "ErrorEvidenceId": { "type": "string", "pattern": "^eev_[A-Za-z0-9]{8,}$" },
+    "AnnotationId": { "type": "string", "pattern": "^ann_[A-Za-z0-9]{8,}$" },
+    "DreamRunId": { "type": "string", "pattern": "^drm_[A-Za-z0-9]{8,}$" },
+    "MessageId": { "type": "string", "pattern": "^msg_[A-Za-z0-9]{8,}$" },
+    "PartId": { "type": "string", "pattern": "^part_[A-Za-z0-9]{8,}$" },
+    "OperationId": { "type": "string", "pattern": "^op_[A-Za-z0-9]{8,}$" },
+    "WorkflowId": { "type": "string", "minLength": 3, "maxLength": 240, "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]+$" },
+    "AgentAttemptId": { "type": "string", "pattern": "^agt_[A-Za-z0-9]{8,}$" },
+    "QuestionRevisionId": { "type": "string", "pattern": "^qrev_[A-Za-z0-9_.:-]{4,}$" },
+    "DimensionRevisionId": { "type": "string", "pattern": "^(krev|trev)_[A-Za-z0-9_.:-]{4,}$" },
+    "ErrorCauseRevisionId": { "type": "string", "pattern": "^erev_[A-Za-z0-9_.:-]{4,}$" },
+    "RetentionUnitRevisionId": { "type": "string", "pattern": "^rurev_[A-Za-z0-9_.:-]{4,}$" },
+    "ISODateTime": { "type": "string", "format": "date-time" },
+    "PositiveVersion": { "type": "integer", "minimum": 1 },
+    "SchemaVersion": { "const": 3 },
+    "EvidenceRef": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 512,
+      "pattern": "^[a-z][a-z0-9+.-]*://[^\\s]+$"
+    },
+    "OpaqueResourceRef": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 512,
+      "pattern": "^[a-z][a-z0-9+.-]*:[^\\s]+$"
+    },
+    "StringMap": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+      "additionalProperties": { "type": "string", "maxLength": 240 },
+      "maxProperties": 24
+    }
+  }
+}

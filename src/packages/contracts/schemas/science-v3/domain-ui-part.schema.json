@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/domain-ui-part/v1",
+  "title": "Domain UI Part",
+  "$description": "仅由 MessageProjector 产生的输出专用权威消息部件；不是 Agent 工具输入。",
+  "type": "object",
+  "required": [
+    "schema", "part_id", "view_kind", "resource_ref", "resource_version", "snapshot",
+    "action_slots", "occurred_at", "origin", "domain_event_ref"
+  ],
+  "properties": {
+    "schema": { "const": "mathpilot.message-part/domain-ui/v1" },
+    "part_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PartId" },
+    "view_kind": {
+      "enum": [
+        "question", "answer_receipt", "judgment", "probe", "question_closure",
+        "learning_update", "memory_update", "review_due", "activity_milestone"
+      ]
+    },
+    "resource_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+    "resource_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+    "snapshot": {
+      "type": "object",
+      "required": ["schema", "title", "summary", "data"],
+      "properties": {
+        "schema": { "type": "string", "pattern": "^mathpilot\\.view/[a-z0-9_-]+/v[1-9][0-9]*$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "data": { "type": "object", "maxProperties": 64 },
+        "redactions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 240 },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "action_slots": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "submit_attempt", "skip_question", "request_cut", "revise_intent", "start_review",
+          "view_evidence", "annotation_feedback", "mute_annotation", "request_teacher_review"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "occurred_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+    "origin": { "const": "domain_projector" },
+    "domain_event_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" }
+  },
+  "additionalProperties": false
+}

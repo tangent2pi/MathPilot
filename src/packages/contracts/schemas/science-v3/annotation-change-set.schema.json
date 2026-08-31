@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/annotation-change-set/v1",
+  "title": "Annotation Change Set",
+  "$description": "Deep 唯一允许提出的长期语义写入。契约故意不包含 M/R/C_e、计划或内容发布写字段。",
+  "type": "object",
+  "required": [
+    "schema_version", "change_set_id", "student_id", "dream_run_id", "expected_annotation_set_version",
+    "operations", "source_refs", "policy_version", "model_id", "prompt_version", "skill_version", "created_at"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+    "change_set_id": { "type": "string", "pattern": "^acs_[A-Za-z0-9]{8,}$" },
+    "student_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StudentId" },
+    "dream_run_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/DreamRunId" },
+    "expected_annotation_set_version": { "type": "integer", "minimum": 0 },
+    "operations": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/Add" },
+          { "$ref": "#/$defs/Supersede" },
+          { "$ref": "#/$defs/Keep" },
+          { "$ref": "#/$defs/ProposeReview" }
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 50
+    },
+    "source_refs": {
+      "type": "array",
+      "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "policy_version": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "model_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "prompt_version": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "skill_version": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "AnnotationDraft": {
+      "type": "object",
+      "required": ["target_kind", "target_ref", "claim", "scope", "support_refs", "counter_refs", "confidence", "valid_from"],
+      "properties": {
+        "target_kind": { "enum": ["dimension", "error_cause", "student_trait"] },
+        "target_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+        "claim": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "scope": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/StringMap" },
+        "support_refs": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "counter_refs": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+          "uniqueItems": true
+        },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "trend": { "enum": ["stable", "improving", "worsening", "mixed", "unknown"] },
+        "action_hint": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "valid_from": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+        "review_due_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+      },
+      "additionalProperties": false
+    },
+    "Add": {
+      "type": "object",
+      "required": ["op", "annotation"],
+      "properties": {
+        "op": { "const": "add" },
+        "annotation": { "$ref": "#/$defs/AnnotationDraft" }
+      },
+      "additionalProperties": false
+    },
+    "Supersede": {
+      "type": "object",
+      "required": ["op", "annotation_id", "replacement", "reason"],
+      "properties": {
+        "op": { "const": "supersede" },
+        "annotation_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/AnnotationId" },
+        "replacement": { "$ref": "#/$defs/AnnotationDraft" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      },
+      "additionalProperties": false
+    },
+    "Keep": {
+      "type": "object",
+      "required": ["op", "annotation_id", "reason", "evidence_refs"],
+      "properties": {
+        "op": { "const": "keep" },
+        "annotation_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/AnnotationId" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProposeReview": {
+      "type": "object",
+      "required": ["op", "target_kind", "target_ref", "reason", "support_refs", "counter_refs"],
+      "properties": {
+        "op": { "const": "propose_review" },
+        "target_kind": { "enum": ["student_trait", "content_insight", "annotation"] },
+        "target_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "support_refs": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "counter_refs": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/EvidenceRef" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

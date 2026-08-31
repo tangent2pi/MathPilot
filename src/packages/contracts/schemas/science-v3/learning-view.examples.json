@@ -1,0 +1,43 @@
+{
+  "valid": {
+    "schema": "mathpilot.learning-view/scientific_state/v1",
+    "view_kind": "scientific_state",
+    "resource": { "kind": "student_scientific_state", "id": "self", "version": 7 },
+    "generated_at": "2026-08-31T08:10:00Z",
+    "facts_through": "2026-08-31T08:09:58Z",
+    "projection_status": "ready",
+    "permissions": ["learning.state.read", "learning.review.start"],
+    "redactions": ["hidden_reasoning", "credentials"],
+    "data": { "dimensions": [] },
+    "command_capabilities": [{
+      "action": "start_review",
+      "href": "/api/learning/reviews/rev_a1b2c3d4/start",
+      "method": "POST",
+      "expected_version": 7
+    }]
+  },
+  "missing_field": {
+    "schema": "mathpilot.learning-view/scientific_state/v1",
+    "view_kind": "scientific_state",
+    "resource": { "kind": "student_scientific_state", "id": "self", "version": 7 }
+  },
+  "rejected": [
+    {
+      "_reason": "读模型不能携带直接写 projection 的 capability",
+      "schema": "mathpilot.learning-view/scientific_state/v1",
+      "view_kind": "scientific_state",
+      "resource": { "kind": "student_scientific_state", "id": "self", "version": 7 },
+      "generated_at": "2026-08-31T08:10:00Z",
+      "facts_through": "2026-08-31T08:09:58Z",
+      "projection_status": "ready",
+      "permissions": ["learning.state.read"],
+      "data": { "dimensions": [] },
+      "command_capabilities": [{
+        "action": "set_mastery",
+        "href": "/api/learning/mastery/set",
+        "method": "POST",
+        "expected_version": 7
+      }]
+    }
+  ]
+}

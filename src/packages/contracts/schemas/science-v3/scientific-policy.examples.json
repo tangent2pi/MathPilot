@@ -1,0 +1,112 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "policy_type": "evidence",
+    "policy_id": "evidence-policy-production-v1",
+    "policy_version": 1,
+    "effective_from": "2026-08-31T00:00:00Z",
+    "independent_measurement": {
+      "required_hint_level": 0,
+      "require_frozen_question_revision": true,
+      "require_reliable_rubric": true,
+      "reject_same_question_correction": true,
+      "reject_prior_solution_exposure": true,
+      "exclude_superseded": true
+    },
+    "delayed_review": {
+      "minimum_delay_minutes": 1440,
+      "success_rating": "good",
+      "failure_rating": "again",
+      "allow_hard": false,
+      "allow_easy": false
+    },
+    "external_content": {
+      "unverified_measurement": "reject",
+      "unverified_error_evidence": "provisional_only"
+    },
+    "supersession": {
+      "append_only": true,
+      "replay_required": true,
+      "idempotent": true
+    }
+  },
+  "valid_cases": [
+    {
+      "schema_version": 3,
+      "policy_type": "error_reducer",
+      "policy_id": "error-reducer-production-v1",
+      "policy_version": 1,
+      "effective_from": "2026-08-31T00:00:00Z",
+      "confirmation": {
+        "independent_session_supports": 2,
+        "decisive_requires_additional_independent_support": true
+      },
+      "improvement": {
+        "require_prior_confirmed": true,
+        "required_counter_kind": "near_transfer",
+        "require_independent": true
+      },
+      "resolution": {
+        "accepted_verification_sets": [
+          ["near_transfer", "far_transfer"],
+          ["near_transfer", "delayed_verification"]
+        ]
+      },
+      "recurrence": {
+        "from_state": "resolved",
+        "minimum_support_quality": "strong",
+        "target_state": "confirmed",
+        "append_event": true
+      },
+      "exclusions": {
+        "provisional": true,
+        "non_discriminating": true,
+        "same_question_prompted_correction": true
+      },
+      "supersession": {
+        "exclude_replaced_facts": true,
+        "full_replay": true,
+        "mark_dependent_annotations_stale": true
+      }
+    }
+  ],
+  "missing_field": {
+    "schema_version": 3,
+    "policy_type": "evidence",
+    "policy_id": "evidence-policy-production-v1"
+  },
+  "rejected": [
+    {
+      "_reason": "提示等级不能由部署时放宽成可测量",
+      "schema_version": 3,
+      "policy_type": "evidence",
+      "policy_id": "evidence-policy-unsafe-v1",
+      "policy_version": 1,
+      "effective_from": "2026-08-31T00:00:00Z",
+      "independent_measurement": {
+        "required_hint_level": 1,
+        "require_frozen_question_revision": true,
+        "require_reliable_rubric": true,
+        "reject_same_question_correction": true,
+        "reject_prior_solution_exposure": true,
+        "exclude_superseded": true
+      },
+      "delayed_review": {
+        "minimum_delay_minutes": 1,
+        "success_rating": "good",
+        "failure_rating": "again",
+        "allow_hard": false,
+        "allow_easy": false
+      },
+      "external_content": {
+        "unverified_measurement": "reject",
+        "unverified_error_evidence": "provisional_only"
+      },
+      "supersession": {
+        "append_only": true,
+        "replay_required": true,
+        "idempotent": true
+      }
+    }
+  ]
+}

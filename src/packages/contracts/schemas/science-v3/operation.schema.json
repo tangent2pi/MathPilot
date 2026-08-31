@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/operation/v1",
+  "title": "Durable Operation Contract",
+  "$description": "PostgreSQL 领域事务、outbox 与 Temporal Workflow 之间的稳定关联及用户可见 operation result。",
+  "oneOf": [
+    { "$ref": "#/$defs/OperationView" },
+    { "$ref": "#/$defs/OperationResult" },
+    { "$ref": "#/$defs/WorkflowCorrelation" },
+    { "$ref": "#/$defs/OutboxWorkflowStart" }
+  ],
+  "$defs": {
+    "OperationView": {
+      "type": "object",
+      "required": [
+        "schema_version", "record_type", "operation_id", "kind", "status", "user_message",
+        "related_resource_refs", "retryable", "started_at", "updated_at", "version"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "record_type": { "const": "operation_view" },
+        "operation_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OperationId" },
+        "kind": { "enum": ["submit_attempt", "finalize_question", "select_question", "start_review", "annotation_feedback", "teacher_correction", "dream"] },
+        "status": { "enum": ["accepted", "running", "succeeded", "needs_input", "failed", "cancelled"] },
+        "user_message": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "related_resource_refs": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+          "uniqueItems": true
+        },
+        "retryable": { "type": "boolean" },
+        "started_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+        "updated_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+        "version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" }
+      },
+      "additionalProperties": false
+    },
+    "OperationResult": {
+      "type": "object",
+      "required": [
+        "schema_version", "record_type", "operation_id", "idempotency_key", "result_status",
+        "aggregate_ref", "aggregate_version", "result_resource_refs", "recorded_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "record_type": { "const": "operation_result" },
+        "operation_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OperationId" },
+        "idempotency_key": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$" },
+        "result_status": { "enum": ["committed", "rejected", "already_committed"] },
+        "aggregate_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+        "aggregate_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "result_resource_refs": {
+          "type": "array",
+          "items": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+          "uniqueItems": true
+        },
+        "rejection_code": { "enum": ["version_conflict", "stale_intent", "candidate_invalid", "permission_denied", "closed", "invalid_evidence"] },
+        "recorded_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+      },
+      "additionalProperties": false
+    },
+    "WorkflowCorrelation": {
+      "type": "object",
+      "required": [
+        "schema_version", "record_type", "operation_id", "event_id", "workflow_id",
+        "aggregate_ref", "aggregate_version", "task_queue", "created_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "record_type": { "const": "workflow_correlation" },
+        "operation_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OperationId" },
+        "event_id": { "type": "string", "pattern": "^evt_[A-Za-z0-9]{8,}$" },
+        "workflow_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/WorkflowId" },
+        "aggregate_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+        "aggregate_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "task_queue": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,119}$" },
+        "created_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+      },
+      "additionalProperties": false
+    },
+    "OutboxWorkflowStart": {
+      "type": "object",
+      "required": [
+        "schema_version", "record_type", "event_id", "event_type", "aggregate_ref",
+        "aggregate_version", "payload_ref", "occurred_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+        "record_type": { "const": "outbox_workflow_start" },
+        "event_id": { "type": "string", "pattern": "^evt_[A-Za-z0-9]{8,}$" },
+        "event_type": {
+          "enum": [
+            "question.cut_requested", "selection.intent_revised", "question.closed",
+            "dream.rem_requested", "dream.deep_requested", "teacher.correction_recorded"
+          ]
+        },
+        "aggregate_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+        "aggregate_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" },
+        "payload_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+        "occurred_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

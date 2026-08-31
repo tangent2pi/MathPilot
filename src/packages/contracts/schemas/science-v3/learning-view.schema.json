@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/learning-view/v1",
+  "title": "Learning View Envelope",
+  "$description": "面向 assistant-ui 与个人学习空间的统一只读 envelope。命令能力由服务端按当前权限临时叠加。",
+  "type": "object",
+  "required": [
+    "schema", "view_kind", "resource", "generated_at", "facts_through",
+    "projection_status", "permissions", "data", "command_capabilities"
+  ],
+  "properties": {
+    "schema": { "type": "string", "pattern": "^mathpilot\\.learning-view/[a-z0-9_-]+/v[1-9][0-9]*$" },
+    "view_kind": {
+      "enum": [
+        "thread_messages", "thread_context", "question_interaction", "judgment", "question_closure",
+        "learning_overview", "learning_history", "scientific_state", "error_pattern_list",
+        "memory_ledger", "annotation_detail", "review_queue", "evidence_bundle",
+        "learning_activity", "agent_context_manifest", "operation"
+      ]
+    },
+    "resource": {
+      "type": "object",
+      "required": ["kind", "id", "version"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" }
+      },
+      "additionalProperties": false
+    },
+    "generated_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+    "facts_through": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+    "projection_status": { "enum": ["ready", "updating", "rebuilding", "unavailable"] },
+    "freshness_note": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "permissions": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.:-]{1,119}$" },
+      "uniqueItems": true
+    },
+    "redactions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 240 },
+      "uniqueItems": true
+    },
+    "data": { "type": "object" },
+    "command_capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/CommandCapability" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "CommandCapability": {
+      "type": "object",
+      "required": ["action", "href", "method", "expected_version"],
+      "properties": {
+        "action": {
+          "enum": [
+            "submit_attempt", "request_cut", "revise_selection_intent", "start_review",
+            "annotation_feedback", "set_context_preference", "cancel_operation", "teacher_supersede_fact"
+          ]
+        },
+        "href": { "type": "string", "pattern": "^/api/learning/[A-Za-z0-9_./:-]+$", "maxLength": 500 },
+        "method": { "const": "POST" },
+        "expected_version": { "type": "integer", "minimum": 0 },
+        "expires_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+        "disabled_reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

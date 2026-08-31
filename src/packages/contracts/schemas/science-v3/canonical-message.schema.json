@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/science-v3/canonical-message/v1",
+  "title": "Canonical Message",
+  "$description": "由 MathPilot 应用持有并按 sequence 追加的框架无关消息；Pi transcript 不是规范事实源。",
+  "type": "object",
+  "required": [
+    "schema_version", "message_id", "conversation_thread_id", "sequence", "author_kind",
+    "lifecycle", "parts", "editable", "created_at", "version"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/SchemaVersion" },
+    "message_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/MessageId" },
+    "conversation_thread_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ConversationThreadId" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "author_kind": { "enum": ["student", "assistant", "system"] },
+    "lifecycle": { "enum": ["streaming", "committed", "failed", "superseded"] },
+    "parts": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/TextPart" },
+          { "$ref": "#/$defs/AttachmentPart" },
+          { "$ref": "#/$defs/DomainPart" },
+          { "$ref": "#/$defs/TeachingArtifactPart" }
+        ]
+      },
+      "minItems": 1
+    },
+    "reply_to_message_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/MessageId" },
+    "question_session_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/QuestionSessionId" },
+    "editable": { "type": "boolean" },
+    "lock_reason": { "enum": ["attempt_recorded", "intent_recorded", "domain_event", "evidence_recorded", "superseded"] },
+    "created_at": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/ISODateTime" },
+    "supersedes_message_id": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/MessageId" },
+    "version": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/PositiveVersion" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "editable": { "const": false } }, "required": ["editable"] },
+      "then": { "required": ["lock_reason"] }
+    },
+    {
+      "if": { "properties": { "lifecycle": { "const": "superseded" } }, "required": ["lifecycle"] },
+      "then": { "required": ["supersedes_message_id"] }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "TextPart": {
+      "type": "object",
+      "required": ["type", "text"],
+      "properties": {
+        "type": { "const": "text" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 50000 }
+      },
+      "additionalProperties": false
+    },
+    "AttachmentPart": {
+      "type": "object",
+      "required": ["type", "attachment_ref", "name", "mime_type"],
+      "properties": {
+        "type": { "const": "attachment" },
+        "attachment_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "mime_type": { "type": "string", "minLength": 3, "maxLength": 160 }
+      },
+      "additionalProperties": false
+    },
+    "DomainPart": {
+      "type": "object",
+      "required": ["type", "part"],
+      "properties": {
+        "type": { "const": "domain_ui" },
+        "part": { "$ref": "https://schemas.mathpilot.dev/science-v3/domain-ui-part/v1" }
+      },
+      "additionalProperties": false
+    },
+    "TeachingArtifactPart": {
+      "type": "object",
+      "required": ["type", "artifact_ref", "artifact_schema", "summary"],
+      "properties": {
+        "type": { "const": "teaching_artifact" },
+        "artifact_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
+        "artifact_schema": { "type": "string", "pattern": "^mathpilot\\.teaching-artifact/[a-z0-9_-]+/v[1-9][0-9]*$" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

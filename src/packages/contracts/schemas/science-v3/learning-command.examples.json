@@ -1,0 +1,63 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "command_type": "submit_attempt",
+    "idempotency_key": "attempt:client-a1b2c3d4",
+    "expected_version": 1,
+    "requested_at": "2026-08-31T08:01:00Z",
+    "question_session_id": "qsn_a1b2c3d4",
+    "question_revision_id": "qrev_triangle_001_v1",
+    "attempt_kind": "answer",
+    "response_parts": [{ "type": "text", "text": "答案是 12。" }]
+  },
+  "valid_cases": [
+    {
+      "schema_version": 3,
+      "command_type": "annotation_feedback",
+      "idempotency_key": "feedback:client-a1b2c3d4",
+      "expected_version": 2,
+      "requested_at": "2026-08-31T08:40:00Z",
+      "annotation_id": "ann_a1b2c3d4",
+      "feedback": "inaccurate",
+      "note": "最近两道自行补线题都能独立完成。"
+    },
+    {
+      "schema_version": 3,
+      "command_type": "teacher_supersede_fact",
+      "idempotency_key": "teacher-correction:a1b2c3d4",
+      "expected_version": 4,
+      "requested_at": "2026-08-31T09:00:00Z",
+      "superseded_fact_ref": "judgment://jdg_a1b2c3d4",
+      "replacement_fact_ref": "judgment://jdg_b1c2d3e4",
+      "reason": "rubric 第 2 项原判定有误。"
+    }
+  ],
+  "missing_field": {
+    "schema_version": 3,
+    "command_type": "submit_attempt",
+    "idempotency_key": "attempt:client-a1b2c3d4"
+  },
+  "rejected": [
+    {
+      "_reason": "前端没有直接设置 mastery 的命令",
+      "schema_version": 3,
+      "command_type": "set_mastery",
+      "idempotency_key": "mastery:client-a1b2c3d4",
+      "expected_version": 3,
+      "requested_at": "2026-08-31T09:00:00Z",
+      "dimension_revision_id": "krev_triangle_area_v1",
+      "p_mastery": 0.99
+    },
+    {
+      "_reason": "记忆反馈不能原地编辑 Annotation claim",
+      "schema_version": 3,
+      "command_type": "annotation_feedback",
+      "idempotency_key": "feedback:client-a1b2c3d4",
+      "expected_version": 2,
+      "requested_at": "2026-08-31T08:40:00Z",
+      "annotation_id": "ann_a1b2c3d4",
+      "feedback": "inaccurate",
+      "claim": "我已经完全掌握。"
+    }
+  ]
+}

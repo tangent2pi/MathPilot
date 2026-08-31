@@ -1,0 +1,63 @@
+{
+  "valid": {
+    "schema": "mathpilot.message-part/domain-ui/v1",
+    "part_id": "part_a1b2c3d4",
+    "view_kind": "question",
+    "resource_ref": "question-session:qsn_a1b2c3d4",
+    "resource_version": 1,
+    "snapshot": {
+      "schema": "mathpilot.view/question/v1",
+      "title": "一道三角形面积题",
+      "summary": "需要自行识别辅助线，本题可形成正式学习证据。",
+      "data": { "question_session_id": "qsn_a1b2c3d4" },
+      "redactions": ["answer", "private_rubric"]
+    },
+    "action_slots": ["submit_attempt", "skip_question", "request_cut"],
+    "occurred_at": "2026-08-31T08:00:00Z",
+    "origin": "domain_projector",
+    "domain_event_ref": "event://question-opened/a1b2c3d4"
+  },
+  "missing_field": {
+    "schema": "mathpilot.message-part/domain-ui/v1",
+    "part_id": "part_a1b2c3d4",
+    "view_kind": "question"
+  },
+  "rejected": [
+    {
+      "_reason": "模型不能声明自己是权威 UI 来源",
+      "schema": "mathpilot.message-part/domain-ui/v1",
+      "part_id": "part_a1b2c3d4",
+      "view_kind": "judgment",
+      "resource_ref": "judgment:jdg_a1b2c3d4",
+      "resource_version": 1,
+      "snapshot": {
+        "schema": "mathpilot.view/judgment/v1",
+        "title": "回答正确",
+        "summary": "已形成正式判定。",
+        "data": {}
+      },
+      "action_slots": [],
+      "occurred_at": "2026-08-31T08:00:00Z",
+      "origin": "model",
+      "domain_event_ref": "event://judgment-created/a1b2c3d4"
+    },
+    {
+      "_reason": "历史快照不能持久化可执行 URL 或令牌",
+      "schema": "mathpilot.message-part/domain-ui/v1",
+      "part_id": "part_a1b2c3d4",
+      "view_kind": "question",
+      "resource_ref": "question-session:qsn_a1b2c3d4",
+      "resource_version": 1,
+      "snapshot": {
+        "schema": "mathpilot.view/question/v1",
+        "title": "题目",
+        "summary": "请作答。",
+        "data": {}
+      },
+      "action_slots": ["https://example.invalid/submit?token=secret"],
+      "occurred_at": "2026-08-31T08:00:00Z",
+      "origin": "domain_projector",
+      "domain_event_ref": "event://question-opened/a1b2c3d4"
+    }
+  ]
+}

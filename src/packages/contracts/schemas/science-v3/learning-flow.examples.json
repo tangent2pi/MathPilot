@@ -1,0 +1,142 @@
+{
+  "valid": {
+    "schema_version": 3,
+    "entity_type": "question_session",
+    "question_session_id": "qsn_a1b2c3d4",
+    "conversation_thread_id": "thr_a1b2c3d4",
+    "student_id": "stu_a1b2c3d4",
+    "selection_intent_id": "int_a1b2c3d4",
+    "selection_intent_revision": 1,
+    "question_revision_id": "qrev_triangle_001_v1",
+    "source": "catalog",
+    "frozen_measurement_contract": {
+      "contract_version": 1,
+      "measurement_eligibility": "formal",
+      "rubric_revision_id": "rubric-triangle-001-v1",
+      "dimension_revision_ids": ["krev_triangle_area_v1"],
+      "diagnosis_rule_revision_ids": ["diagnosis-supplement-v1"],
+      "evidence_policy_version": "evidence-policy-v1",
+      "frozen_at": "2026-08-31T08:00:00Z"
+    },
+    "lifecycle": "active",
+    "opened_at": "2026-08-31T08:00:00Z",
+    "version": 1
+  },
+  "valid_cases": [
+    {
+      "schema_version": 3,
+      "entity_type": "selection_intent",
+      "selection_intent_id": "int_a1b2c3d4",
+      "conversation_thread_id": "thr_a1b2c3d4",
+      "student_id": "stu_a1b2c3d4",
+      "revision": 1,
+      "source": "student",
+      "natural_language_request": "练一道需要自己发现辅助线、计算量不要太大的面积题。",
+      "activity_constraints": {},
+      "context_snapshot_ref": "snapshot:selector/a1b2c3d4/v1",
+      "created_at": "2026-08-31T07:59:00Z"
+    },
+    {
+      "schema_version": 3,
+      "entity_type": "cut_request",
+      "cut_request_id": "cut_a1b2c3d4",
+      "conversation_thread_id": "thr_a1b2c3d4",
+      "question_session_id": "qsn_a1b2c3d4",
+      "expected_session_version": 2,
+      "reason": "student_switch",
+      "next_intent_ref": "intent:int_b1c2d3e4/r2",
+      "requested_at": "2026-08-31T08:10:00Z"
+    },
+    {
+      "schema_version": 3,
+      "entity_type": "learning_activity",
+      "learning_activity_id": "lac_a1b2c3d4",
+      "student_id": "stu_a1b2c3d4",
+      "goal": "验证三角形面积相关的两个知识维度。",
+      "source": "teacher",
+      "policy": {
+        "coverage": { "dimension": "K_TRIANGLE_AREA" },
+        "budget": 5,
+        "stopping": "coverage_complete_or_budget_exhausted",
+        "evidence_requirements": "formal_only"
+      },
+      "status": "active",
+      "created_at": "2026-08-31T07:50:00Z",
+      "version": 1
+    },
+    {
+      "schema_version": 3,
+      "entity_type": "foreground_agent_epoch",
+      "foreground_epoch_id": "fge_a1b2c3d4",
+      "conversation_thread_id": "thr_a1b2c3d4",
+      "student_id": "stu_a1b2c3d4",
+      "active_question_session_id": "qsn_a1b2c3d4",
+      "context_snapshot_ref": "snapshot:foreground/a1b2c3d4/v4",
+      "workspace_snapshot_version": 4,
+      "started_at": "2026-08-31T08:00:00Z",
+      "version": 1
+    },
+    {
+      "schema_version": 3,
+      "entity_type": "diagnostic_claim",
+      "diagnostic_claim_id": "dcl_a1b2c3d4",
+      "question_session_id": "qsn_a1b2c3d4",
+      "trigger_evidence_refs": ["judgment://jdg_a1b2c3d4"],
+      "candidates": [{
+        "error_cause_revision_id": "erev_supplement_v1",
+        "prior_rationale": "外角与内角的对应关系需要区分。"
+      }],
+      "active_rule_revision_id": "diagnosis-supplement-v1",
+      "status": "open",
+      "conclusion_refs": [],
+      "created_at": "2026-08-31T08:02:00Z",
+      "version": 1
+    }
+  ],
+  "missing_field": {
+    "schema_version": 3,
+    "entity_type": "question_session",
+    "question_session_id": "qsn_a1b2c3d4"
+  },
+  "rejected": [
+    {
+      "_reason": "旧 mode/state_history 状态机不属于 v3 QuestionSession",
+      "schema_version": 3,
+      "entity_type": "question_session",
+      "question_session_id": "qsn_a1b2c3d4",
+      "conversation_thread_id": "thr_a1b2c3d4",
+      "student_id": "stu_a1b2c3d4",
+      "selection_intent_id": "int_a1b2c3d4",
+      "selection_intent_revision": 1,
+      "question_revision_id": "qrev_triangle_001_v1",
+      "source": "catalog",
+      "frozen_measurement_contract": {
+        "contract_version": 1,
+        "measurement_eligibility": "formal",
+        "rubric_revision_id": "rubric-triangle-001-v1",
+        "dimension_revision_ids": ["krev_triangle_area_v1"],
+        "diagnosis_rule_revision_ids": [],
+        "evidence_policy_version": "evidence-policy-v1",
+        "frozen_at": "2026-08-31T08:00:00Z"
+      },
+      "lifecycle": "active",
+      "opened_at": "2026-08-31T08:00:00Z",
+      "version": 1,
+      "mode": "diagnostic"
+    },
+    {
+      "_reason": "意图 revision 增长时必须追加 supersession",
+      "schema_version": 3,
+      "entity_type": "selection_intent",
+      "selection_intent_id": "int_b1c2d3e4",
+      "conversation_thread_id": "thr_a1b2c3d4",
+      "student_id": "stu_a1b2c3d4",
+      "revision": 2,
+      "source": "student",
+      "natural_language_request": "换简单一点。",
+      "activity_constraints": {},
+      "context_snapshot_ref": "snapshot:selector/a1b2c3d4/v2",
+      "created_at": "2026-08-31T08:05:00Z"
+    }
+  ]
+}
