@@ -226,6 +226,7 @@ export interface ScientificReplayResult {
   questionSessionId: string;
   masteryProjectionRefs: readonly string[];
   retentionProjectionRefs: readonly string[];
+  errorPatternProjectionRefs: readonly string[];
 }
 
 export interface PiExecutorRequest {

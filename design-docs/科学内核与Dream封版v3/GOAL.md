@@ -211,11 +211,11 @@
 本节是可更新的恢复记录，不是完成声明。
 
 ```text
-conceptual phase: P0-P3 complete on the Next path; P4 error-evidence consumption loop
-completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime; atomic question facts, Cut and finalization; versioned EvidencePolicy compiler; replayable OATutor BKT and TS-FSRS projections; teacher-correction replay
-current: implement ErrorCause, DiagnosisRule, ErrorEvidence and the deterministic ErrorPattern reducer
-next action: freeze the P4 fact/projection schema and diagnosis relation matrix before adding consumers
-implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime; P2 — canonical messages, QuestionSession isolation, atomic Cut and bounded finalization; P3 — eligible evidence compilation, versioned M/R algorithms and correction replay on the sole Next application path
+conceptual phase: P0-P4 complete on the Next path; P5 model selection and intent revision
+completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime; atomic question facts, Cut and finalization; versioned EvidencePolicy compiler; replayable OATutor BKT and TS-FSRS projections; replayable ErrorEvidence/ErrorPattern loop; teacher-correction replay
+current: implement the single question_catalog boundary, Selector TaskSpec and stale-intent-safe question commit
+next action: trace the P5 frozen contracts into the existing Next foreground flow, then implement only the missing host and Selector surfaces
+implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime; P2 — canonical messages, QuestionSession isolation, atomic Cut and bounded finalization; P3 — eligible evidence compilation, versioned M/R algorithms and correction replay; P4 — per-candidate diagnostic evidence, replayable C_e and bounded consumer actions on the sole Next application path
 external blockers: none recorded
 ```
 
@@ -246,7 +246,15 @@ external blockers: none recorded
   固定版本 `ts-fsrs` 5.4.1 的 due、stability、difficulty、retrievability、rollback 与重放结果通过；
 - 教师纠错在 Temporal Activity 瞬时失败后重试成功，不调用 Pi；数据库响应丢失重放只产生一份
   OperationResult，并以 supersession 排除旧 Judgment，未双计 M/R；
-- 以上证明 Next 路径的 P0–P3，不证明 P4–P7 或真实服务 E2E 完成；
+- `0035_science_v3_error_evidence.sql` 已从 PostgreSQL 16 干净库按 0001→0035 全量应用；
+  outcome bin × candidate relation matrix 产生逐候选正反/不可区分事实，reducer 支持
+  suspected、confirmed、improving、resolved 与 recurrence 的全量重放；
+- P4 纯函数用例、完整 `learning-next` 测试和独立 PostgreSQL 集成测试已通过；教师纠错
+  supersede 后 C_e 排除旧 Judgment/Attempt 并幂等重放，Light、Teaching、Selection、Verification、
+  Report、Teacher Review 与 ContentInsight 均只有有界消费输出；
+- 官方初始内容导入只读取已提取的 CSV，使用 `krev/trev/qrev/erev/rrev` 规范 revision，
+  并发布单候选规则的保守 relation matrix 与验证政策；没有读取、回填或兼容旧表；
+- 以上证明 Next 路径的 P0–P4，不证明 P5–P7 或真实服务 E2E 完成；
 - 旧 `learning/profile/agent-runtime` 服务定义与 `web-next/api-next/learning-next` 断开，保留到最终
   组合切换时退役；它们不作为 Next 实现来源、兼容目标或科学状态写入依赖。
 

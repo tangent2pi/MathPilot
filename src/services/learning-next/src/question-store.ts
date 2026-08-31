@@ -550,6 +550,8 @@ export class PostgresQuestionStore implements QuestionStore {
         observation_refs: observationRefs,
         mastery_projection_refs: scientific.masteryProjectionRefs,
         retention_projection_refs: scientific.retentionProjectionRefs,
+        error_evidence_refs: scientific.errorEvidenceRefs,
+        error_pattern_projection_refs: scientific.errorPatternProjectionRefs,
         closed_at: closedAt.toISOString(),
       };
       const artifact = jsonArtifact(payload);
@@ -663,6 +665,7 @@ export class PostgresQuestionStore implements QuestionStore {
           questionSessionId: row.question_session_id,
           masteryProjectionRefs: existing.rows[0].result_resource_refs.filter((ref) => ref.startsWith("mastery-projection:")),
           retentionProjectionRefs: existing.rows[0].result_resource_refs.filter((ref) => ref.startsWith("retention-projection:")),
+          errorPatternProjectionRefs: existing.rows[0].result_resource_refs.filter((ref) => ref.startsWith("error-pattern-projection:")),
         };
       }
       if (row.operation_status === "accepted") {
@@ -684,6 +687,7 @@ export class PostgresQuestionStore implements QuestionStore {
       const resourceRefs = [
         `teacher-correction:${row.teacher_correction_id}`,
         ...scientific.masteryProjectionRefs,
+        ...scientific.errorPatternProjectionRefs,
         ...scientific.retentionProjectionRefs,
       ].slice(0,32);
       await client.query(
@@ -706,6 +710,7 @@ export class PostgresQuestionStore implements QuestionStore {
         questionSessionId: row.question_session_id,
         masteryProjectionRefs: resourceRefs.filter((ref) => ref.startsWith("mastery-projection:")),
         retentionProjectionRefs: resourceRefs.filter((ref) => ref.startsWith("retention-projection:")),
+        errorPatternProjectionRefs: resourceRefs.filter((ref) => ref.startsWith("error-pattern-projection:")),
       };
     });
   }

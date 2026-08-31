@@ -1,4 +1,5 @@
 import type pg from "pg";
+import { compileAndProjectErrors } from "./error-store.ts";
 import {
   EVIDENCE_POLICY_REF,
   MASTERY_PARAMETER_SET_ID,
@@ -30,6 +31,8 @@ export interface ScientificCommitResult {
   observationRefs: string[];
   masteryProjectionRefs: string[];
   retentionProjectionRefs: string[];
+  errorEvidenceRefs: string[];
+  errorPatternProjectionRefs: string[];
 }
 
 interface SessionRow {
@@ -712,6 +715,7 @@ export async function compileAndProjectQuestion(
   const policyRef = text(row.frozen_measurement_contract.evidence_policy_version, "EvidencePolicy ref");
   const policy = await loadPolicy(client,policyRef);
   await compileFacts(client,input,row,policy);
+  const errors = await compileAndProjectErrors(client,input,row.student_id);
   const expectedEventIds = await compileDelayedReviews(client,input,row.student_id);
   const masteryProjectionRefs = await projectMastery(client,input,row.student_id);
   const retentionProjectionRefs = await projectRetention(client,input,row.student_id,expectedEventIds);
@@ -719,5 +723,11 @@ export async function compileAndProjectQuestion(
   const observationRefs = observations
     .filter((observation) => observation.question_session_id === input.questionSessionId)
     .map((observation) => `observation://${observation.observation_id}`);
-  return { observationRefs,masteryProjectionRefs,retentionProjectionRefs };
+  return {
+    observationRefs,
+    masteryProjectionRefs,
+    retentionProjectionRefs,
+    errorEvidenceRefs: errors.errorEvidenceRefs,
+    errorPatternProjectionRefs: errors.errorPatternProjectionRefs,
+  };
 }

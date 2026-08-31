@@ -47,7 +47,16 @@ function split(value: string | undefined): string[] {
 }
 
 function hash(value: Uint8Array): string { return createHash("sha256").update(value).digest("hex"); }
-function revisionId(kind: Kind, id: string): string { return `rev_official_${kind}_${hash(Buffer.from(id)).slice(0, 24)}`; }
+const revisionPrefix: Readonly<Record<Kind,string>> = {
+  knowledge: "krev",
+  question_type: "trev",
+  question: "qrev",
+  error_cause: "erev",
+  diagnosis_rule: "rrev",
+};
+function revisionId(kind: Kind, id: string): string {
+  return `${revisionPrefix[kind]}_official_${hash(Buffer.from(id)).slice(0, 24)}`;
+}
 function sourceId(fileHash: string): string { return `src_official_${fileHash.slice(0, 24)}`; }
 function packageId(): string { return "pkg_official_home_v1"; }
 function numberDifficulty(value: string): number { return value === "低" ? 0.25 : value === "高" ? 0.8 : 0.5; }
@@ -122,7 +131,14 @@ async function insertRelations(client: pg.PoolClient, kind: Kind, id: string, da
       await client.query(`insert into content_question_type_knowledge(item_id,tenant_id,knowledge_revision_id,role) values($1,$2,$3,'primary') on conflict do nothing`, [itemId, tenantId, revisionId("knowledge", knowledge)]);
     }
   } else if (kind === "error_cause") {
-    return;
+    await client.query(
+      `insert into science_v3_error_cause_policy(
+         tenant_id,error_cause_revision_id,accepted_verification_sets,
+         confirmed_near_due_days,improving_followup_due_days,resolved_delayed_due_days,
+         policy_version,published_at
+       ) values($1,$2,$3::jsonb,1,7,30,1,now()) on conflict do nothing`,
+      [tenantId,rev,JSON.stringify([["near_transfer","far_transfer"],["near_transfer","delayed_verification"]])],
+    );
   } else if (kind === "diagnosis_rule") {
     for (const [position, dimension] of [...split(data["知识点ID"]), ...split(data["题型ID"])].entries()) {
       const itemId = `item_official_${hash(Buffer.from(`${rev}:d:${position}`)).slice(0, 20)}`;
@@ -133,6 +149,49 @@ async function insertRelations(client: pg.PoolClient, kind: Kind, id: string, da
       const itemId = `item_official_${hash(Buffer.from(`${rev}:e:${position}`)).slice(0, 20)}`;
       await client.query(`insert into content_revision_item(item_id,revision_id,tenant_id,item_kind,position) values($1,$2,$3,'diagnosis_rule_error_cause',$4) on conflict do nothing`, [itemId, rev, tenantId, position]);
       await client.query(`insert into content_diagnosis_rule_error_cause(item_id,tenant_id,error_cause_revision_id) values($1,$2,$3) on conflict do nothing`, [itemId, tenantId, revisionId("error_cause", error)]);
+    }
+    const bins = [
+      {
+        id: "trigger_matched",
+        label: data["诊断结论"] || "符合该诊断规则",
+        quality: "strong",
+        status: "concluded",
+        criterion: data["触发条件"] || "回答符合已发布规则的触发条件",
+        relation: "supports",
+      },
+      {
+        id: "trigger_not_matched",
+        label: "不符合该诊断规则",
+        quality: "strong",
+        status: "concluded",
+        criterion: `回答有明确证据反对：${data["触发条件"] || id}`,
+        relation: "counters",
+      },
+      {
+        id: "unresolved",
+        label: "无法由当前回答区分",
+        quality: "weak",
+        status: "inconclusive",
+        criterion: "回答缺失、不相关或证据不足，不能支持或反对候选",
+        relation: "non_discriminating",
+      },
+    ] as const;
+    const errors = split(data["错因ID"]);
+    for (const bin of bins) {
+      await client.query(
+        `insert into science_v3_diagnosis_outcome_bin(
+           tenant_id,rule_revision_id,outcome_bin_id,label,quality,terminal_status,classification_criterion
+         ) values($1,$2,$3,$4,$5,$6,$7) on conflict do nothing`,
+        [tenantId,rev,bin.id,bin.label,bin.quality,bin.status,bin.criterion],
+      );
+      for (const error of errors) {
+        await client.query(
+          `insert into science_v3_diagnosis_outcome_relation(
+             tenant_id,rule_revision_id,outcome_bin_id,error_cause_revision_id,relation
+           ) values($1,$2,$3,$4,$5) on conflict do nothing`,
+          [tenantId,rev,bin.id,revisionId("error_cause",error),bin.relation],
+        );
+      }
     }
   } else {
     const options = split(data["选项"]);

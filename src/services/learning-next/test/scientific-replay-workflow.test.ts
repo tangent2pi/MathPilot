@@ -29,6 +29,7 @@ test("teacher correction replay is a retryable deterministic Workflow without Pi
         questionSessionId: "qsn_scireplay001",
         masteryProjectionRefs: ["mastery-projection:stu_scireplay001:K_TEST:1"],
         retentionProjectionRefs: [],
+        errorPatternProjectionRefs: ["error-pattern-projection:stu_scireplay001:E_TEST"],
       };
     },
   };

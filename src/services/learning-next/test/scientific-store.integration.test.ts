@@ -56,6 +56,21 @@ integration("scientific facts replay atomically and teacher correction replaces 
     assert.equal(before.rows[0]?.independent_count,3);
     assert.equal((await client.query("select count(*)::int as count from science_v3_delayed_review_event")).rows[0].count,2);
     assert.equal((await client.query("select review_count from science_v3_retention_projection")).rows[0].review_count,2);
+    const errorBefore = await client.query<{
+      state: string;
+      support_count: number;
+      counter_count: number;
+      effective_evidence_ids: string[];
+    }>(
+      `select state,support_count,counter_count,effective_evidence_ids
+         from science_v3_error_pattern_projection
+        where tenant_id='tnt_flowtest01' and student_id='stu_flowtest01'
+          and error_cause_id='E_FLOW_B'`,
+    );
+    assert.equal(errorBefore.rows[0]?.state,"improving");
+    assert.equal(errorBefore.rows[0]?.support_count,2);
+    assert.equal(errorBefore.rows[0]?.counter_count,1);
+    assert.equal((await client.query("select count(*)::int as count from science_v3_error_evidence")).rows[0].count,6);
 
     await client.query("set local role mathpilot_app");
     await client.query("savepoint reject_student_correction");
@@ -115,6 +130,9 @@ integration("scientific facts replay atomically and teacher correction replaces 
     const first = await store.replayCorrection(input);
     const replay = await store.replayCorrection(input);
     assert.deepEqual(replay,first);
+    assert.deepEqual(first.errorPatternProjectionRefs,[
+      "error-pattern-projection:stu_flowtest01:E_FLOW_B",
+    ]);
   } finally {
     await store.close();
   }
@@ -156,6 +174,21 @@ integration("scientific facts replay atomically and teacher correction replaces 
       assert.equal((await client.query("select count(*)::int as count from science_v3_operation_result where operation_id='op_sciencefix01'")).rows[0].count,1);
       assert.equal((await client.query("select status from science_v3_operation where operation_id='op_sciencefix01'")).rows[0].status,"succeeded");
       assert.equal((await client.query("select review_count from science_v3_retention_projection")).rows[0].review_count,2);
+      const errorProjection = await client.query<{
+        state: string;
+        support_count: number;
+        counter_count: number;
+        effective_evidence_ids: string[];
+      }>(
+        `select state,support_count,counter_count,effective_evidence_ids
+           from science_v3_error_pattern_projection
+          where tenant_id='tnt_flowtest01' and student_id='stu_flowtest01'
+            and error_cause_id='E_FLOW_B'`,
+      );
+      assert.equal(errorProjection.rows[0]?.state,"confirmed");
+      assert.equal(errorProjection.rows[0]?.support_count,2);
+      assert.equal(errorProjection.rows[0]?.counter_count,0);
+      assert.equal(errorProjection.rows[0]?.effective_evidence_ids.length,2);
       await client.query("commit");
     } finally {
       client.release();
