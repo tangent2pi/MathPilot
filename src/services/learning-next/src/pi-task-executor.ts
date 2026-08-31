@@ -15,6 +15,7 @@ import {
 import { Type } from "typebox";
 import { parseSelectionDecision } from "./selection-core.ts";
 import { parseAnnotationChangeSet, parseLightAtomProposal, parseRemOutput } from "./dream-core.ts";
+import { parseBoundedLearningAction, parseForegroundTeachingOutput } from "./foreground-core.ts";
 import type { PiExecutorRequest, PiExecutorResult, PiTaskExecutor } from "./runtime-types.ts";
 
 const PROVIDER = "mathpilot-deepseek";
@@ -116,10 +117,13 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
   async execute(request: PiExecutorRequest): Promise<PiExecutorResult> {
     if (jsonSize(request.inputBundle) > 1024 * 1024) throw new Error("frozen task bundle exceeds 1 MiB");
     const unsupported = request.taskSpec.allowed_capability_tools
-      .filter((name) => !["question_catalog", "read", "grep"].includes(name));
+      .filter((name) => !["question_catalog", "read", "grep", "learning_action"].includes(name));
     if (unsupported.length) throw new Error(`PiTaskExecutor does not host foreground/delegation capabilities: ${unsupported.join(",")}`);
     if (request.taskSpec.allowed_capability_tools.includes("question_catalog") && !request.questionCatalog) {
       throw new Error("question_catalog capability is missing for this AgentAttempt");
+    }
+    if (request.taskSpec.allowed_capability_tools.includes("learning_action") && !request.learningAction) {
+      throw new Error("learning_action capability is missing for this AgentAttempt");
     }
     const workspaceToolsRequested = request.taskSpec.allowed_capability_tools.some((name) => name === "read" || name === "grep");
     if (workspaceToolsRequested && !request.taskSpec.workspace_projection_policy.enabled) {
@@ -178,6 +182,13 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
             studentId: String(bundle.student_id ?? ""),
             annotationSetVersion: Number(bundle.expected_annotation_set_version),
           });
+        } else if (request.taskSpec.task_type === "foreground_teaching") {
+          const bundle = objectValue(request.inputBundle);
+          structuredOutput = parseForegroundTeachingOutput(params.output, {
+            conversationThreadId: String(bundle.conversation_thread_id ?? ""),
+            foregroundEpochId: String(bundle.foreground_epoch_id ?? ""),
+            replyToMessageId: String(bundle.triggering_message_id ?? ""),
+          });
         } else {
           structuredOutput = params.output;
         }
@@ -212,8 +223,42 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         };
       },
     });
+    const learningAction = defineTool({
+      name: "learning_action",
+      label: "Learning action",
+      description: "Request one bounded, host-validated learning action in the current Thread and foreground epoch. Authorization identities are supplied only by the host.",
+      parameters: Type.Union([
+        Type.Object({
+          action: Type.Literal("request_cut"),
+          reason: Type.Union([
+            Type.Literal("completed"), Type.Literal("student_switch"), Type.Literal("skipped"),
+            Type.Literal("system_policy"), Type.Literal("abandoned"),
+          ]),
+          next_natural_language_request: Type.Optional(Type.String({ minLength: 1, maxLength: 4000 })),
+        }, { additionalProperties: false }),
+        Type.Object({
+          action: Type.Literal("revise_selection_intent"),
+          natural_language_request: Type.String({ minLength: 1, maxLength: 4000 }),
+        }, { additionalProperties: false }),
+        Type.Object({
+          action: Type.Literal("present_validated_artifact"),
+          artifact_schema: Type.String({ pattern: "^mathpilot\\.teaching-artifact/[a-z0-9_-]+/v[1-9][0-9]*$" }),
+          summary: Type.String({ minLength: 1, maxLength: 1000 }),
+          content: Type.Record(Type.String(), Type.Unknown(), { maxProperties: 64 }),
+        }, { additionalProperties: false }),
+      ]),
+      async execute(toolCallId, params) {
+        if (!request.learningAction) throw new Error("learning_action is unavailable");
+        const result = await request.learningAction.perform(toolCallId, parseBoundedLearningAction(params));
+        return {
+          content: [{ type: "text" as const, text: result.message }],
+          details: result,
+        };
+      },
+    });
     const tools: ToolDefinition<any, any, any>[] = [respond];
     if (request.taskSpec.allowed_capability_tools.includes("question_catalog")) tools.push(catalog);
+    if (request.taskSpec.allowed_capability_tools.includes("learning_action")) tools.push(learningAction);
     if (request.taskSpec.allowed_capability_tools.includes("read")) {
       tools.push(createReadToolDefinition(projectionRoot, {
         autoResizeImages: false,

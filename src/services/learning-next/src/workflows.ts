@@ -21,6 +21,7 @@ import type {
   AgentTaskWorkflowState,
   AllowedChildWorkflowInput,
   FinalizeQuestionWorkflowInput,
+  ForegroundResponseCommitResult,
   LearningNextActivities,
   PiTaskActivityResult,
   QuestionClosureResult,
@@ -308,6 +309,59 @@ export async function finalizeQuestionWorkflow(input: FinalizeQuestionWorkflowIn
       questionCommitActivityOptions("commit-question-closure"),
     );
   });
+}
+
+export async function foregroundTeachingWorkflow(input: AgentTaskWorkflowInput): Promise<AgentTaskWorkflowResult> {
+  assertWorkflowInput(input);
+  enforceTaskType(input, "foreground_teaching");
+  if (!input.eventId || !idempotencyPattern.test(input.eventId)
+    || !/^conversation-thread:thr_[A-Za-z0-9]{8,}$/.test(input.aggregateRef)
+    || !/^agent-artifact:art_[A-Za-z0-9]{8,}$/.test(input.inputRef)) {
+    throw ApplicationFailure.nonRetryable("invalid foreground teaching input", "invalid_workflow_input");
+  }
+  try {
+    const result = await scheduleActivity<PiTaskActivityResult>(
+      "executePiTask",
+      [{
+        ...input,
+        workflowId: workflowInfo().workflowId,
+        resultOwnership: "parent",
+        idempotencyKey: idempotencyForRevision(input.idempotencyKey, input.revision),
+      }],
+      taskActivityOptions("foreground_teaching", input.taskSpecVersion, `foreground-pi-r${input.revision}`),
+    );
+    const committed = await scheduleActivity<ForegroundResponseCommitResult>(
+      "commitForegroundResponse",
+      [{
+        tenantId: input.tenantId,
+        operationId: input.operationId,
+        eventId: input.eventId,
+        outputRef: result.outputRef,
+      }],
+      questionCommitActivityOptions("commit-foreground-response"),
+    );
+    return {
+      operationId: input.operationId,
+      taskType: "foreground_teaching",
+      status: "succeeded",
+      outputRef: result.outputRef,
+      aggregateRef: input.aggregateRef,
+      aggregateVersion: committed.threadVersion,
+      revision: input.revision,
+    };
+  } catch (error) {
+    await CancellationScope.nonCancellable(() => scheduleActivity<Awaited<ReturnType<LearningNextActivities["markOperationFailed"]>>>(
+      "markOperationFailed",
+      [{
+        tenantId: input.tenantId,
+        operationId: input.operationId,
+        cancelled: isCancellation(error),
+        message: isCancellation(error) ? "回复已取消" : "回复失败，请重试",
+      }],
+      durableActivityOptions("mark-foreground-failed"),
+    ));
+    throw error;
+  }
 }
 
 export async function replayScientificStateWorkflow(input: ScientificReplayWorkflowInput): Promise<ScientificReplayResult> {

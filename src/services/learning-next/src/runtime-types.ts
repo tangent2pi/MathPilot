@@ -60,6 +60,7 @@ export const OUTBOX_EVENT_TYPES = [
   "dream.rem_requested",
   "dream.deep_requested",
   "teacher.correction_recorded",
+  "foreground.message_submitted",
 ] as const;
 
 export type OutboxEventType = (typeof OUTBOX_EVENT_TYPES)[number];
@@ -321,6 +322,32 @@ export interface QuestionCatalogCapability {
   search(toolCallId: string, input: QuestionCatalogToolInput): Promise<unknown>;
 }
 
+export type BoundedLearningAction =
+  | {
+      action: "request_cut";
+      reason: "completed" | "student_switch" | "skipped" | "system_policy" | "abandoned";
+      next_natural_language_request?: string;
+    }
+  | { action: "revise_selection_intent"; natural_language_request: string }
+  | {
+      action: "present_validated_artifact";
+      artifact_schema: `mathpilot.teaching-artifact/${string}/v${number}`;
+      summary: string;
+      content: Record<string, unknown>;
+    };
+
+export interface LearningActionResult {
+  accepted: boolean;
+  action: BoundedLearningAction["action"];
+  result_ref?: string;
+  rejection_code?: "no_active_question" | "stale" | "invalid" | "conflict" | "permission_denied";
+  message: string;
+}
+
+export interface LearningActionCapability {
+  perform(toolCallId: string, action: BoundedLearningAction): Promise<LearningActionResult>;
+}
+
 export interface WorkspaceProjectionFile {
   path: string;
   content: string;
@@ -341,6 +368,7 @@ export interface PiExecutorRequest {
   inputBundle: unknown;
   taskSpec: TaskSpec;
   questionCatalog?: QuestionCatalogCapability;
+  learningAction?: LearningActionCapability;
   workspaceProjection?: WorkspaceProjection;
   signal: AbortSignal;
   heartbeat: (detail?: unknown) => void;
@@ -355,6 +383,27 @@ export interface PiExecutorResult {
 
 export interface PiTaskExecutor {
   execute(request: PiExecutorRequest): Promise<PiExecutorResult>;
+}
+
+export interface ExecuteLearningActionInput {
+  tenantId: string;
+  operationId: string;
+  agentAttemptId: string;
+  toolCallId: string;
+  action: BoundedLearningAction;
+}
+
+export interface CommitForegroundResponseInput {
+  tenantId: string;
+  operationId: string;
+  eventId: string;
+  outputRef: string;
+}
+
+export interface ForegroundResponseCommitResult {
+  responseMessageId: string;
+  threadVersion: number;
+  created: boolean;
 }
 
 export interface LearningNextActivities {
@@ -379,4 +428,5 @@ export interface LearningNextActivities {
     operationId: string;
     replacementOperationId: string;
   }): Promise<void>;
+  commitForegroundResponse(input: CommitForegroundResponseInput): Promise<ForegroundResponseCommitResult>;
 }

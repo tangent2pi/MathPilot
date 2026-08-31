@@ -160,6 +160,14 @@ export class PostgresRuntimeStore implements RuntimeStore {
           where tenant_id=$1 and operation_id=$2 and status='accepted'`,
         [value.input.tenantId, value.input.operationId],
       );
+      if (value.input.taskType === "foreground_teaching") {
+        await client.query(
+          `update science_v3_foreground_request
+              set status='running',updated_at=clock_timestamp()
+            where tenant_id=$1 and operation_id=$2 and status='queued'`,
+          [value.input.tenantId, value.input.operationId],
+        );
+      }
       const operation = await client.query<{ status: string }>(
         `select status from science_v3_operation where tenant_id=$1 and operation_id=$2`,
         [value.input.tenantId, value.input.operationId],
@@ -295,6 +303,12 @@ export class PostgresRuntimeStore implements RuntimeStore {
           input.message.slice(0, 1000) || (input.cancelled ? "已取消" : "处理失败"),
           !input.cancelled,
         ],
+      );
+      await client.query(
+        `update science_v3_foreground_request
+            set status=$3,completed_at=clock_timestamp(),updated_at=clock_timestamp()
+          where tenant_id=$1 and operation_id=$2 and status in ('queued','running')`,
+        [input.tenantId, input.operationId, input.cancelled ? "cancelled" : "failed"],
       );
     });
   }

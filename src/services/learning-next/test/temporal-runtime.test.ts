@@ -128,6 +128,9 @@ test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-
     async markSelectionSuperseded(input) {
       supersededSelections.push({ operationId: input.operationId, replacementOperationId: input.replacementOperationId });
     },
+    async commitForegroundResponse() {
+      throw new Error("unexpected foreground response Activity in generic runtime test");
+    },
   };
   const worker = await Worker.create({
     connection: environment.nativeConnection,

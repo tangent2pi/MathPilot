@@ -166,6 +166,7 @@ export function directTaskTypeForEvent(eventType: string): TaskType {
     case "question.closed": return "light";
     case "dream.rem_requested": return "rem";
     case "dream.deep_requested": return "deep";
+    case "foreground.message_submitted": return "foreground_teaching";
     case "question.cut_requested":
       throw new Error("question.cut_requested belongs to FinalizeQuestionWorkflow, not a single Pi task");
     case "teacher.correction_recorded":

@@ -12,6 +12,7 @@ export const DIRECT_WORKFLOW_TYPES = {
   light: "lightWorkflow",
   rem: "remSweepWorkflow",
   deep: "deepConsolidationWorkflow",
+  foreground_teaching: "foregroundTeachingWorkflow",
 } as const;
 
 export interface DirectWorkflowRoute {
@@ -53,7 +54,7 @@ export function workflowInputFromOutbox(event: OutboxWorkflowStart, taskType: Ta
     inputRef: event.payloadRef,
     idempotencyKey: event.eventId,
     revision: event.aggregateVersion,
-    ...(["question.closed","dream.rem_requested","dream.deep_requested"].includes(event.eventType)
+    ...(["question.closed","dream.rem_requested","dream.deep_requested","foreground.message_submitted"].includes(event.eventType)
       ? { resultOwnership: "parent" as const } : {}),
   };
 }

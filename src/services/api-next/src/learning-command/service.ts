@@ -211,17 +211,17 @@ export class LearningCommandService {
           where tenant_id=$1 and conversation_thread_id=$2 for update`,
         [principal.tenantId, threadId],
       );
-      const activeEpoch = (await client.query<{ foreground_epoch_id: string }>(
-        `select foreground_epoch_id from science_v3_foreground_agent_epoch
+      const activeEpoch = (await client.query<{ foreground_epoch_id: string; active_question_session_id: string | null }>(
+        `select foreground_epoch_id,active_question_session_id from science_v3_foreground_agent_epoch
           where tenant_id=$1 and conversation_thread_id=$2 and ended_at is null`,
         [principal.tenantId, threadId],
-      )).rows[0]?.foreground_epoch_id;
+      )).rows[0];
       const requestId = deterministicId("fgr", principal.tenantId, principal.userId, key);
       const operationId = deterministicId("op", principal.tenantId, principal.userId, key, "foreground");
       const eventId = deterministicId("evt", principal.tenantId, principal.userId, key, "foreground");
       const artifactId = deterministicId("art", principal.tenantId, principal.userId, key, "foreground-input");
       const messageId = deterministicId("msg", principal.tenantId, principal.userId, key);
-      const epochId = activeEpoch ?? deterministicId("fge", principal.tenantId, threadId, key);
+      const epochId = activeEpoch?.foreground_epoch_id ?? deterministicId("fge", principal.tenantId, threadId, key);
       const input = {
         schema_version: 3,
         request_id: requestId,
@@ -229,6 +229,8 @@ export class LearningCommandService {
         foreground_epoch_id: epochId,
         student_id: thread.studentId,
         triggering_message_id: messageId,
+        ...(activeEpoch?.active_question_session_id
+          ? { active_question_session_id: activeEpoch.active_question_session_id } : {}),
         submitted_at: submittedAt,
         message_parts: parts,
         history_is_untrusted_data: true,

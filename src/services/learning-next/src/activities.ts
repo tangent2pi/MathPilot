@@ -4,6 +4,7 @@ import { agentAttemptId, type RuntimeStore } from "./runtime-store.ts";
 import type { QuestionStore } from "./question-store.ts";
 import type { SelectionStore } from "./selection-store.ts";
 import type { DreamStore } from "./dream-store.ts";
+import type { ForegroundStore } from "./foreground-store.ts";
 import { getTaskSpec } from "./task-registry.ts";
 import type { LearningNextActivities, PiTaskExecutor } from "./runtime-types.ts";
 
@@ -12,12 +13,13 @@ export interface ActivityDependencies {
   questionStore: QuestionStore;
   selectionStore: SelectionStore;
   dreamStore: DreamStore;
+  foregroundStore: ForegroundStore;
   executor: PiTaskExecutor;
 }
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
-export function createActivities({ store, questionStore, selectionStore, dreamStore, executor }: ActivityDependencies): LearningNextActivities {
+export function createActivities({ store, questionStore, selectionStore, dreamStore, foregroundStore, executor }: ActivityDependencies): LearningNextActivities {
   return {
     async executePiTask(input) {
       const context = Context.current();
@@ -63,6 +65,17 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
               }),
             },
           } : {}),
+          ...(input.taskType === "foreground_teaching" ? {
+            learningAction: {
+              perform: (toolCallId, action) => foregroundStore.executeAction({
+                tenantId: input.tenantId,
+                operationId: input.operationId,
+                agentAttemptId: attemptId,
+                toolCallId,
+                action,
+              }),
+            },
+          } : {}),
           signal: context.cancellationSignal,
           heartbeat: (detail) => context.heartbeat(detail ?? { stage: "model", attemptId }),
         });
@@ -102,5 +115,6 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
     replayScientificCorrection: (input) => questionStore.replayCorrection(input),
     commitSelectionDecision: (input) => selectionStore.commitDecision(input),
     markSelectionSuperseded: (input) => selectionStore.markSuperseded(input),
+    commitForegroundResponse: (input) => foregroundStore.commitResponse(input),
   };
 }
