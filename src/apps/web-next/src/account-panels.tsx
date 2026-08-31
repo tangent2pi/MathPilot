@@ -381,9 +381,9 @@ function ClassesPanel({ principal }: { principal: AuthPrincipal }) {
 function HelpPanel() {
   return (
     <div className="space-y-3 text-sm leading-6">
-      <p>在输入框中发送数学问题；图片和文件通过回形针添加，正式线程只在登录后创建。</p>
-      <p>左侧栏用于新建、切换、重命名和归档 Pi 会话。附件保存到当前会话的只读输入目录。</p>
-      <p className="text-muted-foreground text-xs">当前为开发入口；“下一题”、后台判答、教学卡片与 Dream 不在本阶段范围内。</p>
+      <p>在输入框中发送数学问题；图片和文件通过回形针添加。正式对话与附件只在登录后写入。</p>
+      <p>左侧栏用于新建、切换、重命名和归档对话，也可进入学习历史、科学状态、学习记忆和复习队列。</p>
+      <p className="text-muted-foreground text-xs">题目、回答回执与学习更新来自服务端正式事实；刷新或换设备后会读取同一状态。</p>
     </div>
   );
 }

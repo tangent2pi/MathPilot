@@ -1,19 +1,15 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { Readable } from "node:stream";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { auth, authenticate, bootstrapAuthUsers, requireRole, AuthError, type Principal } from "./auth.ts";
 import { createPool, startService, withTenant } from "./lib.ts";
-import { reviseSelectionIntent, SelectionCommandError } from "./learning-selection.ts";
 import { registerLearningHttp } from "./learning-http.ts";
 
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
-const runtimeUrl = process.env.PI_CHAT_RUNTIME_URL ?? "http://127.0.0.1:3105";
-const gatewaySecret = process.env.PI_GATEWAY_SECRET ?? "";
 const contentNextUrl = (process.env.CONTENT_NEXT_URL ?? "http://127.0.0.1:3016").replace(/\/$/, "");
-const contentNextSecret = process.env.CONTENT_NEXT_SECRET ?? gatewaySecret;
+const contentNextSecret = process.env.CONTENT_NEXT_SECRET ?? "";
 const storageNextUrl = (process.env.STORAGE_NEXT_URL ?? "http://127.0.0.1:3017").replace(/\/$/, "");
-const storageNextSecret = process.env.STORAGE_NEXT_SECRET ?? gatewaySecret;
+const storageNextSecret = process.env.STORAGE_NEXT_SECRET ?? "";
 const classCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function newClassCode(length = 8): string {
@@ -30,40 +26,6 @@ async function principalOf(request: FastifyRequest, reply: FastifyReply): Promis
     if (error instanceof AuthError) { reply.code(error.status).send({ error: error.message }); return null; }
     throw error;
   }
-}
-
-async function relayPi(principal: Principal, request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> {
-  if (gatewaySecret.length < 32) return reply.code(503).send({ error: "Pi gateway is not configured" });
-  const suffix = request.url.replace(/^\/api\/pi(?=\/|$)/, "") || "/";
-  const isEvents = request.method === "GET" && suffix.includes("/events");
-  const response = await fetch(`${runtimeUrl}/pi${suffix}`, {
-    method: request.method,
-    headers: {
-      ...(request.headers["content-type"] ? { "content-type": String(request.headers["content-type"]) } : {}),
-      "x-tenant-id": principal.tenantId,
-      "x-user-id": principal.userId,
-      "x-user-roles": principal.roles.join(","),
-      "x-mathpilot-gateway-secret": gatewaySecret,
-    },
-    ...(request.body !== undefined && !["GET", "HEAD"].includes(request.method) ? { body: JSON.stringify(request.body) } : {}),
-  });
-  if (!isEvents) {
-    reply.code(response.status);
-    for (const name of ["content-type", "content-disposition", "cache-control", "x-content-type-options"]) {
-      const value = response.headers.get(name); if (value) reply.header(name, value);
-    }
-    return reply.send(Buffer.from(await response.arrayBuffer()));
-  }
-  reply.hijack();
-  reply.raw.writeHead(response.status, {
-    "content-type": response.headers.get("content-type") ?? "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache, no-transform", connection: "keep-alive", "x-accel-buffering": "no",
-  });
-  if (!response.body) { reply.raw.end(); return; }
-  const stream = Readable.fromWeb(response.body as import("node:stream/web").ReadableStream);
-  request.raw.on("close", () => stream.destroy());
-  stream.on("error", () => reply.raw.end());
-  stream.pipe(reply.raw);
 }
 
 async function relayContent(principal: Principal, request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> {
@@ -139,27 +101,6 @@ await startService({
     app.get("/api/me", async (request, reply) => {
       const principal = await principalOf(request, reply); if (!principal) return;
       return { uid: principal.uid, user_id: principal.userId, tenant_id: principal.tenantId, roles: principal.roles, via: "better_auth", name: principal.name, email: principal.email };
-    });
-
-    app.post("/api/learning/selection-intents", async (request, reply) => {
-      const principal = await principalOf(request,reply); if (!principal) return;
-      try {
-        const result = await reviseSelectionIntent(pool,principal,request.body);
-        return reply.code(result.created ? 202 : 200).send(result);
-      } catch (error) {
-        if (error instanceof SelectionCommandError) {
-          return reply.code(error.status).send({ error: error.message });
-        }
-        throw error;
-      }
-    });
-
-    app.route({
-      method: ["GET", "POST", "PATCH", "DELETE"], url: "/api/pi/*",
-      async handler(request, reply) {
-        const principal = await principalOf(request, reply); if (!principal) return;
-        return relayPi(principal, request, reply);
-      },
     });
 
     // The browser talks to the same-origin API.  Only api-next turns the

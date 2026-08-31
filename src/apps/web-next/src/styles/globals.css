@@ -11,13 +11,13 @@
 }
 
 .soft-scrollbar {
-  scrollbar-color: color-mix(in oklab, var(--foreground) 18%, transparent) transparent;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 14%, transparent) transparent;
   scrollbar-width: thin;
 }
 
 .soft-scrollbar::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 7px;
+  height: 7px;
 }
 
 .soft-scrollbar::-webkit-scrollbar-track {
@@ -25,14 +25,14 @@
 }
 
 .soft-scrollbar::-webkit-scrollbar-thumb {
-  background: color-mix(in oklab, var(--foreground) 18%, transparent);
+  background: color-mix(in oklab, var(--foreground) 14%, transparent);
   background-clip: content-box;
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   border-radius: 999px;
 }
 
 .soft-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in oklab, var(--foreground) 30%, transparent);
+  background: color-mix(in oklab, var(--foreground) 26%, transparent);
   background-clip: content-box;
 }
 

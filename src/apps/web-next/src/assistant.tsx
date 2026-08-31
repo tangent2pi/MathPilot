@@ -1,20 +1,22 @@
 "use client";
 
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
-import { ThreadListSidebar } from "@/components/assistant-ui/elements/threadlist-sidebar.aui";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AccountMenu } from "./account-menu";
-import { PiRuntimeProvider } from "./PiRuntimeProvider";
+import { useMatch } from "react-router-dom";
+import { LearningSidebar } from "./learning/components/LearningSidebar";
+import { LearningRuntimeProvider } from "./learning/runtime/LearningRuntimeProvider";
 
 /**
- * P1：assistant-ui 首页形态——全屏 Thread，运行时为 Pi（/api/pi/*）。
- * 线程列表/题面开场白/后台链为后续阶段。
+ * App owns routing, thread lists and canonical data. assistant-ui is the
+ * message/composer presentation runtime only.
  */
 export const Assistant = () => {
+  const threadMatch = useMatch("/c/:threadId");
+  const threadId = threadMatch?.params.threadId;
   return (
-    <PiRuntimeProvider>
+    <LearningRuntimeProvider threadId={threadId}>
       <SidebarProvider>
-        <ThreadListSidebar footer={<AccountMenu />} />
+        <LearningSidebar />
         <SidebarInset className="h-dvh overflow-hidden">
           <header className="absolute start-2 top-2 z-20 md:hidden">
             <SidebarTrigger aria-label="打开会话列表" />
@@ -22,6 +24,6 @@ export const Assistant = () => {
           <Thread />
         </SidebarInset>
       </SidebarProvider>
-    </PiRuntimeProvider>
+    </LearningRuntimeProvider>
   );
 };

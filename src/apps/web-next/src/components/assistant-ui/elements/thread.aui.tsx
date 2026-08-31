@@ -11,6 +11,7 @@ import {
 } from "@/components/assistant-ui/elements/session-tool-timeline";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
+import { DomainMessagePart } from "@/learning/presentation/domainPresentationRegistry";
 import { cn } from "@/lib/utils";
 import {
   ActionBarMorePrimitive,
@@ -36,23 +37,19 @@ import {
   DownloadIcon,
   MicIcon,
   MoreHorizontalIcon,
-  PencilIcon,
   SquareIcon,
 } from "lucide-react";
 import type { FC } from "react";
 
-// Startup exposes a loading placeholder thread; treat it as a new chat so
-// the composer mounts centered. Loads after startup keep the docked layout.
 const isNewChatView = (s: AssistantState) =>
   s.thread.messages.length === 0 &&
-  (!s.thread.isLoading || s.threads.isLoading);
+  !s.thread.isLoading;
 
 // A switched thread that is still fetching its history: skeleton, not welcome.
 const isHistoryLoadingView = (s: AssistantState) =>
   s.thread.messages.length === 0 &&
   s.thread.isLoading &&
-  !s.thread.isDisabled &&
-  !s.threads.isLoading;
+  !s.thread.isDisabled;
 
 const ThreadHistorySkeleton: FC = () => (
   <div
@@ -60,7 +57,7 @@ const ThreadHistorySkeleton: FC = () => (
     role="status"
     className="animate-in fade-in fill-mode-both flex flex-col [animation-delay:150ms] [animation-duration:200ms]"
   >
-    <span className="sr-only">Loading conversation</span>
+    <span className="sr-only">正在读取对话</span>
     <div className="flex animate-pulse flex-col gap-y-6 motion-reduce:animate-none">
       <div className="bg-muted ml-auto h-9 w-2/5 rounded-xl" />
       <div className="flex flex-col gap-y-2">
@@ -138,9 +135,6 @@ export const Thread: FC = () => {
 
 const ThreadMessage: FC = () => {
   const role = useAuiState((s) => s.message.role);
-  const isEditing = useAuiState((s) => s.message.composer.isEditing);
-
-  if (isEditing) return <EditComposer />;
   if (role === "user") return <UserMessage />;
   return <AssistantMessage />;
 };
@@ -163,7 +157,7 @@ const ThreadWelcome: FC = () => {
   return (
     <div className="aui-thread-welcome-root mb-6 flex flex-col items-center px-4 text-center">
       <h1 className="aui-thread-welcome-message-inner text-2xl font-medium tracking-tight">
-        How can I help you today?
+        今天想从哪道数学问题开始？
       </h1>
     </div>
   );
@@ -205,7 +199,7 @@ const Composer: FC = () => {
         >
           <ComposerAttachments />
           <ComposerPrimitive.Input
-            placeholder="Send a message..."
+            placeholder="输入问题、想法或练习要求…"
             className="aui-composer-input placeholder:text-muted-foreground/60 max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base leading-6 outline-none"
             rows={1}
             autoFocus
@@ -258,13 +252,13 @@ const ComposerAction: FC = () => {
         <AuiIf condition={(s) => !s.thread.isRunning}>
           <ComposerPrimitive.Send asChild>
             <TooltipIconButton
-              tooltip="Send message"
+              tooltip="发送消息"
               side="bottom"
               type="button"
               variant="default"
               size="icon"
               className="aui-composer-send size-7 rounded-full"
-              aria-label="Send message"
+              aria-label="发送消息"
             >
               <ArrowUpIcon className="aui-composer-send-icon size-4" />
             </TooltipIconButton>
@@ -277,7 +271,7 @@ const ComposerAction: FC = () => {
               variant="default"
               size="icon"
               className="aui-composer-cancel size-7 rounded-full"
-              aria-label="Stop generating"
+              aria-label="停止处理"
             >
               <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
             </Button>
@@ -301,11 +295,7 @@ const MessageError: FC = () => {
 const AssistantMessage: FC = () => {
   const ACTION_BAR_PT = "pt-1.5";
   const ACTION_BAR_HEIGHT = `min-h-7.5 ${ACTION_BAR_PT}`;
-  const answerStarted = useAuiState((state) => {
-    const parts = state.message.parts;
-    const lastPart = parts[parts.length - 1];
-    return lastPart?.type === "text" || state.message.status?.type === "incomplete";
-  });
+  const settled = useAuiState((state) => state.message.status?.type !== "running");
 
   return (
     <MessagePrimitive.Root
@@ -329,7 +319,7 @@ const AssistantMessage: FC = () => {
               return (
                 <SessionToolTimeline
                   count={part.indices.length}
-                  settled={answerStarted}
+                  settled={settled}
                 >
                   {children}
                 </SessionToolTimeline>
@@ -352,7 +342,8 @@ const AssistantMessage: FC = () => {
                 </SessionToolStep>
               );
             }
-            return null;
+            if (part.type === "data") return <DomainMessagePart name={part.name} data={part.data} />;
+            return children;
           }}
         </MessagePrimitive.GroupedParts>
         <AuiIf
@@ -436,11 +427,8 @@ const UserMessage: FC = () => {
       <UserMessageAttachments />
 
       <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
-        <div className="aui-user-message-content peer bg-muted text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden">
+        <div className="aui-user-message-content bg-muted text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden">
           <MessagePrimitive.Parts />
-        </div>
-        <div className="aui-user-action-bar-wrapper absolute start-0 top-1/2 -translate-x-full -translate-y-1/2 pe-2 peer-empty:hidden rtl:translate-x-full">
-          <UserActionBar />
         </div>
       </div>
 
@@ -448,54 +436,6 @@ const UserMessage: FC = () => {
         data-slot="aui_user-branch-picker"
         className="col-span-full col-start-1 row-start-3 -me-1 justify-end"
       />
-    </MessagePrimitive.Root>
-  );
-};
-
-const UserActionBar: FC = () => {
-  return (
-    <ActionBarPrimitive.Root
-      hideWhenRunning
-      autohide="not-last"
-      className="aui-user-action-bar-root flex flex-col items-end"
-    >
-      <ActionBarPrimitive.Edit asChild>
-        <TooltipIconButton tooltip="Edit" className="aui-user-action-edit">
-          <PencilIcon />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Edit>
-    </ActionBarPrimitive.Root>
-  );
-};
-
-const EditComposer: FC = () => {
-  return (
-    <MessagePrimitive.Root
-      data-slot="aui_edit-composer-wrapper"
-      className="flex flex-col px-2 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
-    >
-      <ComposerPrimitive.Root className="aui-edit-composer-root border-border/60 dark:border-muted-foreground/15 ms-auto flex w-full max-w-[85%] cursor-text flex-col rounded-(--composer-radius) border bg-(--composer-bg) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-none">
-        <ComposerPrimitive.Input
-          className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none"
-          autoFocus
-        />
-        <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">
-          <ComposerPrimitive.Cancel asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full px-3.5"
-            >
-              Cancel
-            </Button>
-          </ComposerPrimitive.Cancel>
-          <ComposerPrimitive.Send asChild>
-            <Button size="sm" className="h-8 rounded-full px-3.5">
-              Update
-            </Button>
-          </ComposerPrimitive.Send>
-        </div>
-      </ComposerPrimitive.Root>
     </MessagePrimitive.Root>
   );
 };

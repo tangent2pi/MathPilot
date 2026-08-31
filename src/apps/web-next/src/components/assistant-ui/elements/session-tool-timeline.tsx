@@ -4,11 +4,8 @@ import { type ReactNode, useLayoutEffect, useState } from "react";
 import {
   BrainIcon,
   FileSearchIcon,
-  PenLineIcon,
-  ScanTextIcon,
   SearchIcon,
   SendIcon,
-  TerminalIcon,
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -18,14 +15,9 @@ import { ReasoningText } from "./reasoning.aui";
 import { TimelineStep, ToolTimeline } from "./tool-timeline";
 
 const TOOL_META: Record<string, { verb: string; icon: LucideIcon }> = {
-  bash: { verb: "Ran", icon: TerminalIcon },
-  read: { verb: "Read", icon: FileSearchIcon },
-  write: { verb: "Wrote", icon: PenLineIcon },
-  edit: { verb: "Edited", icon: PenLineIcon },
-  paddleocr_vl: { verb: "Recognized", icon: ScanTextIcon },
-  respond: { verb: "Submitted", icon: SendIcon },
-  present_question_card: { verb: "Presented", icon: SendIcon },
-  present_learning_artifact: { verb: "Presented", icon: SendIcon },
+  read: { verb: "读取", icon: FileSearchIcon },
+  grep: { verb: "检索", icon: SearchIcon },
+  learning_action: { verb: "执行学习动作", icon: SendIcon },
 };
 
 const compact = (value: string) => {
@@ -34,11 +26,12 @@ const compact = (value: string) => {
 };
 
 const toolMeta = (name: string) => {
+  if (name.startsWith("mathpilot.operation.")) return { verb: "执行", icon: WrenchIcon };
   const direct = TOOL_META[name];
   if (direct) return direct;
   if (/search|grep|find/i.test(name)) return { verb: "Searched", icon: SearchIcon };
-  if (/ocr|vision|image/i.test(name)) return { verb: "Inspected", icon: ScanTextIcon };
-  return { verb: "Called", icon: WrenchIcon };
+  if (/ocr|vision|image/i.test(name)) return { verb: "检查", icon: FileSearchIcon };
+  return { verb: "调用", icon: WrenchIcon };
 };
 
 const toolTarget = (part: ToolCallMessagePart) => {
@@ -73,8 +66,8 @@ export function SessionToolTimeline({
       streaming={!autoClosed}
       open={userOpen ?? !autoClosed}
       onOpenChange={setUserOpen}
-      restingLabel={`${count} ${count === 1 ? "step" : "steps"}`}
-      activeLabel="Working"
+      restingLabel={`${count} 个步骤`}
+      activeLabel="处理中"
       className="mt-1 mb-2 max-w-none"
     >
       {children}
@@ -84,7 +77,7 @@ export function SessionToolTimeline({
 
 export function SessionReasoningStep({ active }: { active: boolean }) {
   return (
-    <TimelineStep verb={active ? "Thinking" : "Thought"} icon={BrainIcon} active={active}>
+    <TimelineStep verb={active ? "思考中" : "思考"} icon={BrainIcon} active={active}>
       <ReasoningText
         streaming={active}
         className="text-foreground/60 max-h-56 ps-0 pt-1 pb-1 text-[13.5px]"

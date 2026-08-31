@@ -90,12 +90,15 @@ importers:
       '@assistant-ui/react-markdown':
         specifier: ^0.14.13
         version: 0.14.13(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(supports-color@8.1.1)
-      '@assistant-ui/react-pi':
-        specifier: 0.0.20
-        version: 0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1(supports-color@8.1.1)(zod@4.4.3))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@mathpilot/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@tanstack/react-query':
+        specifier: ^5.101.4
+        version: 5.101.4(react@19.2.7)
       better-auth:
         specifier: 1.6.23
         version: 1.6.23(@opentelemetry/api@1.9.0)(pg@8.23.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.11(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(jsdom@30.0.1(@noble/hashes@2.3.0))(vite@8.0.10(@types/node@24.13.3)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.51.2)(tsx@4.20.6)(yaml@2.9.0)))
@@ -123,6 +126,9 @@ importers:
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.18)(react@19.2.7)(supports-color@8.1.1)
+      react-router-dom:
+        specifier: ^7.18.2
+        version: 7.18.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1(supports-color@8.1.1)
@@ -349,7 +355,7 @@ importers:
     dependencies:
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.1
-        version: 0.84.1
+        version: 0.84.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)(ws@8.21.3)(zod@4.4.3)
       '@temporalio/activity':
         specifier: 1.23.0
         version: 1.23.0
@@ -395,7 +401,7 @@ importers:
         version: 0.0.74
       '@assistant-ui/react-pi':
         specifier: 0.0.20
-        version: 0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1(supports-color@8.1.1)(zod@4.4.3))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
+        version: 0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)(ws@8.21.3)(zod@4.4.3))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
       '@earendil-works/pi-agent-core':
         specifier: 0.84.1
         version: 0.84.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)(ws@8.21.3)(zod@4.4.3)
@@ -5422,7 +5428,7 @@ snapshots:
       - react-dom
       - supports-color
 
-  '@assistant-ui/react-pi@0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1(supports-color@8.1.1)(zod@4.4.3))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))':
+  '@assistant-ui/react-pi@0.0.20(patch_hash=27badc0490b5e3e09cb35d9fdbc37c955ba2c1ebc919c698404ad92ed3e36c7c)(@assistant-ui/react@0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@earendil-works/pi-coding-agent@0.84.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)(ws@8.21.3)(zod@4.4.3))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))':
     dependencies:
       '@assistant-ui/core': 0.3.16(@assistant-ui/store@0.3.11(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@types/react@19.2.18)(react@19.2.7))(@assistant-ui/tap@0.9.15(@types/react@19.2.18)(react@19.2.7))(@types/react@19.2.18)(assistant-cloud@0.1.42)(react@19.2.7)(zustand@5.0.15(@types/react@19.2.18)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))
       '@assistant-ui/react': 0.15.17(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
@@ -5803,22 +5809,6 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@earendil-works/pi-agent-core@0.84.1':
-    dependencies:
-      '@earendil-works/pi-ai': 0.84.1
-      '@earendil-works/pi-telemetry': 0.84.2
-      diff: 8.0.4
-      ignore: 7.0.5
-      typebox: 1.3.7
-      yaml: 2.9.0
-    transitivePeerDependencies:
-      - '@modelcontextprotocol/sdk'
-      - bufferutil
-      - supports-color
-      - utf-8-validate
-      - ws
-      - zod
-
   '@earendil-works/pi-agent-core@0.84.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)(ws@8.21.3)(zod@4.4.3)':
     dependencies:
       '@earendil-works/pi-ai': 0.84.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)(ws@8.21.3)(zod@4.4.3)
@@ -5827,28 +5817,6 @@ snapshots:
       ignore: 7.0.5
       typebox: 1.3.7
       yaml: 2.9.0
-    transitivePeerDependencies:
-      - '@modelcontextprotocol/sdk'
-      - bufferutil
-      - supports-color
-      - utf-8-validate
-      - ws
-      - zod
-
-  '@earendil-works/pi-ai@0.84.1':
-    dependencies:
-      '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
-      '@aws-sdk/client-bedrock-runtime': 3.1048.0
-      '@earendil-works/pi-telemetry': 0.84.2
-      '@google/genai': 1.52.0
-      '@mistralai/mistralai': 2.2.6(@opentelemetry/api@1.9.0)
-      '@opentelemetry/api': 1.9.0
-      '@smithy/node-http-handler': 4.7.3
-      http-proxy-agent: 7.0.2(supports-color@8.1.1)
-      https-proxy-agent: 7.0.6(supports-color@8.1.1)
-      openai: 6.26.0(ws@8.21.3)(zod@4.4.3)
-      partial-json: 0.1.7
-      typebox: 1.3.7
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - bufferutil
@@ -5882,39 +5850,6 @@ snapshots:
   '@earendil-works/pi-client@0.84.2':
     dependencies:
       '@earendil-works/pi-protocol': 0.84.2
-
-  '@earendil-works/pi-coding-agent@0.84.1':
-    dependencies:
-      '@earendil-works/pi-agent-core': 0.84.1
-      '@earendil-works/pi-ai': 0.84.1
-      '@earendil-works/pi-client': 0.84.2
-      '@earendil-works/pi-protocol': 0.84.2
-      '@earendil-works/pi-tui': 0.84.2
-      '@silvia-odwyer/photon-node': 0.3.4
-      chalk: 5.6.2
-      cross-spawn: 7.0.6
-      diff: 8.0.4
-      glob: 13.0.6
-      grok-mermaid: 0.2.2
-      highlight.js: 10.7.3
-      hosted-git-info: 9.0.3
-      ignore: 7.0.5
-      jiti: 2.7.0
-      minimatch: 10.2.5
-      proper-lockfile: 4.1.2
-      semver: 7.8.0
-      typebox: 1.3.7
-      undici: 8.9.0
-      yaml: 2.9.0
-    optionalDependencies:
-      '@mariozechner/clipboard': 0.3.9
-    transitivePeerDependencies:
-      - '@modelcontextprotocol/sdk'
-      - bufferutil
-      - supports-color
-      - utf-8-validate
-      - ws
-      - zod
 
   '@earendil-works/pi-coding-agent@0.84.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)(ws@8.21.3)(zod@4.4.3)':
     dependencies:
@@ -6175,17 +6110,6 @@ snapshots:
       react-dom: 19.2.7(react@19.2.7)
 
   '@floating-ui/utils@0.2.12': {}
-
-  '@google/genai@1.52.0':
-    dependencies:
-      google-auth-library: 10.9.1(supports-color@8.1.1)
-      p-retry: 4.6.2
-      protobufjs: 7.6.5
-      ws: 8.21.3
-    transitivePeerDependencies:
-      - bufferutil
-      - supports-color
-      - utf-8-validate
 
   '@google/genai@1.52.0(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)':
     dependencies:

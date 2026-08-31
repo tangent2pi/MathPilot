@@ -4,7 +4,7 @@ import { defineConfig, loadEnv } from "vite";
 
 /**
  * 开发态前端只做同源代理：浏览器不接触模型、MinIO 或 runtime 凭据。
- * /api/pi/* 的 Better Auth 鉴权与 Pi wire contract 均由 API 网关承接。
+ * /api/* 的 Better Auth 鉴权与内部服务信任边界均由 API 网关承接。
  */
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), ["MATHPILOT_API_URL"]);

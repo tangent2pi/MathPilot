@@ -259,7 +259,7 @@ services:
     ports:
       - "127.0.0.1:3005:3005"
 
-  # assistant-ui/react-pi 的独立线程宿主。不能与上面的批处理 runtime 合并。
+  # 内容候选后台 Agent 宿主；浏览器学习对话只走 learning-next/Temporal。
   pi-chat-runtime:
     init: true
     build:
@@ -407,8 +407,6 @@ services:
       dockerfile: src/services/api-next/Dockerfile
     environment:
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
-      PI_CHAT_RUNTIME_URL: http://pi-chat-runtime:3105
-      PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET}
       CONTENT_NEXT_URL: http://content-next:3016
       CONTENT_NEXT_SECRET: ${CONTENT_NEXT_SECRET:-${PI_GATEWAY_SECRET}}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8080}
@@ -426,8 +424,6 @@ services:
     depends_on:
       db-seed:
         condition: service_completed_successfully
-      pi-chat-runtime:
-        condition: service_started
       content-next:
         condition: service_started
       storage-next:

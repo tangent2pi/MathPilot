@@ -35,6 +35,7 @@ import {
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { useAttachmentSrc } from "@/hooks/use-attachment-src";
+import { useStorageObjectUrl } from "@/hooks/use-storage-object-url";
 import { cn } from "@/lib/utils";
 
 type AttachmentPreviewProps = {
@@ -110,7 +111,6 @@ const AttachmentUI: FC = () => {
   const isComposer = aui.attachment.source !== "message";
 
   const isImage = useAuiState((s) => s.attachment.type === "image");
-  const threadId = useAuiState((s) => s.threadListItem.remoteId);
   const attachmentName = useAuiState((s) => s.attachment.name);
   const fileReference = useAuiState((s) => {
     const part = s.attachment.content?.find(
@@ -118,10 +118,8 @@ const AttachmentUI: FC = () => {
     );
     return part?.type === "file" ? part.data : undefined;
   });
-  const downloadUrl = !isComposer && !isImage && threadId && fileReference
-    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(fileReference)
-    ? `/api/pi/threads/${encodeURIComponent(threadId)}/files/${encodeURIComponent(fileReference)}/download`
-    : undefined;
+  const storageUrl = useStorageObjectUrl(!isComposer && !isImage ? fileReference : undefined);
+  const downloadUrl = !isComposer && !isImage ? storageUrl : undefined;
   const typeLabel = useAuiState((s) => {
     const type = s.attachment.type;
     switch (type) {
