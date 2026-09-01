@@ -99,8 +99,9 @@ function AuthenticatedLearningRuntime({
 
   const messages = useMemo(() => {
     const canonical = view?.data.messages ?? [];
+    const supersededJudgments = judgmentSupersessions(canonical);
     const items: ThreadMessage[] = [
-      ...canonical.map(canonicalMessage),
+      ...canonical.map((message) => canonicalMessage(message, supersededJudgments)),
       ...operations.map(operationMessage),
     ];
     const canonicalHasPending = pending?.canonicalMessageId
@@ -237,7 +238,10 @@ function optimisticMessage(key: string, message: AppendMessage): ThreadMessage {
   };
 }
 
-function canonicalMessage(message: CanonicalMessage): ThreadMessage {
+function canonicalMessage(
+  message: CanonicalMessage,
+  supersededJudgments: ReadonlyMap<string, string> = new Map(),
+): ThreadMessage {
   const createdAt = new Date(message.created_at);
   if (message.author_kind === "student") {
     return {
@@ -246,7 +250,9 @@ function canonicalMessage(message: CanonicalMessage): ThreadMessage {
       createdAt,
       content: message.parts.flatMap<ThreadUserMessagePart>((part) => {
         if (part.type === "text") return [{ type: "text", text: part.text }];
-        if (part.type === "domain_ui") return [{ type: "data", name: "mathpilot-domain-ui", data: part.part }];
+        if (part.type === "domain_ui") {
+          return [{ type: "data", name: "mathpilot-domain-ui", data: presentDomainPart(part.part, supersededJudgments) }];
+        }
         if (part.type === "teaching_artifact") {
           return [{ type: "data", name: "mathpilot-teaching-artifact", data: part }];
         }
@@ -268,7 +274,9 @@ function canonicalMessage(message: CanonicalMessage): ThreadMessage {
         type: "file", data: part.attachment_ref, filename: part.name,
         mimeType: part.mime_type, sourceType: "id",
       }];
-      if (part.type === "domain_ui") return [{ type: "data", name: "mathpilot-domain-ui", data: part.part }];
+      if (part.type === "domain_ui") {
+        return [{ type: "data", name: "mathpilot-domain-ui", data: presentDomainPart(part.part, supersededJudgments) }];
+      }
       return [{ type: "data", name: "mathpilot-teaching-artifact", data: part }];
     }),
     status: message.lifecycle === "streaming"
@@ -282,6 +290,39 @@ function canonicalMessage(message: CanonicalMessage): ThreadMessage {
       unstable_data: [],
       steps: [],
       custom: { canonical: true, version: message.version, lifecycle: message.lifecycle },
+    },
+  };
+}
+
+function judgmentSupersessions(messages: readonly CanonicalMessage[]): ReadonlyMap<string, string> {
+  const replacements = new Map<string, string>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type !== "domain_ui" || part.part.view_kind !== "judgment") continue;
+      const data = part.part.snapshot.data;
+      const supersededId = typeof data.supersedes_judgment_id === "string" ? data.supersedes_judgment_id : undefined;
+      const replacementId = typeof data.judgment_id === "string" ? data.judgment_id : undefined;
+      if (supersededId && replacementId) replacements.set(supersededId, replacementId);
+    }
+  }
+  return replacements;
+}
+
+function presentDomainPart(
+  part: Extract<CanonicalMessagePart, { type: "domain_ui" }>["part"],
+  supersededJudgments: ReadonlyMap<string, string>,
+): Extract<CanonicalMessagePart, { type: "domain_ui" }>["part"] {
+  if (part.view_kind !== "judgment") return part;
+  const judgmentId = typeof part.snapshot.data.judgment_id === "string"
+    ? part.snapshot.data.judgment_id
+    : part.resource_ref.replace(/^judgment:/, "");
+  const replacementId = supersededJudgments.get(judgmentId);
+  if (!replacementId) return part;
+  return {
+    ...part,
+    snapshot: {
+      ...part.snapshot,
+      data: { ...part.snapshot.data, superseded_by_judgment_id: replacementId },
     },
   };
 }

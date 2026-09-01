@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeftIcon,
   BookOpenCheckIcon,
@@ -14,7 +14,7 @@ import {
   RefreshCwIcon,
   UsersIcon,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link, Outlet, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/auth";
 import { Button } from "@/components/ui/button";
@@ -53,7 +53,7 @@ const ownPages: Record<OwnPageKind, { title: string; description: string; path: 
 
 export function OwnLearningPage({ kind }: { kind: OwnPageKind }) {
   const page = ownPages[kind];
-  return <LearningViewPage title={page.title} description={page.description} url={page.path} />;
+  return <LearningViewPage title={page.title} description={page.description} url={page.path} mode={kind === "overview" ? undefined : kind} />;
 }
 
 export function EvidencePage() {
@@ -63,6 +63,17 @@ export function EvidencePage() {
       title="证据详情"
       description="这项状态如何由题目、作答、判定与规则产生。"
       url={`/api/learning/evidence/${encodeURIComponent(evidenceHandle)}`}
+    />
+  );
+}
+
+export function AnnotationPage() {
+  const { annotationId = "" } = useParams();
+  return (
+    <LearningViewPage
+      title="学习观察详情"
+      description="查看这条观察的适用范围、正反依据和当前使用状态。"
+      url={`/api/learning/annotations/${encodeURIComponent(annotationId)}`}
     />
   );
 }
@@ -77,6 +88,7 @@ export function TeacherStudentPage({ kind }: { kind: StudentPageKind }) {
       title={`学生 · ${ownPages[kind].title}`}
       description="教师视图只展示已授权、可追溯的学习事实。"
       url={`/api/learning/students/${encodeURIComponent(studentHandle)}/${suffix}`}
+      mode={kind === "overview" ? undefined : kind}
     />
   );
 }
@@ -91,14 +103,33 @@ export function TeacherStudentsPage() {
   );
 }
 
-function LearningViewPage({ title, description, url }: { title: string; description: string; url: string }) {
+type LearningPageMode = "history" | "state" | "memory" | "review";
+
+function LearningViewPage({
+  title,
+  description,
+  url,
+  mode,
+}: {
+  title: string;
+  description: string;
+  url: string;
+  mode?: LearningPageMode;
+}) {
   const { principal, loading, requireAuth } = useAuth();
-  const query = useQuery({
-    queryKey: learningKeys.view(url),
-    queryFn: () => learningApi.view(url),
+  const [filter, setFilter] = useState(defaultFilter(mode));
+  const query = useInfiniteQuery({
+    queryKey: [...learningKeys.view(url), mode ?? "single", filter],
+    queryFn: ({ pageParam }) => learningApi.view(pageUrl(url, mode, filter, pageParam)),
+    initialPageParam: "",
+    getNextPageParam: (lastPage) => {
+      const data = objectValue(lastPage.data);
+      return data.has_more === true ? stringValue(data.next_cursor) : undefined;
+    },
     enabled: Boolean(principal),
     retry: 1,
   });
+  const view = useMemo(() => mergeLearningPages(query.data?.pages ?? []), [query.data?.pages]);
 
   if (loading && !principal) return <CenteredStatus><Loader2Icon className="size-5 animate-spin motion-reduce:animate-none" />正在读取账户</CenteredStatus>;
   if (!principal) {
@@ -113,18 +144,106 @@ function LearningViewPage({ title, description, url }: { title: string; descript
     );
   }
   return (
-    <main className="mx-auto w-full max-w-5xl p-5 md:p-10">
+    <main className="mx-auto w-full max-w-5xl p-5 md:p-10" aria-busy={query.isFetching}>
       <div className="flex items-start justify-between gap-4">
         <PageHeading title={title} description={description} />
         <Button variant="ghost" size="icon" onClick={() => void query.refetch()} aria-label="刷新">
           <RefreshCwIcon className={cn("size-4", query.isFetching && "animate-spin motion-reduce:animate-none")} />
         </Button>
       </div>
+      {mode && mode !== "review" && <LearningFilter mode={mode} value={filter} onChange={setFilter} />}
       {query.isPending && <CenteredStatus><Loader2Icon className="size-5 animate-spin motion-reduce:animate-none" />正在读取学习记录</CenteredStatus>}
       {query.error && <ErrorPanel error={query.error} retry={() => void query.refetch()} />}
-      {query.data && <LearningViewContent view={query.data} />}
+      {view && <LearningViewContent view={view} />}
+      {query.hasNextPage && (
+        <div className="mt-6 flex justify-center">
+          <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>
+            {query.isFetchingNextPage ? "正在载入…" : "载入更多"}
+          </Button>
+        </div>
+      )}
     </main>
   );
+}
+
+const filters: Record<Exclude<LearningPageMode, "review">, Array<{ value: string; label: string }>> = {
+  history: [
+    { value: "all", label: "全部记录" },
+    { value: "independent", label: "独立作答" },
+    { value: "review", label: "复习记录" },
+    { value: "error", label: "错因相关" },
+    { value: "change", label: "形成状态变化" },
+  ],
+  state: [
+    { value: "knowledge", label: "知识点" },
+    { value: "question_type", label: "题型" },
+    { value: "error", label: "错因" },
+  ],
+  memory: [
+    { value: "active", label: "正在使用" },
+    { value: "muted", label: "已暂停" },
+    { value: "stale", label: "待更新" },
+    { value: "all", label: "全部观察" },
+  ],
+};
+
+function LearningFilter({
+  mode,
+  value,
+  onChange,
+}: {
+  mode: Exclude<LearningPageMode, "review">;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="mt-6 grid max-w-56 gap-1.5 text-sm">
+      <span className="font-medium">查看范围</span>
+      <select
+        className="border-input bg-background focus-visible:ring-ring min-h-11 rounded-lg border px-3 outline-none focus-visible:ring-2"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {filters[mode].map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function defaultFilter(mode: LearningPageMode | undefined): string {
+  if (mode === "state") return "knowledge";
+  if (mode === "memory") return "active";
+  return "all";
+}
+
+function pageUrl(base: string, mode: LearningPageMode | undefined, filter: string, after: string): string {
+  const params = new URLSearchParams();
+  if (after) params.set("after", after);
+  if (mode === "history" || mode === "state") params.set("kind", filter);
+  if (mode === "memory") params.set("status", filter);
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
+function mergeLearningPages(pages: LearningView[]): LearningView | undefined {
+  const last = pages.at(-1);
+  if (!last) return undefined;
+  const arrayKey = last.view_kind === "learning_history" ? "entries"
+    : last.view_kind === "memory_ledger" ? "memories"
+      : last.view_kind === "review_queue" ? "items" : undefined;
+  if (!arrayKey || pages.length === 1) return last;
+  const data = objectValue(last.data);
+  return {
+    ...last,
+    resource: {
+      ...last.resource,
+      version: Math.max(...pages.map((page) => page.resource.version)),
+    },
+    data: {
+      ...data,
+      [arrayKey]: pages.flatMap((page) => arrayValue(objectValue(page.data)[arrayKey])),
+    },
+  };
 }
 
 function PageHeading({ title, description }: { title: string; description: string }) {
@@ -145,6 +264,7 @@ function LearningViewContent({ view }: { view: LearningView }) {
     case "scientific_state":
     case "error_pattern_list": return <ScientificState data={data} />;
     case "memory_ledger": return <Memories data={data} />;
+    case "annotation_detail": return <AnnotationDetail data={data} capabilities={view.command_capabilities} />;
     case "review_queue": return <Reviews data={data} />;
     case "evidence_bundle": return <Evidence data={data} capabilities={view.command_capabilities} />;
     default: return <EmptyState text={stringValue(data.empty_state) ?? "这里暂时没有可展示的学习事实。"} />;
@@ -193,12 +313,17 @@ function History({ data }: { data: Record<string, unknown> }) {
       {entries.length ? entries.map((entry, index) => {
         const item = objectValue(entry);
         const judgment = objectValue(item.judgment);
+        const attempt = objectValue(item.attempt);
+        const questionSessionId = stringValue(item.question_session_id);
+        const judgmentId = stringValue(judgment.id);
         return (
-          <article key={stringValue(item.question_session_id) ?? index} className="rounded-2xl border p-4">
+          <article id={questionSessionId ? `question-${questionSessionId}` : undefined} key={questionSessionId ?? index} className="scroll-mt-20 rounded-2xl border p-4">
+            {judgmentId && <span id={`judgment-${judgmentId}`} className="scroll-mt-20" aria-hidden="true" />}
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <h3 className="font-medium leading-6">{stringValue(item.question_summary) ?? "外部题目"}</h3>
                 <p className="text-muted-foreground mt-1 text-xs">{dateLabel(stringValue(item.opened_at))} · {stringValue(item.scientific_impact) ?? "尚未形成正式判定"}</p>
+                {stringValue(attempt.id) && <p className="text-muted-foreground mt-1 text-xs">{attempt.independent === true ? "独立作答" : `提示等级 ${numberValue(attempt.hint_level)}`}</p>}
               </div>
               <span className="bg-muted rounded-full px-2.5 py-1 text-xs">{verdictLabel(stringValue(judgment.verdict))}</span>
             </div>
@@ -223,6 +348,9 @@ function ScientificState({ data }: { data: Record<string, unknown> }) {
         const item = objectValue(entry);
         const dimension = objectValue(item.dimension);
         const mastery = objectValue(item.mastery);
+        const retention = objectValue(item.retention);
+        const annotations = arrayValue(item.annotations);
+        const isPattern = Boolean(stringValue(item.error_cause_id));
         return (
           <article key={stringValue(dimension.id) ?? stringValue(item.error_cause_id) ?? index} className="rounded-2xl border p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -230,6 +358,26 @@ function ScientificState({ data }: { data: Record<string, unknown> }) {
               <span className="bg-muted rounded-full px-2.5 py-1 text-xs">{stateLabel(stringValue(mastery.state) ?? stringValue(item.state))}</span>
             </div>
             <p className="text-muted-foreground mt-2 text-sm leading-6">{stringValue(item.behavior) ?? masterySummary(mastery)}</p>
+            {isPattern && (
+              <p className="text-muted-foreground mt-2 text-xs leading-5">
+                支持证据 {numberValue(item.support_count)} 项 · 反证 {numberValue(item.counter_count)} 项
+                {stringValue(item.verification_due_at) ? ` · 下次核对 ${dateLabel(stringValue(item.verification_due_at))}` : ""}
+              </p>
+            )}
+            {!isPattern && Object.keys(retention).length > 0 && (
+              <p className="text-muted-foreground mt-2 text-xs leading-5">
+                {stringValue(retention.status) === "due" ? "保持性复习已到期" : stringValue(retention.due_at) ? `计划复习：${dateLabel(stringValue(retention.due_at))}` : "暂未安排保持性复习"}
+              </p>
+            )}
+            {annotations.length > 0 && (
+              <ul className="mt-3 grid gap-1.5 border-t pt-3 text-xs">
+                {annotations.map((annotation, annotationIndex) => {
+                  const observation = objectValue(annotation);
+                  return <li key={stringValue(observation.annotation_id) ?? annotationIndex}>{stringValue(observation.claim) ?? "相关学习观察"}</li>;
+                })}
+              </ul>
+            )}
+            {stringValue(item.next_step) && <p className="mt-3 text-sm leading-6"><span className="font-medium">下一步：</span>{stringValue(item.next_step)}</p>}
             {stringValue(item.evidence_href) && <div className="mt-3"><TextLink href={stringValue(item.evidence_href)!}>查看依据</TextLink></div>}
           </article>
         );
@@ -253,6 +401,11 @@ function MemoryCard({ entry }: { entry: Record<string, unknown> }) {
   const commands = capabilityValues(entry.commands);
   const feedback = commands.find((command) => command.action === "annotation_feedback");
   const preference = commands.find((command) => command.action === "set_context_preference");
+  const annotationId = stringValue(entry.annotation_id);
+  const usedForPersonalization = entry.used_for_personalization === true;
+  const support = objectValue(entry.support);
+  const counter = objectValue(entry.counter);
+  const scope = arrayValue(entry.scope).map(objectValue);
   const mutation = useMutation({
     mutationFn: ({ command, body, scope }: { command: CommandCapability; body: Record<string, unknown>; scope: string }) =>
       learningApi.command(command.href, command.expected_version, body, scope),
@@ -260,15 +413,48 @@ function MemoryCard({ entry }: { entry: Record<string, unknown> }) {
   });
   return (
     <article className="rounded-2xl border p-4">
-      <h3 className="font-medium leading-6">{stringValue(entry.claim) ?? "学习观察"}</h3>
-      <p className="text-muted-foreground mt-1 text-xs">{stringValue(entry.evidence_summary) ?? `可信度：${stringValue(entry.confidence) ?? "待积累"}`}</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h3 className="font-medium leading-6">{stringValue(entry.claim) ?? "学习观察"}</h3>
+        <span className="bg-muted rounded-full px-2.5 py-1 text-xs">{memoryStatusLabel(stringValue(entry.status))}</span>
+      </div>
+      <p className="text-muted-foreground mt-1 text-xs">
+        支持 {numberValue(support.count)} 项 · 反证 {numberValue(counter.count)} 项 · {confidenceLabel(stringValue(entry.confidence))}
+      </p>
+      {scope.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5" aria-label="适用范围">
+          {scope.map((item, index) => <span key={`${stringValue(item.facet) ?? "scope"}:${index}`} className="bg-muted rounded-full px-2.5 py-1 text-xs">{stringValue(item.label) ?? stringValue(item.value) ?? "已限定范围"}</span>)}
+        </div>
+      )}
+      <p className="text-muted-foreground mt-3 text-xs">{usedForPersonalization ? "当前会用于个性化" : "当前不会用于个性化"}</p>
+      {stringValue(entry.action_hint) && <p className="mt-2 text-sm leading-6"><span className="font-medium">建议：</span>{stringValue(entry.action_hint)}</p>}
       <div className="mt-3 flex flex-wrap gap-2">
         {feedback && <Button size="sm" variant="outline" disabled={mutation.isPending} onClick={() => mutation.mutate({ command: feedback, body: { feedback: "helpful" }, scope: "memory-feedback" })}><CheckCircle2Icon />有帮助</Button>}
         {feedback && <Button size="sm" variant="ghost" disabled={mutation.isPending} onClick={() => mutation.mutate({ command: feedback, body: { feedback: "inaccurate" }, scope: "memory-correction" })}><MessageCircleMoreIcon />不准确</Button>}
-        {preference && <Button size="sm" variant="ghost" disabled={mutation.isPending} onClick={() => mutation.mutate({ command: preference, body: { annotation_id: stringValue(entry.annotation_id), personalization_enabled: false }, scope: "memory-mute" })}>停止用于个性化</Button>}
-        {stringValue(objectValue(entry.support).href) && <TextLink href={stringValue(objectValue(entry.support).href)!}>查看依据</TextLink>}
+        {preference && annotationId && <Button size="sm" variant="ghost" disabled={mutation.isPending} onClick={() => mutation.mutate({ command: preference, body: { annotation_id: annotationId, personalization_enabled: !usedForPersonalization }, scope: usedForPersonalization ? "memory-mute" : "memory-unmute" })}>{usedForPersonalization ? "停止用于个性化" : "恢复用于个性化"}</Button>}
+        {annotationId && <TextLink href={`/learning/memory/${encodeURIComponent(annotationId)}`}>查看详情</TextLink>}
+        {stringValue(support.href) && <TextLink href={stringValue(support.href)!}>查看依据</TextLink>}
       </div>
+      {mutation.error && <p role="alert" className="text-destructive mt-3 text-xs">{mutation.error.message}</p>}
     </article>
+  );
+}
+
+function AnnotationDetail({ data, capabilities }: { data: Record<string, unknown>; capabilities: CommandCapability[] }) {
+  const annotationId = stringValue(data.annotation_id);
+  const entry = {
+    ...data,
+    commands: capabilities,
+    scope: Object.entries(objectValue(data.scope)).map(([facet, value]) => ({ facet, value: String(value), label: String(value) })),
+    support: { ...objectValue(data.support), href: stringValue(data.evidence_href) },
+  };
+  return (
+    <div className="mt-8 space-y-5">
+      {stringValue(data.superseded_by) && (
+        <section className="border-primary/30 bg-primary/5 rounded-2xl border p-4 text-sm">这条观察已有更新版本，当前页面保留历史依据。</section>
+      )}
+      <MemoryCard entry={entry} />
+      {annotationId && <p className="text-muted-foreground text-xs">记录时间：{dateLabel(stringValue(data.valid_from))}</p>}
+    </div>
   );
 }
 
@@ -293,12 +479,15 @@ function ReviewCard({ entry }: { entry: Record<string, unknown> }) {
     },
   });
   return (
-    <article className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border p-4">
-      <div>
-        <h3 className="font-medium">{stringValue(entry.label) ?? "复习项目"}</h3>
-        <p className="text-muted-foreground mt-1 text-xs">{stringValue(entry.status) === "due" ? "已到期" : `计划于 ${dateLabel(stringValue(entry.due_at))}`}</p>
+    <article className="rounded-2xl border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h3 className="font-medium">{stringValue(entry.label) ?? "复习项目"}</h3>
+          <p className="text-muted-foreground mt-1 text-xs">{stringValue(entry.status) === "due" ? "已到期" : `计划于 ${dateLabel(stringValue(entry.due_at))}`}</p>
+        </div>
+        {command && <Button size="sm" disabled={mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? "正在开始…" : "开始复习"}</Button>}
       </div>
-      {command && <Button size="sm" disabled={mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? "正在开始…" : "开始复习"}</Button>}
+      {mutation.error && <p role="alert" className="text-destructive mt-3 text-xs">{mutation.error.message}</p>}
     </article>
   );
 }
@@ -484,16 +673,48 @@ function dateLabel(value: string | undefined): string {
 }
 
 function verdictLabel(value: string | undefined): string {
-  const labels: Record<string, string> = { correct: "回答正确", incorrect: "需要改进", partial: "部分正确", inconclusive: "暂不确定" };
-  return value ? labels[value] ?? value : "尚未判定";
+  const labels: Record<string, string> = {
+    correct: "回答正确",
+    incorrect: "需要改进",
+    partially_correct: "部分正确",
+    unresolved: "尚不能判定",
+  };
+  return value ? labels[value] ?? "判定已更新" : "尚未判定";
 }
 
 function stateLabel(value: string | undefined): string {
-  const labels: Record<string, string> = { emerging: "正在形成", developing: "发展中", stable: "较稳定", mastered: "已掌握", suspected: "待确认", confirmed: "已确认", improving: "正在改善", resolved: "近期已验证" };
-  return value ? labels[value] ?? value : "待积累";
+  const labels: Record<string, string> = {
+    insufficient_evidence: "证据仍少",
+    weak: "需要巩固",
+    learning: "正在学习",
+    possibly_mastered: "可能已掌握",
+    mastered: "已掌握",
+    suspected: "待确认",
+    confirmed: "已确认",
+    improving: "正在改善",
+    resolved: "近期已验证",
+    superseded: "已有更新定义",
+  };
+  return value ? labels[value] ?? "状态已更新" : "待积累";
 }
 
 function masterySummary(mastery: Record<string, unknown>): string {
-  const probability = typeof mastery.p_mastery === "number" ? `${Math.round(mastery.p_mastery * 100)}%` : "待积累";
-  return `当前估计 ${probability}；独立证据 ${numberValue(mastery.independent_count)} 次。`;
+  const independent = numberValue(mastery.independent_count);
+  const transfer = numberValue(mastery.transfer_evidence);
+  if (!independent) return "还需要更多独立作答，暂不作过强判断。";
+  return `${independent} 次独立证据${transfer ? `，其中 ${transfer} 次包含迁移验证` : ""}。`;
+}
+
+function memoryStatusLabel(value: string | undefined): string {
+  return ({
+    active: "正在使用",
+    muted: "已暂停",
+    stale: "待更新",
+    under_review: "正在复核",
+    superseded: "已有新版",
+  } as Record<string, string>)[value ?? ""] ?? "状态待核对";
+}
+
+function confidenceLabel(value: string | undefined): string {
+  return ({ low: "可信度较低", medium: "可信度中等", high: "可信度较高" } as Record<string, string>)[value ?? ""] ?? "可信度待积累";
 }

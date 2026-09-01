@@ -13,10 +13,11 @@ import {
 } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CommandCapability, DomainUIPart } from "../contracts";
-import { learningApi, learningKeys } from "../data/client";
+import { LearningApiError, learningApi, learningKeys } from "../data/client";
 
 const mathOptions = {
   delimiters: [
@@ -33,7 +34,13 @@ const mathOptions = {
 
 export function DomainMessagePart({ name, data }: { name: string; data: unknown }) {
   if (name === "mathpilot-domain-ui" && isDomainUIPart(data)) {
-    return data.view_kind === "question" ? <QuestionCard part={data} /> : <DomainReceiptCard part={data} />;
+    switch (data.view_kind) {
+      case "question": return <QuestionCard part={data} />;
+      case "answer_receipt": return <AnswerReceiptCard part={data} />;
+      case "judgment": return <JudgmentCard part={data} />;
+      case "question_closure": return <QuestionClosureCard part={data} />;
+      default: return <DomainUpdateCard part={data} />;
+    }
   }
   if (name === "mathpilot-teaching-artifact" && data && typeof data === "object") {
     const artifact = data as { summary?: unknown; artifact_ref?: unknown };
@@ -101,6 +108,7 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
   const canSubmit = Boolean(submitCommand) && !alreadySubmitted;
   const canSkip = Boolean(cutCommand) && !alreadySubmitted;
   const canComplete = Boolean(cutCommand) && alreadySubmitted;
+  const interactionStatus = interaction.data?.data.question_session?.status;
 
   const runCommand = async (kind: "submit" | "cut") => {
     setSubmitting(true);
@@ -125,6 +133,10 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
       await queryClient.invalidateQueries({ queryKey: learningKeys.all });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "提交失败，请重试");
+      if (cause instanceof LearningApiError && cause.status === 409) {
+        await queryClient.invalidateQueries({ queryKey: learningKeys.all });
+        await interaction.refetch();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -140,6 +152,22 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
         <MathContent className="mt-2 text-[15px] leading-7 font-medium whitespace-pre-wrap">{prompt}</MathContent>
       </header>
       <div className="space-y-3 p-4">
+        {interaction.isPending && (
+          <p role="status" className="text-muted-foreground text-xs">正在核对这道题的最新状态…</p>
+        )}
+        {interaction.error && (
+          <div role="alert" className="border-destructive/30 bg-destructive/5 rounded-xl border p-3 text-sm">
+            <p className="font-medium">暂时无法核对题目状态</p>
+            <p className="text-muted-foreground mt-1 text-xs">{interaction.error.message}</p>
+            <Button className="mt-2" size="sm" variant="outline" onClick={() => void interaction.refetch()}>重试</Button>
+          </div>
+        )}
+        {interactionStatus === "finalizing" && (
+          <p role="status" className="border-primary/20 bg-primary/5 rounded-xl border p-3 text-xs">回答已经收下，正在形成本题结论。</p>
+        )}
+        {interactionStatus === "closed" && (
+          <p className="text-muted-foreground rounded-xl border p-3 text-xs">本题已经结束，下面保留当时的题目内容供回看。</p>
+        )}
         {options.length > 0 ? (
           <div className="grid gap-2">
             {options.map((option, index) => {
@@ -199,6 +227,7 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
           {submitted && canComplete && <span className="text-muted-foreground text-xs">回答已提交，完成本题后进入判定</span>}
         </footer>
         {error && <p role="alert" className="text-destructive text-xs">{error}</p>}
+        <SelectionContext data={data} />
         <p className="text-muted-foreground border-t pt-3 text-xs">
           {stringValue(data.measurement_eligibility) === "formal"
             ? "独立作答且判定可靠时，可形成正式学习证据。"
@@ -209,7 +238,85 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
   );
 }
 
-function DomainReceiptCard({ part }: { part: DomainUIPart }) {
+function AnswerReceiptCard({ part }: { part: DomainUIPart }) {
+  const response = arrayValue(part.snapshot.data.response_parts)
+    .map((entry) => stringValue(objectValue(entry).text))
+    .filter((entry): entry is string => Boolean(entry))
+    .join("\n");
+  return (
+    <section className="bg-card my-3 rounded-2xl border p-4 shadow-sm" role="status" aria-label="回答提交回执">
+      <div className="flex items-start gap-3">
+        <span className="bg-muted mt-0.5 grid size-8 shrink-0 place-items-center rounded-full"><ClipboardCheckIcon className="size-4" /></span>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold">{part.snapshot.title || "你的回答"}</h3>
+          {response && <MathContent className="mt-1 whitespace-pre-wrap text-sm leading-6">{response}</MathContent>}
+          <p className="text-muted-foreground mt-1 text-xs leading-5">已由服务端保存；刷新或换设备后仍会保留。</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function JudgmentCard({ part }: { part: DomainUIPart }) {
+  const data = part.snapshot.data;
+  const rubric = arrayValue(data.rubric_results).map(objectValue);
+  const judgmentId = stringValue(data.judgment_id) ?? part.resource_ref.replace(/^judgment:/, "");
+  const superseded = stringValue(data.superseded_by_judgment_id);
+  const correction = stringValue(data.supersedes_judgment_id);
+  return (
+    <section
+      className={cn(
+        "bg-card my-3 rounded-2xl border p-4 shadow-sm",
+        superseded ? "border-muted-foreground/25 opacity-75" : "border-primary/25",
+      )}
+      aria-label="判定结果"
+    >
+      {superseded && <p className="text-muted-foreground mb-2 text-xs font-medium">此结论后来已被更正，请以下方新结论为准。</p>}
+      {correction && <p className="text-primary mb-2 text-xs font-medium">教师更正后的结论</p>}
+      <div className="flex items-start gap-3">
+        <span className="bg-muted mt-0.5 grid size-8 shrink-0 place-items-center rounded-full"><CheckCircle2Icon className="size-4" /></span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold">{part.snapshot.title || "判定结果"}</h3>
+          <p className="text-muted-foreground mt-1 text-sm leading-6">{part.snapshot.summary}</p>
+          {rubric.length > 0 && (
+            <ul className="mt-3 grid gap-1.5 text-xs">
+              {rubric.map((item, index) => (
+                <li key={stringValue(item.rubric_item_id) ?? index} className="flex items-center gap-2">
+                  <span aria-hidden="true">{rubricStatusIcon(stringValue(item.status))}</span>
+                  <span>评分要点 {index + 1}：{rubricStatusLabel(stringValue(item.status))}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <span className="text-muted-foreground">结论把握：{uncertaintyLabel(stringValue(data.uncertainty))}</span>
+            <Link className="text-muted-foreground hover:text-foreground underline-offset-4 hover:underline" to={`/learning/history#judgment-${encodeURIComponent(judgmentId)}`}>查看依据</Link>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function QuestionClosureCard({ part }: { part: DomainUIPart }) {
+  const data = part.snapshot.data;
+  const questionSessionId = stringValue(data.question_session_id);
+  return (
+    <section className="bg-card my-3 rounded-2xl border p-4 shadow-sm" aria-label="本题结束状态">
+      <div className="flex items-start gap-3">
+        <span className="bg-muted mt-0.5 grid size-8 shrink-0 place-items-center rounded-full"><CheckCircle2Icon className="size-4" /></span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold">{part.snapshot.title || "本题已结束"}</h3>
+          <p className="text-muted-foreground mt-1 text-sm leading-6">{part.snapshot.summary}</p>
+          <p className="text-muted-foreground mt-2 text-xs">{closureStatusLabel(stringValue(data.diagnostic_status))}</p>
+          {questionSessionId && <Link className="text-muted-foreground hover:text-foreground mt-2 inline-block text-xs underline-offset-4 hover:underline" to={`/learning/history#question-${encodeURIComponent(questionSessionId)}`}>在学习历史中查看</Link>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DomainUpdateCard({ part }: { part: DomainUIPart }) {
   const meta = receiptMeta(part.view_kind);
   const Icon = meta.icon;
   return (
@@ -222,6 +329,19 @@ function DomainReceiptCard({ part }: { part: DomainUIPart }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function SelectionContext({ data }: { data: Record<string, unknown> }) {
+  const satisfied = arrayValue(data.satisfied_requirements).map(String);
+  const compromises = arrayValue(data.unsatisfied_preferences).map(String);
+  if (!satisfied.length && !compromises.length) return null;
+  return (
+    <details className="rounded-xl border px-3 py-2 text-xs">
+      <summary className="cursor-pointer font-medium">为什么选择这道题</summary>
+      {satisfied.length > 0 && <p className="text-muted-foreground mt-2 leading-5">已满足：{satisfied.join("、")}</p>}
+      {compromises.length > 0 && <p className="text-muted-foreground mt-1 leading-5">本次取舍：{compromises.join("、")}</p>}
+    </details>
   );
 }
 
@@ -241,6 +361,35 @@ function receiptMeta(kind: DomainUIPart["view_kind"]) {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function rubricStatusLabel(value: string | undefined): string {
+  return ({ met: "已达到", not_met: "仍需调整", unclear: "证据不足" } as Record<string, string>)[value ?? ""] ?? "待核对";
+}
+
+function rubricStatusIcon(value: string | undefined): string {
+  return value === "met" ? "✓" : value === "not_met" ? "○" : "?";
+}
+
+function uncertaintyLabel(value: string | undefined): string {
+  return ({ low: "较明确", medium: "仍有少量不确定", high: "证据不足" } as Record<string, string>)[value ?? ""] ?? "未标注";
+}
+
+function closureStatusLabel(value: string | undefined): string {
+  return ({
+    concluded: "本题已形成可追溯的诊断结论。",
+    inconclusive: "现有证据不足，未强行形成诊断结论。",
+    skipped: "本题未进入诊断。",
+    unclassified: "本题诊断记录仍在整理。",
+  } as Record<string, string>)[value ?? ""] ?? "本题事实已保存。";
 }
 
 function optionValues(value: unknown): QuestionOption[] {

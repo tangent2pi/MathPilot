@@ -5,6 +5,7 @@ import { AuthProvider } from "./auth";
 import { ContentPackagePage } from "./pages/content-package-page";
 import { ContentReviewPage } from "./pages/content-review-page";
 import {
+  AnnotationPage,
   EvidencePage,
   LearningRecordsLayout,
   OwnLearningPage,
@@ -35,6 +36,7 @@ const router = createBrowserRouter([
       { path: "/learning/history", element: <OwnLearningPage kind="history" /> },
       { path: "/learning/state", element: <OwnLearningPage kind="state" /> },
       { path: "/learning/memory", element: <OwnLearningPage kind="memory" /> },
+      { path: "/learning/memory/:annotationId", element: <AnnotationPage /> },
       { path: "/learning/review", element: <OwnLearningPage kind="review" /> },
       { path: "/learning/evidence/:evidenceHandle", element: <EvidencePage /> },
       { path: "/teacher/students", element: <TeacherStudentsPage /> },

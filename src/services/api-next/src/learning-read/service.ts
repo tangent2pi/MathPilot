@@ -347,7 +347,7 @@ export class LearningReadService {
       const status = row.lifecycle === "active" ? (row.attempt_id ? "submitted" : "open")
         : row.lifecycle === "finalizing" ? "finalizing" : "closed";
       const commands: CommandCapability[] = [];
-      if (thread.actorMode === "self" && row.lifecycle === "active" && !row.attempt_id) {
+      if (thread.actorMode === "self" && row.lifecycle === "active" && !row.attempt_id && row.question_revision_id) {
         commands.push(capability("submit_attempt", `/api/learning/question-sessions/${questionSessionId}/attempts`, Number(row.version)));
       }
       if (thread.actorMode === "self" && row.lifecycle === "active") {
@@ -548,7 +548,7 @@ export class LearningReadService {
               summary: row.decision_summary,
               evidence_href: `/learning/evidence/${evidenceHandle({ kind: "judgment", id: row.judgment_id!, studentId: subject.studentId })}`,
             } : null,
-            scientific_impact: row.diagnostic_status ? `诊断状态：${row.diagnostic_status}`
+            scientific_impact: row.diagnostic_status ? diagnosticImpact(row.diagnostic_status)
               : row.judgment_id ? (row.hint_level === 0 ? "已进入证据评估" : "用于教学连续性，不作为独立掌握证据") : "尚未形成正式判定",
             thread_href: `/c/${row.conversation_thread_id}#question-${row.question_session_id}`,
           })),
@@ -658,34 +658,36 @@ export class LearningReadService {
         set_version: string; created_at: Date | string; muted: boolean; stale: boolean;
         superseded_by: string | null; under_review: boolean;
       }>(
-        `select annotation.annotation_id,annotation.target_kind,annotation.target_ref,annotation.claim,annotation.scope,
-                cardinality(annotation.support_refs) support_count,cardinality(annotation.counter_refs) counter_count,
-                annotation.confidence,annotation.trend,annotation.action_hint,annotation.valid_from,annotation.review_due_at,
-                annotation.set_version,annotation.created_at,
-                not coalesce((select preference.enabled from science_v3_annotation_usage_preference_event preference
-                  where preference.tenant_id=annotation.tenant_id and preference.student_id=annotation.student_id
-                    and (preference.annotation_id=annotation.annotation_id or preference.annotation_id is null)
-                  order by (preference.annotation_id is not null) desc,preference.created_at desc,
-                           preference.preference_event_id desc limit 1),true) muted,
-                exists(select 1 from science_v3_annotation_stale_fact stale
-                        where stale.tenant_id=annotation.tenant_id and stale.annotation_id=annotation.annotation_id) stale,
-                (select supersession.replacement_annotation_id from science_v3_annotation_supersession supersession
-                  where supersession.tenant_id=annotation.tenant_id
-                    and supersession.superseded_annotation_id=annotation.annotation_id) superseded_by,
-                exists(select 1 from science_v3_annotation_feedback feedback
-                        where feedback.tenant_id=annotation.tenant_id and feedback.annotation_id=annotation.annotation_id
-                          and feedback.feedback in ('inaccurate','not_useful','needs_review')) under_review
-           from science_v3_semantic_annotation annotation
-          where annotation.tenant_id=$1 and annotation.student_id=$2
-          order by annotation.set_version desc,annotation.created_at desc
-          offset $3 limit 31`,
-        [principal.tenantId, subject.studentId, offset],
+        `select * from (
+           select annotation.annotation_id,annotation.target_kind,annotation.target_ref,annotation.claim,annotation.scope,
+                  cardinality(annotation.support_refs) support_count,cardinality(annotation.counter_refs) counter_count,
+                  annotation.confidence,annotation.trend,annotation.action_hint,annotation.valid_from,annotation.review_due_at,
+                  annotation.set_version,annotation.created_at,
+                  not coalesce((select preference.enabled from science_v3_annotation_usage_preference_event preference
+                    where preference.tenant_id=annotation.tenant_id and preference.student_id=annotation.student_id
+                      and (preference.annotation_id=annotation.annotation_id or preference.annotation_id is null)
+                    order by (preference.annotation_id is not null) desc,preference.created_at desc,
+                             preference.preference_event_id desc limit 1),true) muted,
+                  exists(select 1 from science_v3_annotation_stale_fact stale
+                          where stale.tenant_id=annotation.tenant_id and stale.annotation_id=annotation.annotation_id) stale,
+                  (select supersession.replacement_annotation_id from science_v3_annotation_supersession supersession
+                    where supersession.tenant_id=annotation.tenant_id
+                      and supersession.superseded_annotation_id=annotation.annotation_id) superseded_by,
+                  exists(select 1 from science_v3_annotation_feedback feedback
+                          where feedback.tenant_id=annotation.tenant_id and feedback.annotation_id=annotation.annotation_id
+                            and feedback.feedback in ('inaccurate','not_useful','needs_review')) under_review
+             from science_v3_semantic_annotation annotation
+            where annotation.tenant_id=$1 and annotation.student_id=$2
+         ) memory
+         where $3='all'
+            or ($3='muted' and memory.muted)
+            or ($3='stale' and memory.stale)
+            or ($3='active' and not memory.muted and not memory.stale and memory.superseded_by is null)
+         order by memory.set_version desc,memory.created_at desc
+         offset $4 limit 31`,
+        [principal.tenantId, subject.studentId, status, offset],
       )).rows;
-      const filtered = rows.filter((row) => status === "all"
-        || (status === "muted" && row.muted)
-        || (status === "stale" && row.stale)
-        || (status === "active" && !row.muted && !row.stale && !row.superseded_by));
-      const page = filtered.slice(0, 30);
+      const page = rows.slice(0, 30);
       const version = page.reduce((value, row) => Math.max(value, Number(row.set_version)), 1);
       return learningView({
         kind: "memory_ledger", resourceKind: "student-memory-ledger", resourceId: subject.studentId,
@@ -782,6 +784,7 @@ export class LearningReadService {
         confidence: string; trend: string | null; action_hint: string | null;
         valid_from: Date | string; review_due_at: Date | string | null; set_version: string;
         created_at: Date | string; superseded_by: string | null; stale_reason: string | null;
+        muted: boolean; under_review: boolean;
       }>(
         `select annotation.annotation_id,annotation.target_kind,annotation.target_ref,annotation.claim,
                 annotation.scope,annotation.support_refs,annotation.counter_refs,annotation.confidence,
@@ -792,7 +795,15 @@ export class LearningReadService {
                     and supersession.superseded_annotation_id=annotation.annotation_id) superseded_by,
                 (select reason from science_v3_annotation_stale_fact stale
                   where stale.tenant_id=annotation.tenant_id and stale.annotation_id=annotation.annotation_id
-                  order by stale.created_at desc limit 1) stale_reason
+                  order by stale.created_at desc limit 1) stale_reason,
+                not coalesce((select preference.enabled from science_v3_annotation_usage_preference_event preference
+                  where preference.tenant_id=annotation.tenant_id and preference.student_id=annotation.student_id
+                    and (preference.annotation_id=annotation.annotation_id or preference.annotation_id is null)
+                  order by (preference.annotation_id is not null) desc,preference.created_at desc,
+                           preference.preference_event_id desc limit 1),true) muted,
+                exists(select 1 from science_v3_annotation_feedback feedback
+                        where feedback.tenant_id=annotation.tenant_id and feedback.annotation_id=annotation.annotation_id
+                          and feedback.feedback in ('inaccurate','not_useful','needs_review')) under_review
            from science_v3_semantic_annotation annotation
           where annotation.tenant_id=$1 and annotation.annotation_id=$2`,
         [principal.tenantId, annotationId],
@@ -806,7 +817,8 @@ export class LearningReadService {
           action_hint: row.action_hint, valid_from: asIso(row.valid_from), review_due_at: asIso(row.review_due_at),
           support: { count: row.support_refs.length, refs: row.support_refs },
           counter: { count: row.counter_refs.length, refs: row.counter_refs },
-          status: row.superseded_by ? "superseded" : row.stale_reason ? "stale" : "active",
+          status: row.superseded_by ? "superseded" : row.stale_reason ? "stale" : row.muted ? "muted" : row.under_review ? "under_review" : "active",
+          used_for_personalization: !row.superseded_by && !row.stale_reason && !row.muted,
           superseded_by: row.superseded_by, stale_reason: row.stale_reason,
           evidence_href: `/learning/evidence/${evidenceHandle({ kind: "annotation", id: annotationId, studentId: subject.studentId })}`,
         },
@@ -1189,6 +1201,16 @@ const operationViewData = (row: OperationRow) => ({
   updated_at: asIso(row.updated_at),
   version: Number(row.version),
 });
+
+const diagnosticImpact = (status: string): string => {
+  switch (status) {
+    case "concluded": return "已形成可追溯的诊断结论";
+    case "inconclusive": return "现有证据暂不足以形成诊断结论";
+    case "skipped": return "本题未进入诊断";
+    case "unclassified": return "诊断记录仍在整理";
+    default: return "诊断记录已更新";
+  }
+};
 
 const errorPatternTitle = (state: string, label: string): string => {
   switch (state) {
