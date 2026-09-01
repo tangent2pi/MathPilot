@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node --import tsx src/index.ts",
+    "preflight:production": "node --import tsx src/production-preflight.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts"
   },

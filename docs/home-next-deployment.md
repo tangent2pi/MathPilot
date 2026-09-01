@@ -38,8 +38,9 @@ PostgreSQL、Pi 和领域服务不向公网映射端口。浏览器通过同源 
 
 1. 在开发机分别对 `mathpilot`、`mathpilot_pi` 执行 `pg_dump -Fc --no-owner --no-acl`。
 2. 打包 `~/.mathpilot/runtime`，保留 `agent/sessions`、`sessions` 和附件状态目录。
-3. 推送 Git 的 `next` 分支，并把同一提交同步到 `/srv/stacks/mathpilot`；远端 `.env` 单独保留。
-4. 在远端 `.env` 明确设置：
+3. 推送 Git 的 `next` 分支，并把同一提交同步到 `/srv/stacks/mathpilot`；远端
+   `deploy/dev/.env` 单独保留。
+4. 在远端 `deploy/dev/.env` 明确设置：
 
    ```dotenv
    MATHPILOT_ENVIRONMENT=production
@@ -48,8 +49,9 @@ PostgreSQL、Pi 和领域服务不向公网映射端口。浏览器通过同源 
    MINIO_VOLUME=mathpilot_minio_data
    MINIO_PUBLIC_ENDPOINT=https://mathpilot.tangentpi.com
    MINIO_CORS_ALLOWED_ORIGINS=https://mathpilot.tangentpi.com
-   BETTER_AUTH_SECRET=<独立的 32 字节以上生产密钥>
-   LEARNING_EVIDENCE_SECRET=<另一把独立的 32 字节以上生产密钥>
+   # 以下两项必须在远端填入随机、互不相同的值；示例故意留空
+   BETTER_AUTH_SECRET=
+   LEARNING_EVIDENCE_SECRET=
    ```
 
    两把密钥不得相同，也不得使用仓库中的 development 示例值。Compose 要求显式声明
@@ -66,12 +68,16 @@ PostgreSQL、Pi 和领域服务不向公网映射端口。浏览器通过同源 
 正式启动前先运行以下不回显密钥值的门禁：
 
 ```sh
-test "${MATHPILOT_ENVIRONMENT:?MATHPILOT_ENVIRONMENT is required}" = production
-test -n "${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}"
-test -n "${LEARNING_EVIDENCE_SECRET:?LEARNING_EVIDENCE_SECRET is required}"
-test "$BETTER_AUTH_SECRET" != "$LEARNING_EVIDENCE_SECRET"
-docker compose -f deploy/dev/compose.yaml config --quiet
+set -e
+docker compose --env-file deploy/dev/.env -f deploy/dev/compose.yaml config --quiet
+docker compose --env-file deploy/dev/.env -f deploy/dev/compose.yaml run \
+  --rm --no-deps --build --quiet-build --quiet -T api \
+  corepack pnpm --filter @mathpilot/api-next run preflight:production
 ```
+
+第二条命令在 api 容器的实际 Compose 环境中执行与启动时相同的配置加载器；缺失、过短、
+共用、公开 development 默认密钥或非 production profile 都会以非零状态退出，且不会输出
+密钥值。
 
 ## 切换前后核验
 
