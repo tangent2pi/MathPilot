@@ -1,7 +1,7 @@
 # MathPilot Next 实现收敛与复用治理 Goal
 
 > 用途：承接 Science v3 P7 的用户明确未完成移交，统一关闭 Next 路径中的隐藏省略、伪能力、重复运行机制与不必要手写基础设施。
-> 状态：`active`（2026-09-01）；G0 审计检查点已完成并冻结逐 owner 产品 replay；G1 正在实施，C-04 path/object、O-13 evidence secret、deployed Pi active Artifact 与正式 Next internal service identity/config 机制已分别收口，但内容识别、错误承诺等 G1 其余安全项与 G2–G6 均未完成。
+> 状态：`active`（2026-09-01）；G0 审计检查点已完成并冻结逐 owner 产品 replay；G1 正在实施，C-04 path/object、O-13 evidence secret、deployed Pi active Artifact、正式 Next internal service identity/config 与 B 内容完整性架构已分别收口，但错误承诺等 G1 其余安全项与 G2–G6 均未完成。
 > P7 权威 Goal：[科学内核与 Dream 配套前端实施 Goal](./科学内核与Dream封版v3/GOAL.md)
 > 唯一审计输入：[Next 实现整合审计 v3](./Next实现隐藏省略设计忠实度与复用整合审计v3.md)
 > 历史审计：v1、v2 补充与忠实度 v1 已 superseded，只可沿 v3 的裁决追溯，不得直接生成任务。
@@ -413,6 +413,26 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 
 本 tranche 完成的是当前正式 Next topology 的共同 internal identity/config 机制，不是 G1 或 DB/service 终态整行。`memory-single-replica` 是当前明确部署约束；若 G6 启用多副本，须通过既有 replay-store port 接入跨副本原子 consume 并补真实 duplicate/restart 测试。其他领域 config 注入、pool/RLS、Problem Details、安全头、rate limit、内容识别与 G2–G6 仍开放；后续只能扩展消费者和删除路径，不重写本节核心。
 
+### 5.11 B：Object/Attachment/Avatar/Artifact 内容完整性共同机制证据
+
+| 门禁 | 当前可复现证据 |
+|---|---|
+| 最终 owner 与稳定边界 | `@mathpilot/content-integrity` 唯一拥有 purpose policy、MIME magic-byte 识别、stream/size/hash、Sharp 图片完整解码与无元数据 WebP 重编码、verified materialization、单 fd host-file seal 和 upload publication 状态机；Storage 唯一拥有对象版本、claim、expiry、lease/GC 与 presign 数据面；各领域只保留 purpose、actor 和 route adapter |
+| 全部 production consumer | Web 附件/头像、API 消息附件与头像绑定、Storage 上传/解析/删除、Content 候选结果/receipt/source/题图、Pi 不可信模型输出与 immutable source manifest、Learning attachment workspace projection 与 JSON artifact 均迁入同一边界；触发消息附件要求完整物化，projection 对 files+objects 使用一个总预算并显式记录 omissions |
+| 传输、失败和取消 | Storage 以 AWS SDK v3 `S3Client`、presigner/presigned-post 和 Smithy `NodeHttpHandler` 统一 custom endpoint、path-style、连接/请求/socket deadline、有限 attempts 与 AbortSignal；init/upload/complete 只发布 seal 后的精确版本、字节数和 SHA，不匹配会清理未 claim 对象。内容错误区分 terminal/retryable，不以 catch-all 吞掉 I/O、权限、timeout 或 cancel |
+| 数据库权威 | fresh-only `0041_content_integrity.sql` 以复合 tenant/object FK、SECURITY DEFINER 上下文检查、列 ACL、候选 audit 双对象原子 claim、source binder+seal、附件单消息 48 MiB、avatar claim/release、GC lease/lifecycle 约束承接最终对象状态；同 tenant+source SHA 使用事务 advisory lock 和唯一 canonical source，不保留旧表兼容分支 |
+| 宿主沙箱 | `@anthropic-ai/sandbox-runtime` 是唯一 Bubblewrap 能力 owner；Pi 两类调用方复用同一 SRT config/spawn runtime，只声明各自 read/write policy。宿主文件由 lexical+real root、`O_NOFOLLOW` 单 fd 和 `/proc/self/fd` containment 封存；未整体暴露 `/etc`，already-aborted、spawn failure 与 listener/并发计数 cleanup 为幂等 |
+| 成熟库与薄 adapter | `file-type 22.0.2`、`sharp 0.35.4`、`canonicalize 4.0.0`、AWS SDK v3/Smithy、Uppy AWS S3 和 Anthropic SRT 分别承担识别/解码、canonical JSON、S3 协议/timeout、浏览器上传与宿主 confinement；AWS SDK 的 AbortSignal、timeout、custom endpoint/force-path-style 和 presigned-post 语义已按官方文档核对，没有复制 SDK 状态机或手写 Bubblewrap |
+| 删除与防返工 | 删除 MinIO JS client、Pi 直连对象存储/旧附件 extension 与五段增量 Pi 表迁移、重复 Web/Pi 上传状态机、Pi path stat/realpath/reopen 封存、两套 SRT config/spawn、Storage 进程内 `setInterval` GC。下一消费者只需薄 adapter；后续工作是接 durable schedule、扩大真实部署证据和删除，不重写本 tranche 的 policy、codec、transport 或 DB 状态模型 |
+
+实施结果绑定 `CONTENT_INTEGRITY_IMPLEMENTATION_COMMIT=c1e2acb0c31eff176ec99df8f69cd84b421bd42e`：
+
+- `content-integrity`、Storage、Content、Pi、Learning、API、Web 七包集中 typecheck 全部退出 0；七包完整定向 test runner 全部退出 0，Learning 的五项 PostgreSQL 环境测试按既有条件 skip，不计作本 tranche 数据库证据；Pi sandbox boundary 5/5 通过；
+- 当前文件上的 fresh schema 从 `0001` 迁移到 `0041` 并执行 `app-role.sql`/`bootstrap.sql` 均退出 0；真实 app/storage 对抗覆盖 ACL、claim/seal、候选冻结、projection owner、附件 MIME/48 MiB 原子回滚、avatar release 和 GC NULL/limit/lifecycle；同 SHA 并发结果为 `first=0 second=1 canonical_rows=1`；
+- 使用本地实际 `.env` 的 `docker compose ... config --quiet` 退出 0；`git diff --cached --check` 通过；两个 fresh-schema 临时 PostgreSQL 验证容器已停止并自动删除。
+
+本 tranche 关闭的是 B 的最终共同架构与当前 production-reachable consumer，不把 G1 或完整 Goal 标成完成。Storage GC 的 durable Temporal Schedule 仍在 G4；真实浏览器→MinIO→服务、多副本、重启和完整部署矩阵仍在 G6；通用 Artifact interaction promise、Problem Details、500 脱敏、安全头、threat-model rate limit 与 G2–G6 继续开放。保留边界只需扩展/验证和删除，不要求重写本节核心。
+
 ## 6. 不可破坏的设计准则
 
 ### 6.1 真实性与禁止伪完成
@@ -546,7 +566,7 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 
 ### G1：安全边界与错误承诺
 
-当前状态：`in_progress`。C-04 窄 path/object boundary、O-13 api-next auth/evidence secret boundary、deployed Pi active Artifact entry 与正式 Next internal service identity/config 已分别由第 5.6、5.8、5.9、5.10 节留证；通用 Artifact contract/interaction promise、未来可执行内容 origin、内容识别、错误承诺、Problem Details、安全头与 rate limit 等交付仍开放，因此不得把 G1 标为完成。
+当前状态：`in_progress`。C-04 窄 path/object boundary、O-13 api-next auth/evidence secret boundary、deployed Pi active Artifact entry、正式 Next internal service identity/config 与 B 内容完整性共同架构已分别由第 5.6、5.8、5.9、5.10、5.11 节留证；通用 Artifact contract/interaction promise、未来可执行内容 origin、错误承诺、Problem Details、安全头与 rate limit 等交付仍开放，因此不得把 G1 标为完成。
 
 交付：
 
@@ -554,7 +574,7 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 - 可执行 Artifact 使用独立 untrusted origin + sandbox iframe/窄 `postMessage`；当前 deployed Pi 入口已 fail-closed，若未来恢复能力仍须完成独立 origin；
 - api-next production config fail-fast 与独立 evidence secret（O-13 窄项已关闭）；
 - 正式 Next 五个服务 production internal config fail-fast 与共同 identity/service-context（六条 edge 已由 5.10 收口；其他领域 config 仍进 G5）；
-- Avatar/附件/Artifact 内容识别、图片解码重编码、stream/size/hash/expiry；
+- Avatar/附件/被动 Artifact 内容识别、图片解码重编码、stream/size/hash/expiry（B 共同架构与当前 production consumer 已由 5.11 收口；durable GC/完整部署证据仍进 G4/G6）；
 - `validated`、`sandboxed`、interaction token、dedup 等承诺与真实运行时一致；
 - 全局 Problem Details、默认 500 脱敏、安全头和按 threat model 的 rate limit。
 
