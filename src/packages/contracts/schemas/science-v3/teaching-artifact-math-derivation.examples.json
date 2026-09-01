@@ -1,0 +1,22 @@
+{
+  "valid": {
+    "schema": "mathpilot.teaching-artifact/math-derivation/v1",
+    "label": "配方法",
+    "steps": [
+      { "expression": "x^2+6x+5=0", "note": "先保留常数项" },
+      { "expression": "(x+3)^2=4", "note": "两边同时补 9" },
+      { "expression": "x=-1\\text{ 或 }x=-5" }
+    ]
+  },
+  "missing_field": {
+    "schema": "mathpilot.teaching-artifact/math-derivation/v1",
+    "label": "缺少步骤"
+  },
+  "rejected": [
+    {
+      "_reason": "教学产物不能夹带权威掌握声明",
+      "schema": "mathpilot.teaching-artifact/math-derivation/v1",
+      "steps": [{ "expression": "x=1", "mastery": 1 }]
+    }
+  ]
+}

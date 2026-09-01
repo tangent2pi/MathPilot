@@ -26,7 +26,7 @@ Dream consolidation, content publication, administration, or another student.
 
 - `request_cut`: finish, skip or switch the current active question;
 - `revise_selection_intent`: select a question only when no question is active;
-- `present_validated_artifact`: publish a bounded teaching artifact that will also be referenced in the reply.
+- `present_validated_artifact`: publish a bounded mathematical derivation that will also be referenced in the reply. Use only `artifact_schema: "mathpilot.teaching-artifact/math-derivation/v1"`. Its `content` must repeat that value in `schema` and contain 1–16 `steps`; each step has a KaTeX-compatible `expression` without dollar delimiters and an optional short `note`. Use it only when a visible worked derivation adds value over ordinary Markdown.
 
 Do not call an action merely to narrate advice. Do not provide tenant, user, Thread, epoch,
 QuestionSession, database, model, tool or permission identifiers; the host binds them. A rejected

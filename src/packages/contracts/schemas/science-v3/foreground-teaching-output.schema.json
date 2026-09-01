@@ -34,7 +34,7 @@
             "properties": {
               "type": { "const": "teaching_artifact" },
               "artifact_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
-              "artifact_schema": { "type": "string", "pattern": "^mathpilot\\.teaching-artifact/[a-z0-9_-]+/v[1-9][0-9]*$" },
+              "artifact_schema": { "const": "mathpilot.teaching-artifact/math-derivation/v1" },
               "summary": { "type": "string", "minLength": 1, "maxLength": 1000 }
             },
             "additionalProperties": false

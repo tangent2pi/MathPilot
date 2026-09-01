@@ -1,9 +1,15 @@
-import type { CanonicalMessage, CommandCapability, LearningView } from "@mathpilot/contracts";
+import type {
+  CanonicalMessage,
+  CommandCapability,
+  LearningThreadMessage,
+  LearningView,
+} from "@mathpilot/contracts";
 import type pg from "pg";
 import type { Principal } from "../auth.ts";
 import { withPrincipal } from "../lib.ts";
 import { assertThreadAccess, resolveLearningSubject, type LearningSubject } from "./acl.ts";
 import { decodeCursor, encodeCursor, evidenceHandle, LearningReadError, parseEvidenceHandle } from "./cursor.ts";
+import { materializeTeachingArtifacts, teachingArtifactKey } from "./teaching-artifacts.ts";
 import { capability, learningView } from "./view.ts";
 
 const asIso = (value: Date | string | null | undefined): string | undefined =>
@@ -144,15 +150,26 @@ export class LearningReadService {
       )).rows;
       const hasMore = rows.length > 100;
       const page = rows.slice(0, 100);
+      const artifactPresentations = await materializeTeachingArtifacts(client, {
+        tenantId: principal.tenantId,
+        threadId,
+        studentId: subject.studentId,
+        studentUserId: subject.userId,
+      }, page);
       const operations = await this.threadOperations(client, principal.tenantId, threadId);
-      const messages: CanonicalMessage[] = page.map((row) => ({
+      const messages: LearningThreadMessage[] = page.map((row) => ({
         schema_version: 3,
         message_id: row.message_id,
         conversation_thread_id: row.conversation_thread_id,
         sequence: Number(row.sequence),
         author_kind: row.author_kind,
         lifecycle: row.lifecycle,
-        parts: row.parts,
+        parts: row.parts.map((part) => {
+          if (part.type !== "teaching_artifact") return part;
+          const artifact = artifactPresentations.get(teachingArtifactKey(row.message_id, part.artifact_ref));
+          if (!artifact || artifact.summary !== part.summary || artifact.schema !== part.artifact_schema) return part;
+          return { ...part, presentation: artifact.presentation };
+        }),
         ...(row.reply_to_message_id ? { reply_to_message_id: row.reply_to_message_id } : {}),
         ...(row.question_session_id ? { question_session_id: row.question_session_id } : {}),
         editable: row.editable,

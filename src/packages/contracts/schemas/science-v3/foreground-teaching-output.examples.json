@@ -6,6 +6,20 @@
     "reply_to_message_id": "msg_a1b2c3d4",
     "parts": [{ "type": "text", "text": "可以把这一步看成先固定底边，再比较高。" }]
   },
+  "valid_cases": [
+    {
+      "schema_version": 3,
+      "conversation_thread_id": "thr_a1b2c3d4",
+      "foreground_epoch_id": "fge_a1b2c3d4",
+      "reply_to_message_id": "msg_a1b2c3d4",
+      "parts": [{
+        "type": "teaching_artifact",
+        "artifact_ref": "agent-artifact:art_mathart01",
+        "artifact_schema": "mathpilot.teaching-artifact/math-derivation/v1",
+        "summary": "逐步配方求解。"
+      }]
+    }
+  ],
   "missing_field": {
     "schema_version": 3,
     "conversation_thread_id": "thr_a1b2c3d4"

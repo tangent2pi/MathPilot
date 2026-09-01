@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { MATH_DERIVATION_ARTIFACT_SCHEMA_URI } from "@mathpilot/contracts";
 import pg from "pg";
 import { parseForegroundTeachingOutput } from "./foreground-core.ts";
 import type {
@@ -105,9 +106,9 @@ export class PostgresForegroundStore implements ForegroundStore {
         await client.query(
           `insert into science_v3_agent_artifact(
              artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
-           ) values($1,$2,$3,'structured_output',$4,$5::jsonb,$6)`,
+          ) values($1,$2,$3,'structured_output',$4,$5::jsonb,$6)`,
           [artifactId, input.tenantId, input.operationId,
-            input.action.artifact_schema.replace("mathpilot.", "https://schemas.mathpilot.dev/"),
+            MATH_DERIVATION_ARTIFACT_SCHEMA_URI,
             json, sha256(payload)],
         );
         return this.recordAction(client, input, context, actionId, payloadHash, true, artifactRef, null);

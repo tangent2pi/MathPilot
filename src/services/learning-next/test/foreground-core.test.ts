@@ -45,3 +45,46 @@ test("learning_action rejects authority fields and scientific writes", () => {
   }), /unsupported fields/);
   assert.throws(() => parseBoundedLearningAction({ action: "set_mastery", value: 1 }), /not allowed/);
 });
+
+test("learning_action accepts only the validated math derivation artifact", () => {
+  assert.deepEqual(parseBoundedLearningAction({
+    action: "present_validated_artifact",
+    artifact_schema: "mathpilot.teaching-artifact/math-derivation/v1",
+    summary: "逐步配方求解。",
+    content: {
+      schema: "mathpilot.teaching-artifact/math-derivation/v1",
+      label: "配方法",
+      steps: [
+        { expression: "x^2+6x+5=0" },
+        { expression: "(x+3)^2=4", note: "两边同时补 9" },
+      ],
+    },
+  }), {
+    action: "present_validated_artifact",
+    artifact_schema: "mathpilot.teaching-artifact/math-derivation/v1",
+    summary: "逐步配方求解。",
+    content: {
+      schema: "mathpilot.teaching-artifact/math-derivation/v1",
+      label: "配方法",
+      steps: [
+        { expression: "x^2+6x+5=0" },
+        { expression: "(x+3)^2=4", note: "两边同时补 9" },
+      ],
+    },
+  });
+  assert.throws(() => parseBoundedLearningAction({
+    action: "present_validated_artifact",
+    artifact_schema: "mathpilot.teaching-artifact/arbitrary/v1",
+    summary: "任意内容",
+    content: { html: "<script>bad()</script>" },
+  }), /artifact_schema is invalid/);
+  assert.throws(() => parseBoundedLearningAction({
+    action: "present_validated_artifact",
+    artifact_schema: "mathpilot.teaching-artifact/math-derivation/v1",
+    summary: "夹带科学状态",
+    content: {
+      schema: "mathpilot.teaching-artifact/math-derivation/v1",
+      steps: [{ expression: "x=1", mastery: 1 }],
+    },
+  }), /unsupported fields/);
+});

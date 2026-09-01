@@ -1,14 +1,19 @@
 "use client";
 
 import "@assistant-ui/react-markdown/styles/dot.css";
+import "katex/dist/katex.min.css";
 
 import {
   type CodeHeaderProps,
+  escapeCurrencyDollars,
   MarkdownTextPrimitive,
+  normalizeMathDelimiters,
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { type FC, memo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
@@ -18,7 +23,9 @@ import { cn } from "@/lib/utils";
 const MarkdownTextImpl = () => {
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+      preprocess={preprocessMathMarkdown}
       className="aui-md"
       components={defaultComponents}
       defer
@@ -27,6 +34,9 @@ const MarkdownTextImpl = () => {
 };
 
 export const MarkdownText = memo(MarkdownTextImpl);
+
+const preprocessMathMarkdown = (value: string) =>
+  escapeCurrencyDollars(normalizeMathDelimiters(value));
 
 const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard();

@@ -37,6 +37,26 @@
     "message_id": "msg_a1b2c3d4",
     "conversation_thread_id": "thr_a1b2c3d4"
   },
+  "valid_cases": [
+    {
+      "schema_version": 3,
+      "message_id": "msg_mathart01",
+      "conversation_thread_id": "thr_a1b2c3d4",
+      "sequence": 5,
+      "author_kind": "assistant",
+      "lifecycle": "committed",
+      "parts": [{
+        "type": "teaching_artifact",
+        "artifact_ref": "agent-artifact:art_mathart01",
+        "artifact_schema": "mathpilot.teaching-artifact/math-derivation/v1",
+        "summary": "逐步配方求解。"
+      }],
+      "editable": false,
+      "lock_reason": "domain_event",
+      "created_at": "2026-08-31T08:02:00Z",
+      "version": 1
+    }
+  ],
   "rejected": [
     {
       "_reason": "形成证据的消息不能保持 editable",
@@ -50,6 +70,29 @@
       "question_session_id": "qsn_a1b2c3d4",
       "editable": false,
       "created_at": "2026-08-31T08:01:00Z",
+      "version": 1
+    },
+    {
+      "_reason": "read-side presentation 不得写回 canonical message",
+      "schema_version": 3,
+      "message_id": "msg_mathbad01",
+      "conversation_thread_id": "thr_a1b2c3d4",
+      "sequence": 6,
+      "author_kind": "assistant",
+      "lifecycle": "committed",
+      "parts": [{
+        "type": "teaching_artifact",
+        "artifact_ref": "agent-artifact:art_mathbad01",
+        "artifact_schema": "mathpilot.teaching-artifact/math-derivation/v1",
+        "summary": "不应落库的展示内容",
+        "presentation": {
+          "schema": "mathpilot.teaching-artifact/math-derivation/v1",
+          "steps": [{ "expression": "x=1" }]
+        }
+      }],
+      "editable": false,
+      "lock_reason": "domain_event",
+      "created_at": "2026-08-31T08:03:00Z",
       "version": 1
     }
   ]

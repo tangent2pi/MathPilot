@@ -12,6 +12,7 @@ import {
   SessionManager,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { MATH_DERIVATION_ARTIFACT_SCHEMA } from "@mathpilot/contracts";
 import { Type } from "typebox";
 import { parseSelectionDecision } from "./selection-core.ts";
 import { parseAnnotationChangeSet, parseLightAtomProposal, parseRemOutput } from "./dream-core.ts";
@@ -20,6 +21,15 @@ import type { PiExecutorRequest, PiExecutorResult, PiTaskExecutor, WorkspaceObje
 import { StorageNextObjectReader } from "./storage-object-reader.ts";
 
 const PROVIDER = "mathpilot-deepseek";
+
+const mathDerivationContent = Type.Object({
+  schema: Type.Literal(MATH_DERIVATION_ARTIFACT_SCHEMA),
+  label: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+  steps: Type.Array(Type.Object({
+    expression: Type.String({ minLength: 1, maxLength: 2000 }),
+    note: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+  }, { additionalProperties: false }), { minItems: 1, maxItems: 16 }),
+}, { additionalProperties: false });
 
 const requiredModelSetting = (name: "MODEL_API_BASE" | "MODEL_API_KEY" | "MODEL_ID_MAIN" | "MODEL_ID_AUX"): string => {
   const value = process.env[name]?.trim();
@@ -284,9 +294,9 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         }, { additionalProperties: false }),
         Type.Object({
           action: Type.Literal("present_validated_artifact"),
-          artifact_schema: Type.String({ pattern: "^mathpilot\\.teaching-artifact/[a-z0-9_-]+/v[1-9][0-9]*$" }),
+          artifact_schema: Type.Literal(MATH_DERIVATION_ARTIFACT_SCHEMA),
           summary: Type.String({ minLength: 1, maxLength: 1000 }),
-          content: Type.Record(Type.String(), Type.Unknown(), { maxProperties: 64 }),
+          content: mathDerivationContent,
         }, { additionalProperties: false }),
       ]),
       async execute(toolCallId, params) {

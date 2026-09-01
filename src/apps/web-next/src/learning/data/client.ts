@@ -1,5 +1,4 @@
 import type {
-  CanonicalMessagePart,
   CreateThreadReceipt,
   ForegroundReceipt,
   LearningView,
@@ -7,6 +6,7 @@ import type {
   ThreadListView,
   ThreadMessagesView,
   ThreadSummary,
+  UserSubmittedMessagePart,
 } from "../contracts";
 
 export class LearningApiError extends Error {
@@ -99,7 +99,7 @@ export const learningApi = {
     threadId: string;
     key: string;
     expectedVersion: number;
-    parts: CanonicalMessagePart[];
+    parts: UserSubmittedMessagePart[];
     requestedAt: string;
   }) {
     return requestJson<ForegroundReceipt>(

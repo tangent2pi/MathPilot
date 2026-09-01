@@ -25,10 +25,11 @@ import { useNavigate } from "react-router-dom";
 import { UnifiedAttachmentAdapter } from "@/AttachmentAdapter";
 import { AUTH_DRAFT_KEY, useAuth } from "@/auth";
 import type {
-  CanonicalMessage,
   CanonicalMessagePart,
+  LearningThreadMessage,
   ThreadMessagesView,
   ThreadOperation,
+  UserSubmittedMessagePart,
 } from "../contracts";
 import { learningApi, learningKeys, newIdempotencyKey } from "../data/client";
 
@@ -204,8 +205,8 @@ function hasActiveOperation(view: ThreadMessagesView | undefined): boolean {
   return Boolean(view?.data.operations.some((operation) => ACTIVE_OPERATION_STATUSES.has(operation.status)));
 }
 
-function appendMessageParts(message: AppendMessage): CanonicalMessagePart[] {
-  const parts: CanonicalMessagePart[] = message.content
+function appendMessageParts(message: AppendMessage): UserSubmittedMessagePart[] {
+  const parts: UserSubmittedMessagePart[] = message.content
     .filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text" && Boolean(part.text.trim()))
     .map((part) => ({ type: "text", text: part.text }));
   for (const attachment of message.attachments ?? []) {
@@ -239,7 +240,7 @@ function optimisticMessage(key: string, message: AppendMessage): ThreadMessage {
 }
 
 function canonicalMessage(
-  message: CanonicalMessage,
+  message: LearningThreadMessage,
   supersededJudgments: ReadonlyMap<string, string> = new Map(),
 ): ThreadMessage {
   const createdAt = new Date(message.created_at);
@@ -294,7 +295,7 @@ function canonicalMessage(
   };
 }
 
-function judgmentSupersessions(messages: readonly CanonicalMessage[]): ReadonlyMap<string, string> {
+function judgmentSupersessions(messages: readonly LearningThreadMessage[]): ReadonlyMap<string, string> {
   const replacements = new Map<string, string>();
   for (const message of messages) {
     for (const part of message.parts) {

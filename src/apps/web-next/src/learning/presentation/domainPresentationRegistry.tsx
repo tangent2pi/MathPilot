@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CommandCapability, DomainUIPart } from "../contracts";
 import { LearningApiError, learningApi, learningKeys } from "../data/client";
+import { TeachingArtifactMessage } from "./teachingArtifactRegistry";
 
 const mathOptions = {
   delimiters: [
@@ -42,16 +43,7 @@ export function DomainMessagePart({ name, data }: { name: string; data: unknown 
       default: return <DomainUpdateCard part={data} />;
     }
   }
-  if (name === "mathpilot-teaching-artifact" && data && typeof data === "object") {
-    const artifact = data as { summary?: unknown; artifact_ref?: unknown };
-    return (
-      <section className="bg-card my-3 rounded-2xl border p-4 shadow-sm">
-        <div className="text-muted-foreground flex items-center gap-2 text-xs font-medium"><SparklesIcon className="size-4" />教学材料</div>
-        <p className="mt-2 text-sm leading-6">{typeof artifact.summary === "string" ? artifact.summary : "已生成一份经过校验的教学材料。"}</p>
-        {typeof artifact.artifact_ref === "string" && <p className="text-muted-foreground mt-2 font-mono text-xs">{artifact.artifact_ref}</p>}
-      </section>
-    );
-  }
+  if (name === "mathpilot-teaching-artifact") return <TeachingArtifactMessage data={data} />;
   return null;
 }
 

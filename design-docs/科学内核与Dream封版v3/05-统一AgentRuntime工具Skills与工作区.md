@@ -245,7 +245,7 @@ Foreground 的 `learning_action` 不是通用数据库工具，只接受少量�
 
 `read` 与 `grep` 分别承担“读取已知路径”和“在授权投影中搜索”两种不重叠的只读原语，直接复用 Pi 成品能力；不再为它们包装一个自制 `workspace_query` 大工具。
 
-当前 `present_question_card` 与 `present_learning_artifact` 的重叠应收敛：正式题卡由 QuestionOpened 事实自动渲染；Agent 只在确需展示额外、已验证教学产物时使用一个 artifact action。
+当前 `present_question_card` 与 `present_learning_artifact` 的重叠应收敛：正式题卡由 QuestionOpened 事实自动渲染；Agent 只在确需展示额外、已验证教学产物时使用一个 artifact action。首个且唯一的公开 artifact 契约是 `mathpilot.teaching-artifact/math-derivation/v1`，只含有界数学步骤，由 assistant-ui 官方 `MathBlock` 展示；任意 JSON/HTML 或科学状态字段不得借该入口进入消息。
 
 前端进一步把 renderer 分成后端事实专用的 `domainPresentationRegistry` 与模型可用的有界教学 artifact registry；前者不是 Agent 工具。完整契约见 [07-前端设施后端读模型与统一交互语言.md](./07-前端设施后端读模型与统一交互语言.md)。
 

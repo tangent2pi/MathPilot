@@ -54,11 +54,33 @@ export interface DomainUIPart {
   domain_event_ref: string;
 }
 
+export const MATH_DERIVATION_ARTIFACT_SCHEMA = "mathpilot.teaching-artifact/math-derivation/v1" as const;
+export const MATH_DERIVATION_ARTIFACT_SCHEMA_URI =
+  "https://schemas.mathpilot.dev/science-v3/teaching-artifact-math-derivation/v1" as const;
+
+export interface MathDerivationTeachingArtifact {
+  schema: typeof MATH_DERIVATION_ARTIFACT_SCHEMA;
+  label?: string;
+  steps: Array<{ expression: string; note?: string }>;
+}
+
+export interface TeachingArtifactReferencePart {
+  type: "teaching_artifact";
+  artifact_ref: string;
+  artifact_schema: typeof MATH_DERIVATION_ARTIFACT_SCHEMA;
+  summary: string;
+}
+
 export type CanonicalMessagePart =
   | { type: "text"; text: string }
   | { type: "attachment"; attachment_ref: string; name: string; mime_type: string }
   | { type: "domain_ui"; part: DomainUIPart }
-  | { type: "teaching_artifact"; artifact_ref: string; artifact_schema: string; summary: string };
+  | TeachingArtifactReferencePart;
+
+export type UserSubmittedMessagePart = Extract<CanonicalMessagePart, { type: "text" | "attachment" }>;
+
+export type LearningThreadMessagePart = Exclude<CanonicalMessagePart, TeachingArtifactReferencePart>
+  | (TeachingArtifactReferencePart & { presentation?: MathDerivationTeachingArtifact });
 
 export interface CanonicalMessage {
   schema_version: 3;
@@ -76,6 +98,11 @@ export interface CanonicalMessage {
   version: number;
   action_capabilities: CommandCapability[];
 }
+
+/** Read-model message. `presentation` is materialized at read time and is never stored in canonical facts. */
+export type LearningThreadMessage = Omit<CanonicalMessage, "parts"> & {
+  parts: LearningThreadMessagePart[];
+};
 
 export interface LearningClientEvent {
   event_id: string;

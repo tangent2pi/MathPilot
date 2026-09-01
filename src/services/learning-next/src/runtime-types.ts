@@ -1,3 +1,5 @@
+import type { MathDerivationTeachingArtifact } from "@mathpilot/contracts";
+
 export const TASK_TYPES = [
   "grade",
   "diagnose",
@@ -331,9 +333,9 @@ export type BoundedLearningAction =
   | { action: "revise_selection_intent"; natural_language_request: string }
   | {
       action: "present_validated_artifact";
-      artifact_schema: `mathpilot.teaching-artifact/${string}/v${number}`;
+      artifact_schema: "mathpilot.teaching-artifact/math-derivation/v1";
       summary: string;
-      content: Record<string, unknown>;
+      content: MathDerivationTeachingArtifact;
     };
 
 export interface LearningActionResult {

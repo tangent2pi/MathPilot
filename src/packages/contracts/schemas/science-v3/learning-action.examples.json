@@ -1,9 +1,16 @@
 {
   "valid": {
     "action": "present_validated_artifact",
-    "artifact_schema": "mathpilot.teaching-artifact/explanation/v1",
-    "summary": "用面积守恒比较两个三角形。",
-    "content": { "kind": "comparison", "items": ["同底", "等高"] }
+    "artifact_schema": "mathpilot.teaching-artifact/math-derivation/v1",
+    "summary": "逐步配方求解。",
+    "content": {
+      "schema": "mathpilot.teaching-artifact/math-derivation/v1",
+      "label": "配方法",
+      "steps": [
+        { "expression": "x^2+6x+5=0" },
+        { "expression": "(x+3)^2=4", "note": "两边同时补 9" }
+      ]
+    }
   },
   "valid_cases": [
     { "action": "request_cut", "reason": "student_switch", "next_natural_language_request": "换一道更简单的。" },
@@ -25,6 +32,13 @@
       "action": "request_cut",
       "reason": "student_switch",
       "tenant_id": "tnt_other"
+    },
+    {
+      "_reason": "未注册的教学产物不能借 validated 名义进入展示链",
+      "action": "present_validated_artifact",
+      "artifact_schema": "mathpilot.teaching-artifact/arbitrary/v1",
+      "summary": "任意内容",
+      "content": { "schema": "mathpilot.teaching-artifact/arbitrary/v1", "html": "<script>bad()</script>" }
     }
   ]
 }

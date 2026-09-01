@@ -1,10 +1,10 @@
+import { MATH_DERIVATION_ARTIFACT_SCHEMA } from "@mathpilot/contracts";
 import type { BoundedLearningAction } from "./runtime-types.ts";
 
 const refPattern = /^[a-z][a-z0-9+.-]*:[^\s]+$/;
 const threadPattern = /^thr_[A-Za-z0-9]{8,}$/;
 const epochPattern = /^fge_[A-Za-z0-9]{8,}$/;
 const messagePattern = /^msg_[A-Za-z0-9]{8,}$/;
-const artifactSchemaPattern = /^mathpilot\.teaching-artifact\/[a-z0-9_-]+\/v[1-9][0-9]*$/;
 
 const objectValue = (value: unknown, label: string): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -20,6 +20,32 @@ const boundedText = (value: unknown, maximum: number, label: string): string => 
     throw new Error(`${label} must contain 1-${maximum} characters`);
   }
   return value;
+};
+
+const mathDerivationContent = (
+  value: unknown,
+): Extract<BoundedLearningAction, { action: "present_validated_artifact" }>["content"] => {
+  const content = objectValue(value, "artifact content");
+  exactKeys(content, ["schema", "label", "steps"], "math derivation artifact");
+  if (content.schema !== MATH_DERIVATION_ARTIFACT_SCHEMA) throw new Error("math derivation artifact schema is invalid");
+  if (!Array.isArray(content.steps) || content.steps.length < 1 || content.steps.length > 16) {
+    throw new Error("math derivation artifact must contain 1-16 steps");
+  }
+  const steps = content.steps.map((value, index) => {
+    const step = objectValue(value, `math derivation step ${index + 1}`);
+    exactKeys(step, ["expression", "note"], `math derivation step ${index + 1}`);
+    return {
+      expression: boundedText(step.expression, 2000, `math derivation step ${index + 1} expression`),
+      ...(step.note === undefined ? {} : {
+        note: boundedText(step.note, 500, `math derivation step ${index + 1} note`),
+      }),
+    };
+  });
+  return {
+    schema: MATH_DERIVATION_ARTIFACT_SCHEMA,
+    ...(content.label === undefined ? {} : { label: boundedText(content.label, 120, "math derivation label") }),
+    steps,
+  };
 };
 
 export function parseBoundedLearningAction(value: unknown): BoundedLearningAction {
@@ -46,16 +72,14 @@ export function parseBoundedLearningAction(value: unknown): BoundedLearningActio
   }
   if (raw.action === "present_validated_artifact") {
     exactKeys(raw, ["action", "artifact_schema", "summary", "content"], "present_validated_artifact");
-    if (typeof raw.artifact_schema !== "string" || !artifactSchemaPattern.test(raw.artifact_schema)) {
+    if (raw.artifact_schema !== MATH_DERIVATION_ARTIFACT_SCHEMA) {
       throw new Error("artifact_schema is invalid");
     }
-    const content = objectValue(raw.content, "artifact content");
-    if (Object.keys(content).length > 64) throw new Error("artifact content exceeds 64 properties");
     return {
       action: "present_validated_artifact",
-      artifact_schema: raw.artifact_schema as Extract<BoundedLearningAction, { action: "present_validated_artifact" }>["artifact_schema"],
+      artifact_schema: MATH_DERIVATION_ARTIFACT_SCHEMA,
       summary: boundedText(raw.summary, 1000, "artifact summary"),
-      content,
+      content: mathDerivationContent(raw.content),
     };
   }
   throw new Error("learning_action is not allowed");
@@ -105,7 +129,7 @@ export function parseForegroundTeachingOutput(value: unknown, binding: Foregroun
     if (item.type === "teaching_artifact") {
       exactKeys(item, ["type", "artifact_ref", "artifact_schema", "summary"], "teaching artifact response part");
       if (typeof item.artifact_ref !== "string" || !refPattern.test(item.artifact_ref)
-        || typeof item.artifact_schema !== "string" || !artifactSchemaPattern.test(item.artifact_schema)) {
+        || item.artifact_schema !== MATH_DERIVATION_ARTIFACT_SCHEMA) {
         throw new Error("teaching artifact response part is invalid");
       }
       return {

@@ -1,17 +1,19 @@
 import type {
-  CanonicalMessage,
   CanonicalMessagePart,
   CommandCapability,
   DomainUIPart,
+  LearningThreadMessage,
   LearningView,
+  UserSubmittedMessagePart,
 } from "@mathpilot/contracts";
 
 export type {
-  CanonicalMessage,
   CanonicalMessagePart,
   CommandCapability,
   DomainUIPart,
+  LearningThreadMessage,
   LearningView,
+  UserSubmittedMessagePart,
 };
 
 export interface ThreadSummary {
@@ -38,7 +40,7 @@ export interface ThreadOperation {
 
 export interface ThreadMessagesData {
   thread: { id: string; title: string; status: "active" | "archived"; version: number };
-  messages: CanonicalMessage[];
+  messages: LearningThreadMessage[];
   operations: ThreadOperation[];
   next_cursor: string;
   has_more: boolean;
