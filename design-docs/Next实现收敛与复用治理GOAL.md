@@ -1,7 +1,7 @@
 # MathPilot Next 实现收敛与复用治理 Goal
 
 > 用途：承接 Science v3 P7 的用户明确未完成移交，统一关闭 Next 路径中的隐藏省略、伪能力、重复运行机制与不必要手写基础设施。
-> 状态：`active`（2026-09-01）；G0 审计检查点已完成并冻结逐 owner 产品 replay；G1 正在实施，C-04 path/object、O-13 evidence secret、deployed Pi active Artifact、正式 Next internal service identity/config 与 B 内容完整性架构已分别收口，但错误承诺等 G1 其余安全项与 G2–G6 均未完成。
+> 状态：`active`（2026-09-01）；G0 审计检查点已完成并冻结逐 owner 产品 replay；G1 正在实施，C-04 path/object、O-13 evidence secret、deployed Pi active Artifact、正式 Next internal service identity/config、B 内容完整性架构及 MathPilot-owned HTTP Boundary Contract v1/入口安全头与粗粒度 flood baseline 已分别收口，但通用 Artifact/interaction 承诺、业务级配额与 G2–G6 均未完成。
 > P7 权威 Goal：[科学内核与 Dream 配套前端实施 Goal](./科学内核与Dream封版v3/GOAL.md)
 > 唯一审计输入：[Next 实现整合审计 v3](./Next实现隐藏省略设计忠实度与复用整合审计v3.md)
 > 历史审计：v1、v2 补充与忠实度 v1 已 superseded，只可沿 v3 的裁决追溯，不得直接生成任务。
@@ -122,9 +122,9 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 | R-22 附件物化全量入内存 | 确认 | stream pipeline、增量 hash、读取中限幅、临时文件原子 rename、取消和超时测试 |
 | R-23 UUID/Math.random 回退 | 低优先级确认 | 明确浏览器/Node platform contract；支持 `crypto.randomUUID` 时删回退，否则使用经审计 UUID 库，不维护自写 v4 |
 | R-24 offset cursor 双轨 | 确认，但排序语义不得通用化 | 共享签名/编码/error codec，各领域使用稳定 keyset；多 kind 分页必须明确支持或拒绝，不静默回第一页 |
-| R-25 三套错误类与默认 500 | 重复与泄漏风险确认；“一个 AppError 类”方案过度 | 共享 Problem Details/error mapping 协议和 Fastify handler；领域错误类型可保留，不能做万能错误类 |
+| R-25 三套错误类与默认 500 | 重复与泄漏风险确认；“一个 AppError 类”方案过度 | `cae19b6` 已由 canonical Problem Schema、共享 Fastify owner、共享 response decoder 与领域 mapper adapter 收口 MathPilot-owned HTTP Boundary v1；领域错误类型保留，未引入万能错误类，证据见 5.12 |
 | R-26 shared secret 普通比较 | `e065416` 已关闭正式 Next 六条生产边 | `@mathpilot/internal-service` 统一 assertion/service-context、逐 edge keyring、恒定时间验证、rotation/readiness 与生产预检；证据见 5.10 |
-| R-27 rate limit/安全头/CORS | **拆分** | 按 threat model 配置 rate limit 与安全头；同源应用缺少 CORS 插件不是缺陷，除非确有跨域需求，不为“插件齐全”放宽同源边界 |
+| R-27 rate limit/安全头/CORS | **拆分**；入口安全头、Nginx flood backstop 与 Better Auth 官方 limiter 已由 `cae19b6` 收口 | 证据见 5.12；按用户/tenant/业务动作与 SSE 并发的 threat-model 配额、多副本共享状态仍开放。同源应用缺少 CORS 插件不是缺陷，除非确有跨域需求，不为“插件齐全”放宽同源边界 |
 | R-28 compose 健康门禁 | 确认 | 真实 readiness + MinIO/服务 healthcheck；强依赖使用 `service_healthy`，弱依赖显式降级 |
 | R-29 Dockerfile 缓存双模板 | 确认，维护项 | 共享构建约定/模板，先复制 manifest 安装再复制源码；不把缓存优化冒充功能修复 |
 | R-30 无 CI | `7843ab8` 确认 | 最小 CI 必须先承载 schema/reachability/0-test/typecheck/test；再加 clone/boundary/property/E2E 守门 |
@@ -411,7 +411,7 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 - `docker compose --env-file deploy/dev/.env.example config` 退出 0；实际构建的 `internal-identity-preflight` 在 read-only、无网络、drop-all-capabilities 容器中退出 0，production + 公开 dev key 负例退出 1且不回显 key；五个正式服务均依赖该 one-shot gate，且只注入自身相邻 edge 的 keyring；
 - 删除证明确认正式 Next production 代码/Compose/runbook 不再含旧 secret/URL/header，Pi 不再含 `PiObjectStore`、直连 MinIO credentials、主动 Artifact tools 或生产 `/pi/*` route；`git diff --check` 通过。
 
-本 tranche 完成的是当前正式 Next topology 的共同 internal identity/config 机制，不是 G1 或 DB/service 终态整行。`memory-single-replica` 是当前明确部署约束；若 G6 启用多副本，须通过既有 replay-store port 接入跨副本原子 consume 并补真实 duplicate/restart 测试。其他领域 config 注入、pool/RLS、Problem Details、安全头、rate limit、内容识别与 G2–G6 仍开放；后续只能扩展消费者和删除路径，不重写本节核心。
+本 tranche 完成的是当前正式 Next topology 的共同 internal identity/config 机制，不是 G1 或 DB/service 终态整行。`memory-single-replica` 是当前明确部署约束；若 G6 启用多副本，须通过既有 replay-store port 接入跨副本原子 consume 并补真实 duplicate/restart 测试。该节写入时仍开放的 Problem Details、入口安全头和粗粒度 flood baseline 后由第 5.12 节收口；其他领域 config 注入、pool/RLS、业务级/多副本配额、内容识别与 G2–G6 仍开放。后续只能扩展消费者和删除路径，不重写本节核心。
 
 ### 5.11 B：Object/Attachment/Avatar/Artifact 内容完整性共同机制证据
 
@@ -431,7 +431,7 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 - 该 commit 当时冻结的 fresh schema 从 `0001` 迁移到 `0041` 并执行 `app-role.sql`/`bootstrap.sql` 均退出 0；真实 app/storage 对抗覆盖 ACL、claim/seal、候选冻结、projection owner、附件 MIME/48 MiB 原子回滚、avatar release 和 GC NULL/limit/lifecycle；同 SHA 并发结果为 `first=0 second=1 canonical_rows=1`；
 - 使用本地实际 `.env` 的 `docker compose ... config --quiet` 退出 0；`git diff --cached --check` 通过；两个 fresh-schema 临时 PostgreSQL 验证容器已停止并自动删除。
 
-关闭后复核基线为 `POST_CLOSE_REVIEW_BASE=5594df3c05ed84b6567a7a4a972d5649c7e128ea`。下列修正当前仍在**未提交工作树**，尚无 implementation commit，不能回写或暗算进 `c1e2acb`：
+关闭后复核基线为 `POST_CLOSE_REVIEW_BASE=5594df3c05ed84b6567a7a4a972d5649c7e128ea`，复核修正已绑定 `CONTENT_INTEGRITY_REVIEW_FIX_COMMIT=9c66a6959f071ea2d0e09179e7fdb513586ba7e5`。下列是该后续 commit 的独立证据，不能回写或暗算进 `c1e2acb`：
 
 - fresh-only preflight 前移到 `0041` 首段并覆盖 legacy avatar、既有 storage row、既有 message attachment、candidate/object pointer；删除其后已不可达的 storage retirement、attachment rewrite/claim/backfill。部署手册同步改为保留旧 dump/runtime/MinIO volume、另建空库/空卷，禁止恢复后伪称幂等升级；
 - Storage GC 在 listener 前 fail-fast 接入 Temporal Schedule/Workflow/Activity，复用 `@mathpilot/internal-service/temporal::reconcileTemporalSchedule` 而非再写 create-or-update；其测试证明 production activity 可达、Schedule 语义、operator pause 保留、startup failure drain 顺序，并用 SDK `bundleWorkflowCode` 编译真实 workflow 且校验 Schedule action 对应真实 export。worker 意外终止的两个分支复用同一 server-close 路径并观察/记录 shutdown rejection，不制造未处理 Promise；它不向 DELETE 响应泄漏 executor，也不构成 G4 完成；
@@ -441,7 +441,32 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 - `nix develop path:/home/tangent/MathPilot -c pnpm --filter @mathpilot/web-next build` 退出 0，Vite 8 production build 转换 3383 modules；只有既有大 chunk 提示，没有 Node builtin externalization，证明 `mime/lite` 可进入浏览器 bundle；
 - 真实 PostgreSQL A 使用 Nix PostgreSQL 16 隔离 Unix-socket cluster，在先执行部署前置 `app-role.sql` 后，从新空库逐文件运行 `psql -v ON_ERROR_STOP=1 -q -f db/migrations/*.sql`，退出 0，`0041_content_integrity` 登记为 1 且 final avatar 表含 `storage_object_id`。真实 PostgreSQL B 在另一新空库运行 `0001`→`0040` 后插入 `legacy-auth-user:image/png:89504e47`，执行 `psql -v ON_ERROR_STOP=1 -f db/migrations/0041_content_integrity.sql` 退出 3 并返回 `pre-integrity avatars require a fresh Next database`；事后读回仍为相同字节，`image_bytes` column=1、`storage_object_id` column=0、`0041` migration row=0，证明 DDL 前 fail-closed 且事务未改旧行/旧表；两个隔离验证 cluster 已停止。
 
-本 tranche 关闭的是 B 的最终共同架构与当前 production-reachable consumer，不把 G1、G4、G6 或完整 Goal 标成完成。Storage GC 的 durable Temporal 生产启动接点已接入并在 listener 前 fail-fast；这只是对象生命周期的窄执行切片，不等于 G4 的 Agent Runtime/执行内核已经收敛。真实 Temporal+PostgreSQL+MinIO、浏览器上传、进程重启、多副本和完整部署矩阵仍在 G6；通用 Artifact interaction promise、Problem Details、500 脱敏、安全头、threat-model rate limit 与 G2–G6 继续开放。保留边界只需扩展/验证和删除，不要求重写本节核心。
+本 tranche 关闭的是 B 的最终共同架构与当前 production-reachable consumer，不把 G1、G4、G6 或完整 Goal 标成完成。Storage GC 的 durable Temporal 生产启动接点已接入并在 listener 前 fail-fast；这只是对象生命周期的窄执行切片，不等于 G4 的 Agent Runtime/执行内核已经收敛。真实 Temporal+PostgreSQL+MinIO、浏览器上传、进程重启、多副本和完整部署矩阵仍在 G6；该节写入时开放的 MathPilot-owned Problem Details、默认 500 脱敏、入口安全头与粗粒度 flood baseline 后由第 5.12 节收口，通用 Artifact interaction promise、业务级/多副本配额与 G2–G6 继续开放。保留边界只需扩展/验证和删除，不要求重写本节核心。
+
+### 5.12 MathPilot-owned HTTP Boundary Contract v1 共同机制证据
+
+| 门禁 | 当前可复现证据 |
+|---|---|
+| 基线与关闭 commit | `HTTP_BOUNDARY_BASELINE=9c66a6959f071ea2d0e09179e7fdb513586ba7e5`；`HTTP_BOUNDARY_IMPLEMENTATION_COMMIT=cae19b6f16cac193949affcc0f42a74dd93e221d`。实施只触及正式 Next Web/API/Content/Pi/Storage、直接共享 packages、`deploy/dev`、根 Nix 环境与锁文件，未修改旧架构 |
+| canonical contract 与运行时 | `@mathpilot/contracts` 中 `schemas/http/problem-details.schema.json` 是唯一 Problem wire Schema；Ajv 8.20.0 编译、esbuild 0.27.7 生成并 bundle standalone validator，package test 检查生成物漂移。产品运行时不携带 Ajv compiler、`eval` 或 `new Function`；`readProblemDetails` 统一校验 media type、Schema 与 HTTP status，错误媒体释放 body，`publicProblemMessage` 禁止 5xx `detail` 暴露 |
+| 服务端共同 owner | `@mathpilot/internal-service/fastify` 唯一拥有 `sendProblem`、404、Fastify transport 400/413/415/422、默认脱敏 500、启动与生命周期；API/Content/Pi/Storage 只提供领域 mapper。Learning 的 PostgreSQL/Selection mapper 通过 Fastify encapsulated child plugin 限定在 Learning routes，兄弟 route 的相同 `P0001` 仍为安全 500 |
+| producer、relay 与协议例外 | MathPilot-owned 普通 JSON route 的错误响应输出 `application/problem+json`、稳定 `code/title/status` 与 `no-store`；API internal relay 只透传 media/Schema/status 一致的 Problem，网络或伪响应转换为安全 502。Better Auth `<500` 保留 provider-owned SDK wire，`>=500` 由外边界转换为安全 Problem；hijacked SSE 继续拥有 event protocol，不伪装成普通 JSON response |
+| Web/Pi consumer 与假成功删除 | Web 账户、内容、学习、Storage resolve/upload/delete 共同使用 `responseJson/responseProblem`；Pi Content library 与 candidate registration 直接复用 contracts decoder，不再读取 legacy `{error/detail}`。2xx malformed JSON 不再 catch-to-empty；Storage cleanup 复用唯一 delete adapter，404/410 幂等且显式释放 body，其余失败真实拒绝 |
+| ingress、安全头与 abuse baseline | Nginx 唯一拥有 CSP、`nosniff`、frame/referrer/permissions headers、可信 `X-Real-IP` 与入口 `client_max_body_size`；入口生成的 413/429/502/503/504 也是 canonical Problem。Nginx 提供粗粒度 IP flood backstop，Better Auth 使用其官方 limiter；同源边界未为“补 CORS”而放宽 |
+| 删除与防返工 | 删除四服务私有 Fastify error/not-found handler、API/Learning 纯编码 catch、`LearningApiError`、重复 Web error type、legacy response body consumer 与成功 JSON 默认空对象。共同机制按 Schema/encoder/decoder/领域 adapter 分层，没有万能 AppError、第二 transport Schema 或按服务复制的 handler |
+
+独立验证与反证：
+
+- Contracts、Internal Service、API、Content、Pi、Storage、Web 的定向 tests 全部退出 0；最终计数为 Internal Service 16/16、API 16/16、Content 11/11、Pi 19/19、Storage 18/18、Web 19/19，Contracts 的生成一致性、Unicode/schema examples 与 runtime 禁止动态执行检查全部通过；七包 typecheck 全部退出 0；Web Vite 8 production build 转换 3387 modules 并退出 0；`git diff --check` 通过；
+- 真实 Nginx 子进程测试覆盖入口 413、flood 429、上游 429 原样透传、gateway 502、安全头、`no-store` 及伪造 `X-Real-IP/X-Forwarded-For`；Fastify tests 覆盖 invalid content-length、JSON/body/parser/validation、404 与未知异常；API tests 证明 Learning mapper 不污染兄弟 route；
+- 主控反向扫描在前两轮“无阻断”后继续发现并关闭 validator CJS/ESM interop、重复 lock 版本、invalid content-length、漏接 Web/Pi consumer、真实 Nginx 413、动态 Selection message 泄漏、Storage cleanup 假成功、Learning 跨域 `P0001` 误分类风险及 2xx malformed JSON catch-to-empty；第三轮 Terra 语义复核又发现 404/410 response body 未释放，已在同一 commit 最小修正并由 Web 19/19 复跑。该过程说明审查报告不能替代主控全局反证。
+
+本 tranche **只关闭** MathPilot-owned 普通 JSON HTTP 错误契约、默认 500 脱敏、入口安全头和当前单入口部署的粗粒度 flood baseline，不把全部 HTTP、全部 CSP、业务 quota、G1 或安全终态标成完成。以下边界继续保留：
+
+- Better Auth `<500` provider wire、hijacked SSE event protocol、Node/Nginx 在进入应用 handler 前产生的原始 parser/transport error；只看 status 且不消费错误语义的内部调用方可保持 status-only，不复制 decoder；
+- Schema→TypeScript/OpenAPI/generated client 与全部 route schema 属于 G3；当前 `P0001` message 分类须在数据库建立结构化错误 taxonomy 后替换，不把字符串匹配扩成通用规则引擎；
+- 按用户/tenant/业务动作的 quota、SSE concurrency/replay/backpressure、跨副本共享 limiter 属于 G5/G6；真实浏览器 CSP/攻击 smoke 与完整部署矩阵属于 G6；
+- 只有本次生成的 Problem validator 已证明无 runtime compiler/eval。整个 Web bundle 仍含既有 Zod 动态代码探测与 Lodash `Function` fallback，CSP 仍允许既有 React inline style 所需的 `style-src 'unsafe-inline'`，不得宣称全 bundle strict-CSP/no-eval。
 
 ## 6. 不可破坏的设计准则
 
@@ -576,7 +601,7 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 
 ### G1：安全边界与错误承诺
 
-当前状态：`in_progress`。C-04 窄 path/object boundary、O-13 api-next auth/evidence secret boundary、deployed Pi active Artifact entry、正式 Next internal service identity/config 与 B 内容完整性共同架构已分别由第 5.6、5.8、5.9、5.10、5.11 节留证；通用 Artifact contract/interaction promise、未来可执行内容 origin、错误承诺、Problem Details、安全头与 rate limit 等交付仍开放，因此不得把 G1 标为完成。
+当前状态：`in_progress`。C-04 窄 path/object boundary、O-13 api-next auth/evidence secret boundary、deployed Pi active Artifact entry、正式 Next internal service identity/config、B 内容完整性共同架构及 MathPilot-owned HTTP Boundary Contract v1/入口安全头/粗粒度 flood baseline 已分别由第 5.6、5.8、5.9、5.10、5.11、5.12 节留证；通用 Artifact contract/interaction promise、未来可执行内容 origin、业务级与多副本配额、SSE 并发/重放及真实浏览器攻击证据仍开放，因此不得把 G1 标为完成。
 
 交付：
 
@@ -586,9 +611,9 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 - 正式 Next 五个服务 production internal config fail-fast 与共同 identity/service-context（六条 edge 已由 5.10 收口；其他领域 config 仍进 G5）；
 - Avatar/附件/被动 Artifact 内容识别、图片解码重编码、stream/size/hash/expiry（B 共同架构、当前 production consumer 与 Storage durable GC 窄接点已由 5.11 收口；这不完成 G4，真实部署证据仍进 G6）；
 - `validated`、`sandboxed`、interaction token、dedup 等承诺与真实运行时一致；
-- 全局 Problem Details、默认 500 脱敏、安全头和按 threat model 的 rate limit。
+- MathPilot-owned 普通 JSON HTTP Problem、默认 500 脱敏、入口安全头与当前单入口粗粒度 flood backstop（v1 已由 5.12 收口）；Better Auth/SSE/raw parser 明确例外、业务级与多副本 threat-model 配额及真实浏览器 CSP 证据继续留在 G5/G6。
 
-门槛：安全测试证明 sandbox 外归档不能读取授权 root 外字节；api-next 非 dev 默认/共用 secret 已拒绝启动并有 production preflight；其余内部身份/config 收敛；主动内容不能继承应用 origin；文件声明与实际内容不一致被拒绝。
+门槛：安全测试证明 sandbox 外归档不能读取授权 root 外字节；api-next 非 dev 默认/共用 secret 已拒绝启动并有 production preflight；其余内部身份/config 收敛；主动内容不能继承应用 origin；文件声明与实际内容不一致被拒绝；MathPilot-owned route 的错误 wire/默认 500/入口生成错误有可重放攻击证据。业务 quota、多副本 limiter、SSE 与浏览器 CSP 的剩余门槛不得由 v1 baseline 代替。
 
 ### G2：P7 剩余真实性、状态终态与可达性
 
