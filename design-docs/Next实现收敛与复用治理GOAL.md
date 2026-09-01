@@ -1,7 +1,7 @@
 # MathPilot Next 实现收敛与复用治理 Goal
 
 > 用途：承接 Science v3 P7 的用户明确未完成移交，统一关闭 Next 路径中的隐藏省略、伪能力、重复运行机制与不必要手写基础设施。
-> 状态：`active`（2026-09-01）；G0 的 handoff、反误修与横向机制计数已冻结，产品问题族仍待逐 owner 过门；C-04 的独立实施门已就绪，尚未声明任何 G1 代码修复完成。
+> 状态：`active`（2026-09-01）；G0 的逐 owner 产品 replay 已记录，待提交后绑定冻结证据；G1 正在实施，C-04 的窄 path/object boundary 已关闭，但 G1 其余安全项与 G2–G6 均未完成。
 > P7 权威 Goal：[科学内核与 Dream 配套前端实施 Goal](./科学内核与Dream封版v3/GOAL.md)
 > 唯一审计输入：[Next 实现整合审计 v3](./Next实现隐藏省略设计忠实度与复用整合审计v3.md)
 > 历史审计：v1、v2 补充与忠实度 v1 已 superseded，只可沿 v3 的裁决追溯，不得直接生成任务。
@@ -66,7 +66,8 @@
 | P7 移交前工作树 | 已冻结 | 只用于追溯 `p7-pending`，不用于关闭问题 |
 | `P7_HANDOFF_COMMIT=70999cdfaff11c351fa7e9bf0771b50040518e01` | 可复现 | 本 Goal 唯一代码现状基线 |
 | `G0_AUDIT_INPUT_COMMIT=8548c05e11ec8496c52e34c84c1f8322a01340d5` | 可复现 | 四份审计输入原样入库后的治理审计基线 |
-| `G0_REPLAY_BASELINE=d5e34aa2259d5fda95566c27a4b96f87cf573c21` | 可复现 | 工作树干净；相对 P7 handoff 的正式 Next、packages、DB 与 deploy 产品代码差异为零；第 5.3～5.6 节的计数可同时代表 handoff 与本次复验实况 |
+| `G0_REPLAY_BASELINE=d5e34aa2259d5fda95566c27a4b96f87cf573c21` | 可复现 | 工作树干净；相对 P7 handoff 的正式 Next、packages、DB 与 deploy 产品代码差异为零；第 5.3～5.5 节的计数可同时代表 handoff 与本次复验实况，第 5.6 节只有 implementation-door 基线部分属于该提交 |
+| `G0_PRODUCT_REPLAY_BASELINE=eaad78bec4c73471e1047c6164932fe063c89fd5` | 可复现 | 工作树干净；第 5.7 节以该提交的产品树为 replay 输入，未以随后 C-04 代码改动反向改写审计事实；该 SHA 不声称包含稍后写入的 replay 文档 |
 
 以后所有问题关闭记录必须包含 commit、路径、测试或运行证据。禁止再次使用“HEAD + 未提交改动”作为审计基线。
 
@@ -228,15 +229,15 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 | C-01 诊断硬门 | `open` | finalize 生产链仍可把正常关闭留在 `unclassified`；fixture 与 reducer 存在不能形成终态 | Question finalize/diagnosis / G2 |
 | C-02 错因事实链 | `open` | DiagnosticClaim/DiagnosisOutcome 的完整 production insert→ErrorEvidence→消费链仍不存在；测试 fixture 是反证，不是 producer | diagnosis workflow + error core / G2 |
 | C-03 RetentionUnit | `open` | official/teacher content 没有可追溯 unit/rule writer，真实 Attempt 因而不能证明进入 R/复习链 | content cutover + retention / G2 |
-| C-04 archive symlink | `open` | 配置对象存储后，已授权 archive route 会在 sandbox 外递归 workspace；`Dirent.isDirectory()` 把 symlink 送给会跟随链接的 MinIO `fPutObject`。默认 compose 未配置该 Pi 对象分支，只降低默认开发可达性，不撤销可配置部署风险 | `pi-object-store.ts` + archive route / G1 P0；完整实施门见 5.6 |
+| C-04 archive symlink | `changed` | `627fd585282e37844d555ea3ac195481038efd49` 关闭已确认的 sandbox 外 symlink/root/object-key 逃逸：上传只接受 root 内 regular file，下载先验证 key/size 并 staging rename，archive 状态与 snapshot pointer 单事务发布；24 项 Pi runtime 测试与 typecheck 通过。对象生命周期整体未关闭：跨副本 reservation 进入 G4/G6，对象 GC 与共同 object/path policy 进入 G5，真实集成进入 G6 | `pi-object-store.ts` + archive route + thread store / G1 窄项关闭；证据见 5.6 |
 | C-05 AnswerReceipt | `open` | P7 已接 canonical receipt 与 renderer，但缺真实 route、丢回包、refresh/cross-device replay | learning route + External Store / G2、G6 |
 | C-06 context manifest | `open` | P7 已从 WorkspaceProjection 持久化并显示 manifest，但缺“实际注入 items = 显示 items”、ACL、刷新与降级集成证据 | projection + Pi input + read model / G2、G6 |
 | C-07 Schema/Task truth | `open` | 97 个正式 HTTP method/path 无 Fastify route schema；9 个 TaskSpec 中 grade/diagnose/teach_summary/semantic_decomposition 仍断链；7 个 runtime Schema URI 无 `$id` 文档 | contracts runtime registry + 各 route/Task adapter / G3 |
 | C-08 durable Agent runtime | `changed` | Content 5 秒 dispatcher 与 Pi Map/marker/transcript 恢复是 confirmed duplication；DB outbox→Temporal 是领域事务桥，不是第二套 queue。迁移前必须先按用户最新决定修订 KTQ/ER owning 设计 | KTQ/ER design → Temporal Task Runtime + Content/Pi adapters / G4 |
-| v3 §4.1 产品问题族 | `open/changed` | 下一题、干预/LO、transfer/evidence、错因、Dream、Selector、blind retry、权威卡、附件/content semantics 与 a11y 均未被 G0 关闭；intent 来源、外部题、教师策略、Export 与 generative UI 范围先核对 owning 设计。数学推导 artifact 的 O-14 窄子项仍按 5.1 `closed-by-p7` | 各领域 owner / G2、G5、G6；逐项过门后才改代码 |
+| v3 §4.1 产品问题族 | `open/changed` | 十二个问题族已在 5.7 以 `G0_PRODUCT_REPLAY_BASELINE` 的产品树逐 owner 重放；这完成的是事实定位，不是产品实现。数学推导 artifact 的 O-14 窄子项仍按 5.1 `closed-by-p7`，其余开放面按 5.7 进入 G2/G4/G5/G6 | 各领域 owner / 逐项实施前继续走窄门禁 |
 | v3 §4.2 横向机制 | `open/changed` | pool/config/SSE/server-state/object/path/ID/cursor/CSV/migration/build graph 的当前实况见 5.5；跨进程 pool、浏览器 EventSource、presigned data-plane fetch、局部 Map/Set 与字节 SHA 是合理例外 | 第 8 节对应共同机制 owner / G1、G4、G5、G6 |
 
-本表没有把 G0 整体标成完成：v3 §4.1 中按产品问题族分组的条目仍须逐 owner 补齐生产 trigger→write→consumer、反证与当前设计范围，才能从 `open/changed` 家族升级为可实施的窄任务。C-04 不依赖这些领域裁决，且已单独完成第 5.6 节全部门禁，因此可以作为下一 tranche 先行。
+本表不把任一 `open/changed` 产品问题族标成实现完成。第 5.7 节补齐逐 owner 的 trigger→write→consumer、反证、影响与最小归属后，G0 作为**审计检查点**可以结束；每个代码 tranche 仍须按第 4.5 节在其 owner 上重新确认。C-04 已沿独立门禁先行关闭窄边界，不代表 G1 或对象生命周期整体完成。
 
 ### 5.4 防误修反回归 ledger
 
@@ -268,9 +269,9 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 | Web/server-state | Web 8 文件有 9 个 `fetch()`、7 个 `window.location.assign`、2 个 2 秒 polling；14 个 service fetch 中 11 个 control-plane、3 个 presigned data-plane，API relay 还会全量 `arrayBuffer()` | control-plane/generated client、Router/Query 与 streaming proxy `open`；data-plane fetch 是例外 / G5 |
 | SSE/timer/runtime | 两套手写 SSE：learning 逐 client 1 秒 DB poll，Pi 20 秒 heartbeat；Content 5 秒扫两类 pending command；Pi 有 3 个进程 Map 及 ER/review marker+transcript 恢复 | SSE `open` / G5；Content/Pi durable state `changed` 且有 design prerequisite / G4 |
 | ID/hash/cursor | 8 份 deterministic SHA-truncate helper、3 份随机 `newId`、2 个浏览器 `Math.random` fallback；canonical JSON hash 有排序/裸 stringify 双轨；API、Content、Selection 三套 cursor，Content 多 kind 会静默把 offset 归零 | `open/changed` / G5 codecs + 各领域稳定排序；字节 SHA 与局部视觉随机是例外 |
-| object/path/artifact | C-04 无 `PiObjectStore/uploadDirectory/archive` 测试；Artifact index 读改普通 `writeFile` 无锁/原子发布，GET 会触发发布 | C-04 `open` / G1；index `open` / G5 |
+| object/path/artifact | 基线上的 C-04 无 `PiObjectStore/uploadDirectory/archive` 测试；Artifact index 读改普通 `writeFile` 无锁/原子发布，GET 会触发发布 | C-04 在该基线为 `open`、当前关闭证据见 5.6；index `open` / G5 |
 | CSV/migration/build graph | official import 有手写 CSV parser；根 DB 与 web-next Pi DB 有两套 shell migrator；正式 Next 内部 manifest 只声明 web/api/learning→contracts 3 条边，Pi extensions 有隐藏源码依赖，通用 Dockerfile 与 API/Web build 仍扩大到全 workspace | `open` / G5 codecs/db-platform、G6 dependency/removal；PostgreSQL 原生 CSV 是例外 |
-| tests | workspace 18 包，11 个有 test script、7 个没有；根 `--if-present` 会静默跳过。正式 Next 中 web-next/storage-next 无 script，content-next 收集 0 test 仍 exit 0；api-next 仅 2 个 artifact 窄测试；learning-next 28 项为 23 pass/5 DB skip；pi-chat-runtime 8 pass | R-30/R-38 `open` / G6；旧 package 无脚本不自动成为 Next 缺陷 |
+| tests | 基线 workspace 18 包，11 个有 test script、7 个没有；根 `--if-present` 会静默跳过。正式 Next 中 web-next/storage-next 无 script，content-next 收集 0 test 仍 exit 0；api-next 仅 2 个 artifact 窄测试；learning-next 28 项为 23 pass/5 DB skip；pi-chat-runtime 基线 8 pass、C-04 后 24 pass | R-30/R-38 `open` / G6；C-04 当前证据见 5.6，旧 package 无脚本不自动成为 Next 缺陷 |
 
 标准 runner 的其余当前结果是：legacy Web 26 pass、agent-runtime 16 pass、legacy Content 2 pass；mastery/selector/profile 分别自打印 27/8/17 个 `ok`；contracts 验证 44 个 example files/45 schemas 并另跑权限/authority/no-legacy invariant。它们不能代替缺失的 Next route/browser/PostgreSQL evidence，5 个 DB skip 也不能算 integration 通过。
 
@@ -286,7 +287,7 @@ rg -n 'PiObjectStore|uploadDirectory|archive' src/services/pi-chat-runtime/test
 nix develop path:/home/tangent/MathPilot -c pnpm -r --if-present run test
 ```
 
-### 5.6 C-04 首个 implementation door
+### 5.6 C-04 implementation door 与关闭证据
 
 | 门禁 | 已冻结证据 |
 |---|---|
@@ -299,7 +300,55 @@ nix develop path:/home/tangent/MathPilot -c pnpm -r --if-present run test
 | 工作归属与 owner | P7 handoff 后该文件无在途改动；owner 为 `src/services/pi-chat-runtime/src/pi-object-store.ts`、archive/unarchive adapter 与 `pi-chat-runtime/test` |
 | 最小验收 | 任意层级 symlink、root 外 realpath、绝对/`..` object name、非 regular file 必须拒绝；合法嵌套目录可往返；失败不得标 archived/写 `minio_key`；测试不连接真实公网对象服务 |
 
-该 door 只授权下一 tranche 修改上述新 Next owner，不代表 C-04 已修复，也不授权触碰旧 Agent Runtime 或手写 Bubblewrap。
+实施结果绑定 `C04_IMPLEMENTATION_COMMIT=627fd585282e37844d555ea3ac195481038efd49`：
+
+- MinIO 官方 JS client 继续只作薄传输 adapter；本地文件通过 `lstat/realpath`、`O_NOFOLLOW` 与 fd stream 上传，没有复制 SDK 或新造通用对象框架；
+- object key/prefix、local root、regular-file、symlink、文件数/字节数均在副作用前校验；单文件下载先 `statObject`，目录下载先完整 list/size 预检，并在私有 staging 成功后 rename；
+- 每次 archive 使用唯一 generation；只有 archived 记录可 hydrate，active 记录不会从旧指针静默回滚；snapshot 先完成，`archived_at + minio_key` 后以一条授权 SQL 发布，失败补偿 Pi 状态；重复 archive/unarchive 幂等短路；
+- 已有本地 workspace/session 同样验证 symlink 与 realpath；cold empty 或缺失 workspace 不会伪 rehydrate 或清除 DB archived 状态；
+- `nix develop path:/home/tangent/MathPilot -c pnpm --filter @mathpilot/pi-chat-runtime test` 为 24/24 pass，typecheck 退出 0，`git diff --check` 通过；测试覆盖嵌套 Unicode 往返、各层 symlink、Unix socket、绝对/`..`/反斜杠/prefix mismatch、资源上限、失败重试、stale pointer 和跨资源补偿。
+
+该关闭仅对应 C-04 已确认的 path/object boundary。未做真实公网对象服务测试是门禁的明确边界；跨进程 reservation 进入 G4 并在 G6 验收，orphan generation GC 与统一 object/path abstraction 保持在 G5，完整 PostgreSQL/MinIO E2E 保持在 G6。全程只修改正式 Next `pi-chat-runtime`，未触碰旧 Agent Runtime，也没有手写 Bubblewrap。
+
+### 5.7 G0 产品问题族逐 owner replay（待证据提交冻结）
+
+以下事实以 `G0_PRODUCT_REPLAY_BASELINE` 的产品树为输入，并按 v3 §4.1 的 owning 设计重放。`open/changed` 是后续实施输入，不是完成声明；表后 evidence anchors 给出逐族最小复现入口。
+
+| 问题族 | 当前状态与 production/反证 | 影响与最小 owner / 阶段 |
+|---|---|---|
+| 切题后下一题 | `open`：HTTP Cut 固定 `next_intent_ref=null`，foreground 可写该 ref，DB 也保存；Closure 不读取，`question.closed` 只触发 light，只有 `selection.intent_revised` 路由 Selector。显式新建 Intent 与固定 Thread revalidation 已存在，但不是 Closure consumer | Cut 后可出现无 active question、无 Selector；QuestionSession/Cut + SelectionIntent orchestration / G2，复用现有 outbox/Temporal |
+| 干预与 LearningOpportunity | `open`：正式 bounded action 无 hint/intervention writer，Attempt 总传 `hint_level=0`；compiler/store 对真实非零 hint、LO 与 DelayedReview 的行为已经成立 | 提示后成功可能冒充独立 Observation，LO 上游断链；foreground interaction fact + Attempt admission + scientific compiler/store / G2 |
+| Intent 来源与外部题 | `open`：两个正式 Intent writer 均硬编码 student；LearningActivity 无生产 insert；DB 能表达 external/provisional，但只由迁移测试调用，Attempt 对无 revision 的外部题 409。科学编译器正确拒绝未验证外部题进入正式 Observation | program/teacher 与冻结外部题不可达；LearningActivity/SelectionIntent command + QuestionSession opening / G2，不因枚举存在扩写新来源 |
+| transfer / EvidencePolicy | `open`（原论断收窄）：projector 固定 `transferEvidence=false`，`rejectPriorSolutionExposure` 无事实 producer/consumer；hint/source/rubric/correction/supersession 等 guard 已存在，不能误称所有资格门缺失 | mastered 生产不可达，部分 policy 仍装饰性；evidence admission fact + scientific projector / G2，保持显式领域规则 |
+| 错因规划与状态机 | `open`：consumer action 无 production caller；QuestionErrorRole 只有 fixture writer；suspected 对充分反证不转移；provisional 不进入正式 C_e 是正确的，但教师弱证据 timeline 无 reader；cause supersession 无 writer。confirmed→improving→resolved、复发与 Judgment supersession 已正确 | C-02 接通后会暴露半链；diagnostic planner + error core/store、Content role producer、teacher evidence/read/correction / G2，不整体重写 reducer |
+| Dream 审核、纠正、重试 | `open`：annotation review proposal 只有 pending writer，无 reader/approve/reject；rollback 只有 Activity/直接 store 测试；failed/stale deep candidate 无重入队。当前 `soleTeacher` 仅在恰一名 teacher 时返回 owner，REM/Deep 在 0 或多名时静默返回 0；StudentTrait 拒绝与学生 feedback/mute 链是正确反证 | 审核死端、失败候选永久丢失，且当前 owner 发现尚未落实唯一 teacher/default admin 决策；Dream domain / G2，Runtime retry / G4，教师审核 UI / G5–G6。按用户最新约束只建唯一 teacher/default admin owner，不扩多教师产品语义 |
+| Selector 个性化权限 | `changed`：直达 API 已过滤 mute、expiry 与目标相关性；foreground `revise_selection_intent` 使用重复 compiler，绕过 usage preference/relevance | 同一权限在另一生产 trigger 被绕过；唯一 SelectionInput compiler / G2–G3，两 trigger 同 fixture / G6 |
+| 盲重试 | `open`：`candidate_invalid` 只返回裸状态，Workflow 对同一 scheduled input 最多重试三次，没有失效 ID、原因或 exclusion | 可能重复选同一候选；SelectionStore/Workflow / G2–G4，Temporal 重放 / G6 |
+| 学习记录与权威卡 | `changed`：Judgment、Memory、Scientific State、History、QuestionCard 已有真实读写/renderer；D30 Update card 只有 renderer 无 producer，Probe 无 producer；refresh/pagination/supersession/stale/error 缺浏览器证据 | 常规记录已实现，Update/Probe 仍不可达；domain projector / G2，Web read model / G5，browser replay / G6 |
+| 公式与有界教学 UI | `changed`：Markdown 已用 remark-math/rehype-katex，结构化推导走 canonical artifact + 官方 assistant-ui `MathBlock`，`trust:false`；O-14 保持 `closed-by-p7` | 仅缺定界符、货币、XSS、copy/a11y 浏览器回归；Web presentation / G5–G6，不重开 O-14、不恢复手写 TeacherUI 数学工具 |
+| 附件归属与内容复核 | `open`：Content route 无导航入口；thread purpose 未绑定 thread ID，同用户可跨线程复用；review UI 不发送 `revision_item_id`；`source_fragment_id` 与 dedup 字段被 content-next host 丢弃。跨用户 ACL 已成立但不足以证明 thread-only | 入口、上下文归属、批注目标、provenance/dedup 失真；storage/learning-command + Content contracts/host / G2–G4，Web / G5–G6 |
+| 可访问性与导出 | `changed/open`：已有部分 busy/status/reduced-motion；仍有 `size-7`/`h-9` 小于 44px、working 无 live、无 focus migration；assistant-ui 默认 ExportMarkdown 只序列化 text，遗漏 DomainUIPart/artifact | 触控/读屏与导出完整性未闭合；Web design system/thread + presentation serializer / G5，axe/keyboard/export snapshots / G6 |
+
+逐族 evidence anchors（均按 `G0_PRODUCT_REPLAY_BASELINE` 的内容解释）：
+
+| 问题族 | 最小正式 Next 证据入口 |
+|---|---|
+| 切题后下一题 | `src/services/api-next/src/learning-command/service.ts:339`；`src/services/learning-next/src/foreground-store.ts:117`；`db/migrations/0033_science_v3_question_flow.sql:804`；`src/services/learning-next/src/task-registry.ts:165` |
+| 干预与 LearningOpportunity | `src/services/learning-next/src/foreground-core.ts:42`；`src/services/api-next/src/learning-command/service.ts:275`；`src/services/learning-next/src/scientific-core.ts:158`；`src/services/learning-next/src/scientific-store.ts:374` |
+| Intent 来源与外部题 | `src/services/api-next/src/learning-selection.ts:350`；`src/services/learning-next/src/foreground-store.ts:288`；`db/migrations/0033_science_v3_question_flow.sql:36`、`:563`；`src/services/api-next/src/learning-command/service.ts:282` |
+| transfer / EvidencePolicy | `src/packages/contracts/schemas/science-v3/scientific-policy.schema.json`；`src/services/learning-next/src/scientific-store.ts:172`、`:590`；`src/services/learning-next/src/scientific-core.ts:165`、`:330` |
+| 错因规划与状态机 | `src/services/learning-next/src/scientific-store.ts:718`；`src/services/learning-next/src/error-store.ts:274`；`src/services/learning-next/src/error-core.ts:214`、`:352`；`db/migrations/0035_science_v3_error_evidence.sql:127` |
+| Dream 审核、纠正、重试 | `db/migrations/0037_science_v3_semantic_dream.sql:367`；`src/services/learning-next/src/dream-store.ts:300`、`:508`、`:551`、`:682`、`:973`、`:1043`、`:1139`；`src/services/learning-next/src/workflows.ts:574` |
+| Selector 个性化权限 | `src/services/api-next/src/learning-http.ts:241`；`src/services/api-next/src/learning-selection.ts:295`；`src/services/learning-next/src/foreground-store.ts:168`、`:362`；`src/services/learning-next/src/workflows.ts:463` |
+| 盲重试 | `src/services/learning-next/src/workflows.ts:463`、`:519`；`src/services/learning-next/src/selection-store.ts:657`；`src/services/learning-next/src/task-registry.ts:25`；`src/services/learning-next/test/selection-store.integration.test.ts:10` |
+| 学习记录与权威卡 | `src/services/learning-next/src/question-store.ts:755`、`:1041`；`src/services/api-next/src/learning-read/service.ts:494`、`:579`、`:666`；`src/apps/web-next/src/learning/presentation/domainPresentationRegistry.tsx:69`、`:252`、`:311`；`src/apps/web-next/src/learning/pages/LearningRecords.tsx:121` |
+| 公式与有界教学 UI | `src/packages/contracts/schemas/science-v3/teaching-artifact-math-derivation.schema.json`；`src/services/learning-next/src/foreground-store.ts:93`；`src/services/api-next/src/learning-read/teaching-artifacts.ts:45`；`src/apps/web-next/src/components/assistant-ui/elements/markdown-text.tsx:14`；`src/apps/web-next/src/learning/presentation/teachingArtifactRegistry.tsx:12` |
+| 附件归属与内容复核 | `src/apps/web-next/src/app.tsx:50`；`src/apps/web-next/src/AttachmentAdapter.tsx:66`；`src/services/api-next/src/learning-command/service.ts:199`；`src/apps/web-next/src/pages/content-review-page.tsx:108`；`src/services/content-next/src/index.ts:225`；`src/services/content-next/src/candidate-repository.ts:79` |
+| 可访问性与导出 | `src/apps/web-next/src/learning/components/LearningSidebar.tsx:114`、`:175`；`src/apps/web-next/src/components/assistant-ui/elements/thread.aui.tsx:216`、`:350`、`:409`；`src/apps/web-next/src/components/assistant-ui/elements/attachment.aui.tsx:275`；`src/apps/web-next/src/learning/pages/LearningRecords.tsx:147` |
+
+这些条目是领域生产可达性与现有 adapter 的审计，不是“缺一个第三方库”的问题。最小复用裁决已写入各行 owner：继续复用现有 outbox/Temporal、科学 compiler/store、storage/content contracts 与官方 assistant-ui 元素；共享抽象只在后续阶段出现第二个真实消费者时收敛，不在 G0 造新框架。
+
+本节只记录逐 owner 事实；提交形成可复现 evidence anchor 后，G0 才能作为审计检查点结束。表中所有 `open/changed` 继续作为后续阶段的必需输入，不会因 G0 检查点结束而被关闭。
 
 ## 6. 不可破坏的设计准则
 
@@ -420,7 +469,7 @@ nix develop path:/home/tangent/MathPilot -c pnpm -r --if-present run test
 
 ### G0：P7 handoff、防误修复验和基线冻结
 
-当前状态：`in_progress`。已完成的是 handoff、防误修与横向机制计数基线：第 5.3 节保存本 tranche 的 v3 replay 状态，第 5.4 节保存反误修结论，第 5.5 节保存当前机制/测试计数，第 5.6 节只为 C-04 打开首个实施门。正式 Next 产品代码从 `P7_HANDOFF_COMMIT` 到 `G0_REPLAY_BASELINE` 无差异。尚未逐 owner 过门的 v3 §4.1 产品问题族保持 `open/changed`，因此不得把 G0 标为完成。
+当前状态：`in_progress`。第 5.3 节保存 canonical replay，第 5.4 节保存反误修结论，第 5.5 节保存横向机制/测试计数，第 5.7 节已按 `G0_PRODUCT_REPLAY_BASELINE` 的产品树记录十二个问题族；在包含该记录的提交成为明确 evidence anchor 前，不把 G0 标成完成。正式 Next 产品代码从 `P7_HANDOFF_COMMIT` 到该基线无差异，表内 `open/changed` 全部继续进入后续阶段。
 
 交付：
 
@@ -434,7 +483,7 @@ nix develop path:/home/tangent/MathPilot -c pnpm -r --if-present run test
 
 ### G1：安全边界与错误承诺
 
-当前状态：`not_started`。C-04 已通过第 4.5 节实施前门禁，但修复、测试和关闭证据均尚未形成。
+当前状态：`in_progress`。C-04 窄 path/object boundary 已由 `C04_IMPLEMENTATION_COMMIT` 关闭并在第 5.6 节留证；本阶段其余 Artifact origin、production secret/config、内容识别、错误承诺、Problem Details 与安全头等交付仍开放，因此不得把 G1 标为完成。
 
 交付：
 
