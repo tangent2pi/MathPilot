@@ -1,5 +1,5 @@
 import { configureInternalService } from "@mathpilot/internal-service";
-import { startService } from "./lib.ts";
+import { startFastifyService } from "@mathpilot/internal-service/fastify";
 import { createPiChatRuntime } from "./pi-chat-server.ts";
 import { registerPiChatRoutes } from "./pi-chat-routes.ts";
 import { PiThreadStore } from "./pi-thread-store.ts";
@@ -12,9 +12,10 @@ if (!databaseUrl) throw new Error("PI_DATABASE_URL is required");
 const runtime = await createPiChatRuntime();
 const threads = new PiThreadStore(databaseUrl);
 
-await startService({
+await startFastifyService({
   name: "pi-chat-runtime",
   port: Number(process.env.PORT ?? 3105),
+  bodyLimit: 48 * 1024 * 1024,
   async register(app) {
     registerPiChatRoutes(app, runtime, threads, internalService);
   },

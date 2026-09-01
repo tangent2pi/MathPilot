@@ -1,11 +1,17 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { canonicalObjectReference, storageObjectIdSchema, storageObjectResolveResponseSchema } from "@mathpilot/content-integrity";
+import {
+  canonicalObjectReference,
+  storageObjectIdSchema,
+  storageObjectResolveRequestSchema,
+  storageObjectResolveResponseSchema,
+} from "@mathpilot/content-integrity";
 import { configureInternalService } from "@mathpilot/internal-service";
+import { startFastifyService } from "@mathpilot/internal-service/fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { auth, authenticate, bootstrapAuthUsers, requireRole, AuthError, type Principal } from "./auth.ts";
 import { relayContent, relayStorage } from "./internal-relay.ts";
-import { createPool, startService, withPrincipal, withTenant } from "./lib.ts";
+import { createPool, withPrincipal, withTenant } from "./lib.ts";
 import { registerLearningHttp } from "./learning-http.ts";
 
 const internalService = configureInternalService("api-next", process.env);
@@ -30,10 +36,12 @@ async function principalOf(request: FastifyRequest, reply: FastifyReply): Promis
 
 await bootstrapAuthUsers();
 
-await startService({
+await startFastifyService({
   name: "api-next",
   port: Number(process.env.PORT ?? 3101),
+  bodyLimit: 48 * 1024 * 1024,
   register(app) {
+    app.addHook("onClose", async () => pool.end());
     registerLearningHttp(app, pool, principalOf);
 
     app.route({
@@ -87,7 +95,9 @@ await startService({
         storage_object_id:string; updated_at:Date;
       }>("select storage_object_id,updated_at from identity_user_avatar where auth_user_id=$1",[principal.authUserId])).rows[0]);
       if (!avatar) return reply.code(404).send({ error: "avatar not found" });
-      const body={ object_refs:[canonicalObjectReference(avatar.storage_object_id)] };
+      const body=storageObjectResolveRequestSchema.parse({
+        object_refs:[canonicalObjectReference(avatar.storage_object_id)],download_intent:"inline",
+      });
       const resolved=await internalService.request("api-to-storage",principal,"/internal/objects/resolve",{
         method:"POST",json:body,timeoutMs:10_000,signal:AbortSignal.timeout(10_000),
       });

@@ -1,7 +1,8 @@
 import { configureInternalService } from "@mathpilot/internal-service";
+import { startFastifyService } from "@mathpilot/internal-service/fastify";
 import { CandidateRepository } from "./candidate-repository.ts";
 import { dispatchErCommands, dispatchReviewFeedbackCommands } from "./command-dispatch.ts";
-import { createPool, startService } from "./lib.ts";
+import { createPool } from "./lib.ts";
 import { registerContentNextRoutes } from "./routes.ts";
 
 // Configuration is resolved before opening the database pool, registering the
@@ -10,14 +11,23 @@ const internalService = configureInternalService("content-next", process.env);
 const pool = createPool();
 const repository = new CandidateRepository(pool);
 
-const app = await startService({
+const app = await startFastifyService({
   name: "content-next",
   port: Number(process.env.PORT ?? 3016),
+  bodyLimit: 40 * 1024 * 1024,
   register(server) {
-    registerContentNextRoutes(server, repository, internalService);
-
     const shutdown = new AbortController();
     let polling: Promise<void> | null = null;
+    let timer: NodeJS.Timeout | undefined;
+    server.addHook("onClose", async () => {
+      if (timer) clearInterval(timer);
+      shutdown.abort();
+      await polling;
+      await pool.end();
+    });
+
+    registerContentNextRoutes(server, repository, internalService);
+
     const pollHostCommands = (): Promise<void> => {
       if (polling) return polling;
       polling = Promise.all([
@@ -26,15 +36,9 @@ const app = await startService({
       ]).then(() => undefined).finally(() => { polling = null; });
       return polling;
     };
-    const timer = setInterval(() => void pollHostCommands(), 5_000);
+    timer = setInterval(() => void pollHostCommands(), 5_000);
     timer.unref();
     void pollHostCommands();
-    server.addHook("onClose", async () => {
-      clearInterval(timer);
-      shutdown.abort();
-      await polling;
-      await pool.end();
-    });
   },
 });
 

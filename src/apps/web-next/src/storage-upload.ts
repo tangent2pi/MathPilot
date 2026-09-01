@@ -1,13 +1,18 @@
 "use client";
 
 import {
+  contentPolicy,
+  declaredMimeTypeSchema,
   immutableObjectDescriptorSchema,
+  storagePublicationRequestSchema,
   type ImmutableObjectDescriptor,
+  type StoragePublicationRequest,
   type UploadPurpose,
 } from "@mathpilot/content-integrity";
 import { publishStorageObject } from "@mathpilot/content-integrity/publication";
 import Uppy from "@uppy/core";
 import AwsS3 from "@uppy/aws-s3";
+import mime from "mime/lite";
 
 const jsonHeaders = { "content-type": "application/json" } as const;
 
@@ -16,13 +21,95 @@ const responseError = async (response: Response, fallback: string): Promise<Erro
   return new Error(typeof body.error === "string" ? body.error : `${fallback} (${response.status})`);
 };
 
+const byteLimit = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MiB`;
+
+/** Browser-only Uppy adapter; the shared package retains only domain policy. */
+export function storageUploadFileTypes(purpose: UploadPurpose): readonly string[] {
+  return contentPolicy(purpose).allowedMimeTypes;
+}
+
+export function storageUploadMimeType(file: File, purpose: UploadPurpose): string | undefined {
+  const browserType = file.type.trim().toLowerCase();
+  const candidate = !browserType || browserType === "application/octet-stream"
+    ? mime.getType(file.name)
+    : browserType;
+  const parsed = declaredMimeTypeSchema.safeParse(candidate || undefined);
+  if (!parsed.success) return undefined;
+  return contentPolicy(purpose).allowedMimeTypes.includes(parsed.data) ? parsed.data : undefined;
+}
+
+export function storageUploadDeclaration(file: File, purpose: UploadPurpose): StoragePublicationRequest {
+  const policy = contentPolicy(purpose);
+  if (file.size < 1) throw new Error("文件不能为空");
+  if (file.size > policy.maximumSourceBytes) {
+    throw new Error(`文件不能超过 ${byteLimit(policy.maximumSourceBytes)}`);
+  }
+  const mimeType = storageUploadMimeType(file, purpose);
+  if (!mimeType) throw new Error("不支持这种文件类型");
+  return storagePublicationRequestSchema.parse({
+    purpose,
+    original_name: file.name,
+    mime_type: mimeType,
+    byte_size: file.size,
+  });
+}
+
+export function storageUploadRestrictions(purpose: UploadPurpose) {
+  const policy = contentPolicy(purpose);
+  return {
+    maxNumberOfFiles: 1,
+    maxFileSize: policy.maximumSourceBytes,
+    allowedFileTypes: Array.from(storageUploadFileTypes(purpose)),
+  };
+}
+
+/** Keep cancellation semantics at the Uppy boundary instead of duplicating an upload state machine. */
+export async function runUppyObjectUpload(
+  uppy: Uppy,
+  file: File,
+  mimeType: string,
+  signal: AbortSignal,
+  onProgress?: (progress: number) => void,
+): Promise<void> {
+  signal.throwIfAborted();
+  const abort = () => uppy.cancelAll();
+  if (signal.aborted) abort(); else signal.addEventListener("abort",abort,{ once:true });
+  uppy.on("upload-progress",(_file,progress) => {
+    if (progress.bytesTotal) onProgress?.(progress.bytesUploaded/progress.bytesTotal);
+  });
+  try {
+    // Abort may race listener installation. Re-check before a file can enter
+    // Uppy so cancelAll on an empty queue cannot be followed by a new upload.
+    signal.throwIfAborted();
+    uppy.addFile({ name:file.name,type:mimeType,data:file,source:"mathpilot-browser" });
+    try {
+      const result = await uppy.upload();
+      // Uppy may represent cancellation as a generic failed upload. The
+      // caller's AbortSignal remains the cancellation authority.
+      signal.throwIfAborted();
+      const failed = result?.failed ?? [];
+      const successful = result?.successful ?? [];
+      if (failed.length>0 || successful.length!==1) {
+        throw failed[0]?.error ?? new Error("direct object upload failed");
+      }
+    } catch (error) {
+      signal.throwIfAborted();
+      throw error;
+    }
+  } finally {
+    signal.removeEventListener("abort",abort);
+    uppy.destroy();
+  }
+}
+
 export async function uploadStorageObject(
   file: File,
   purpose: UploadPurpose,
   options: { signal?: AbortSignal; onProgress?: (progress: number) => void } = {},
 ): Promise<ImmutableObjectDescriptor> {
+  const declaration = storageUploadDeclaration(file, purpose);
   return publishStorageObject({
-    request: { purpose,original_name:file.name,mime_type:file.type,byte_size:file.size },
+    request: declaration,
     signal: options.signal,
     adapter: {
       async initialize(request,signal) {
@@ -33,8 +120,10 @@ export async function uploadStorageObject(
         return response.json();
       },
       async upload(descriptor,signal) {
-        signal.throwIfAborted();
-        const uppy = new Uppy({ autoProceed:false,restrictions:{ maxNumberOfFiles:1,maxFileSize:file.size } });
+        const uppy = new Uppy({
+          autoProceed:false,
+          restrictions:storageUploadRestrictions(purpose),
+        });
         uppy.use(AwsS3,{
           shouldUseMultipart:false,
           retryDelays:[0,1_000,3_000],
@@ -44,23 +133,7 @@ export async function uploadStorageObject(
             headers:{},
           }),
         });
-        const abort = () => uppy.cancelAll();
-        if (signal.aborted) abort(); else signal.addEventListener("abort",abort,{ once:true });
-        uppy.on("upload-progress",(_file,progress) => {
-          if (progress.bytesTotal) options.onProgress?.(progress.bytesUploaded/progress.bytesTotal);
-        });
-        try {
-          uppy.addFile({ name:file.name,type:file.type,data:file,source:"mathpilot-browser" });
-          const result = await uppy.upload();
-          const failed = result?.failed ?? [];
-          const successful = result?.successful ?? [];
-          if (failed.length>0 || successful.length!==1) {
-            throw failed[0]?.error ?? new Error("direct object upload failed");
-          }
-        } finally {
-          signal.removeEventListener("abort",abort);
-          uppy.destroy();
-        }
+        await runUppyObjectUpload(uppy,file,declaration.mime_type,signal,options.onProgress);
       },
       async complete(objectId,signal) {
         const response = await fetch(`/api/storage/objects/${encodeURIComponent(objectId)}/complete`,{

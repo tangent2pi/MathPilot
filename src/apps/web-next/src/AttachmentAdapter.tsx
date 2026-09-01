@@ -6,8 +6,14 @@ import {
   type CompleteAttachment,
   type PendingAttachment,
 } from "@assistant-ui/react";
-import { CONTENT_POLICIES, type ImmutableObjectDescriptor, type UploadPurpose } from "@mathpilot/content-integrity";
-import { deleteStorageObject, mathpilotObjectMetadata, uploadStorageObject } from "./storage-upload";
+import type { ImmutableObjectDescriptor, UploadPurpose } from "@mathpilot/content-integrity";
+import {
+  deleteStorageObject,
+  mathpilotObjectMetadata,
+  storageUploadDeclaration,
+  storageUploadFileTypes,
+  uploadStorageObject,
+} from "./storage-upload";
 
 /**
  * Science v3 的附件只持有 Storage Object 引用。完成上传后，稳定引用会
@@ -50,14 +56,15 @@ export class UnifiedAttachmentAdapter implements AttachmentAdapter {
 
   constructor(private readonly storage: AttachmentStorage = defaultStorage) {}
 
-  accept = CONTENT_POLICIES.thread.allowedMimeTypes.join(",");
+  accept = storageUploadFileTypes("thread").join(",");
   async add(state: { file: File }): Promise<PendingAttachment> {
-    const isImage = state.file.type.startsWith("image/");
+    const declaration = storageUploadDeclaration(state.file, "thread");
+    const isImage = declaration.mime_type.startsWith("image/");
     return {
       id: newAttachmentId(),
       type: isImage ? "image" : "document",
       name: state.file.name,
-      contentType: state.file.type,
+      contentType: declaration.mime_type,
       file: state.file,
       status: { type: "requires-action", reason: "composer-send" },
     } as PendingAttachment;

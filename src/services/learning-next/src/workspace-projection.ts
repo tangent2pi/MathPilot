@@ -1,5 +1,10 @@
 import type pg from "pg";
-import { CONTENT_POLICIES, MAXIMUM_THREAD_OBJECT_BYTES } from "@mathpilot/content-integrity";
+import {
+  canonicalObjectReference,
+  CONTENT_POLICIES,
+  MAXIMUM_THREAD_OBJECT_BYTES,
+  parseObjectReference,
+} from "@mathpilot/content-integrity";
 import { MAXIMUM_WORKSPACE_PROJECTION_BYTES, type TaskSpec, type WorkspaceProjection } from "./runtime-types.ts";
 
 interface ProjectionRequest {
@@ -199,10 +204,10 @@ export async function compileWorkspaceProjection(
       if (!part || typeof part !== "object" || Array.isArray(part)) continue;
       const value = part as Record<string, unknown>;
       if (value.type !== "attachment" || typeof value.attachment_ref !== "string") continue;
-      const match = /^storage-object:(obj_[A-Za-z0-9]{8,})$/.exec(value.attachment_ref);
-      if (!match || attachmentRefs.has(match[1]!)) continue;
-      attachmentRefs.set(match[1]!, {
-        name: typeof value.name === "string" ? value.name : match[1]!,
+      const objectId = parseObjectReference(value.attachment_ref);
+      if (!objectId || attachmentRefs.has(objectId)) continue;
+      attachmentRefs.set(objectId, {
+        name: typeof value.name === "string" ? value.name : objectId,
         mimeType: typeof value.mime_type === "string" ? value.mime_type : "application/octet-stream",
         conversationThreadId: message.conversation_thread_id,
         messageId: message.message_id,
@@ -232,14 +237,14 @@ export async function compileWorkspaceProjection(
     projectionObjects.push({
       path: objectPath,
       descriptor: {
-        object_id:objectId,object_ref:`storage-object:${objectId}`,version_id:row.version_id,
+        object_id:objectId,object_ref:canonicalObjectReference(objectId),version_id:row.version_id,
         sha256:row.sha256,byte_size:byteSize,mime_type:row.mime_type,original_name:row.original_name,
         source:{ version_id:row.source_version_id,sha256:row.source_sha256,
           byte_size:Number(row.source_byte_size),mime_type:row.source_mime_type },
         expires_at:null,
       },
     });
-    objectPathByRef.set(`storage-object:${objectId}`, objectPath);
+    objectPathByRef.set(canonicalObjectReference(objectId), objectPath);
     projectedObjectBytes += byteSize;
   }
 
@@ -687,7 +692,7 @@ export async function compileWorkspaceProjection(
     .filter(([,attachment]) => attachment.messageId === request.triggeringMessageId)
     .map(([objectId]) => objectId);
   for (const objectId of triggeringAttachmentRefs) {
-    if (!objectPathByRef.has(`storage-object:${objectId}`)) {
+    if (!objectPathByRef.has(canonicalObjectReference(objectId))) {
       throw new Error("triggering message contains an attachment that cannot be materialized within policy");
     }
   }

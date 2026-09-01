@@ -1,10 +1,10 @@
 import {
   Client,
-  ScheduleAlreadyRunning,
   ScheduleOverlapPolicy,
   type ScheduleOptionsStartWorkflowAction,
   type ScheduleUpdateOptions,
 } from "@temporalio/client";
+import { reconcileTemporalSchedule } from "@mathpilot/internal-service/temporal";
 import type { ScheduledDreamTickInput } from "./runtime-types.ts";
 
 type ScheduledDreamWorkflow = (input: ScheduledDreamTickInput) => Promise<void>;
@@ -45,12 +45,7 @@ export async function ensureDreamSchedules(client: Client, tenantIds: readonly s
     for (const phase of ["rem", "deep"] as const) {
       const scheduleId = `mathpilot:${tenantId}:dream:${phase}`;
       const definition = scheduleDefinition(scheduleId, tenantId, phase, taskQueue);
-      try {
-        await client.schedule.create({ scheduleId, ...definition });
-      } catch (error) {
-        if (!(error instanceof ScheduleAlreadyRunning)) throw error;
-        await client.schedule.getHandle(scheduleId).update(() => definition);
-      }
+      await reconcileTemporalSchedule(client.schedule, scheduleId, definition);
     }
   }
 }

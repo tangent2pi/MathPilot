@@ -1,17 +1,13 @@
 import {
   immutableObjectDescriptorSchema,
+  storagePublicationRequestSchema,
   storageUploadDescriptorSchema,
   type ImmutableObjectDescriptor,
+  type StoragePublicationRequest,
   type StorageUploadDescriptor,
-  type UploadPurpose,
 } from "./policy.ts";
 
-export interface StoragePublicationRequest {
-  readonly purpose: UploadPurpose;
-  readonly original_name: string;
-  readonly mime_type: string;
-  readonly byte_size: number;
-}
+export type { StoragePublicationRequest } from "./policy.ts";
 
 export interface StoragePublicationExpectedBytes {
   readonly sha256: string;
@@ -43,8 +39,9 @@ export async function publishStorageObject(input: {
   readonly expectedStored?: StoragePublicationExpectedBytes;
   readonly signal?: AbortSignal;
 }): Promise<ImmutableObjectDescriptor> {
+  const request = storagePublicationRequestSchema.parse(input.request);
   const initialized = storageUploadDescriptorSchema.parse(await input.adapter.initialize(
-    input.request,
+    request,
     boundedSignal(input.signal, 30_000),
   ));
 

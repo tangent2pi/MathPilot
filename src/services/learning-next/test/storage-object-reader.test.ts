@@ -65,7 +65,10 @@ test("learning-next reads a frozen object through its signed storage edge and th
         { method: request.method!, path: request.url!, body },
       );
       assertedActor = context.actor;
-      assert.deepEqual(body, { object_refs: [object.descriptor.object_ref] });
+      assert.deepEqual(body, {
+        object_refs: [object.descriptor.object_ref],
+        download_intent: "attachment",
+      });
       response.statusCode = 200;
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({

@@ -127,6 +127,10 @@ test("production init route trusts the signed actor, not forged principal header
   assert.equal(accepted.statusCode, 201);
   assert.equal(accepted.json().upload.url, "http://minio.public.test:9000/upload");
   assert.equal(accepted.json().upload.method, "POST");
+  assert.equal(
+    accepted.json().upload.fields.key,
+    `quarantine/${signedActor.tenantId}/thread/${accepted.json().object_id}/source`,
+  );
   assert.deepEqual(harness.actors, [signedActor]);
 
   const replayed = await harness.app.inject({
@@ -184,7 +188,7 @@ test("route edge policy admits writers and gives each host reader a purpose-boun
   assert.equal(complete.json().error, "object not found");
 
   const readPath = "/internal/objects/resolve";
-  const readBody = { object_refs: ["storage-object:obj_test0001"] };
+  const readBody = { object_refs: ["storage-object:obj_test0001"], download_intent: "attachment" };
   const learningReadToken = await assertion("learning-next", "learning-to-storage", readPath, readBody);
   const read = await harness.app.inject({
     method: "POST",
@@ -217,7 +221,7 @@ test("one edge-purpose policy applies to init, complete, and resolve", async () 
     owner_user_id: signedActor.userId,
     bucket_name: "mathpilot-working",
     object_key: "objects/tnt_signed/candidate/obj_test0001/content",
-    source_object_key: "quarantine/tnt_signed/candidate/obj_test0001/audit.json",
+    source_object_key: "quarantine/tnt_signed/candidate/obj_test0001/source",
     declared_byte_size: 17,
     declared_mime_type: "application/json",
     purpose: "candidate",
@@ -268,7 +272,7 @@ test("one edge-purpose policy applies to init, complete, and resolve", async () 
   assert.equal(complete.json().code, "purpose_not_allowed");
 
   const resolvePath = "/internal/objects/resolve";
-  const resolveBody = { object_refs:["storage-object:obj_test0001"] };
+  const resolveBody = { object_refs:["storage-object:obj_test0001"], download_intent:"attachment" };
   const resolveToken = await assertion("api-next", "api-to-storage", resolvePath, resolveBody);
   const resolve = await harness.app.inject({
     method: "POST", url: resolvePath,
@@ -284,7 +288,7 @@ test("complete acquires a stale verification lease with one bounded atomic CAS",
   const pendingCandidate = {
     object_id: "obj_test0002", tenant_id:signedActor.tenantId,owner_user_id:signedActor.userId,
     bucket_name:"mathpilot-working",object_key:"objects/tnt_signed/candidate/obj_test0002/content",
-    source_object_key:"quarantine/tnt_signed/candidate/obj_test0002/audit.json",
+    source_object_key:"quarantine/tnt_signed/candidate/obj_test0002/source",
     declared_byte_size:17,declared_mime_type:"application/json",original_name:"audit.json",
     purpose:"candidate",state:"pending",version_id:null,etag:null,sha256:null,byte_size:null,mime_type:null,
     source_version_id:null,source_etag:null,source_sha256:null,source_byte_size:null,source_mime_type:null,
@@ -313,7 +317,7 @@ test("retryable integrity failures return 500 and release the object to pending"
   const pendingCandidate = {
     object_id: "obj_test0003", tenant_id:signedActor.tenantId,owner_user_id:signedActor.userId,
     bucket_name:"mathpilot-working",object_key:"objects/tnt_signed/candidate/obj_test0003/content",
-    source_object_key:"quarantine/tnt_signed/candidate/obj_test0003/audit.json",
+    source_object_key:"quarantine/tnt_signed/candidate/obj_test0003/source",
     declared_byte_size:17,declared_mime_type:"application/json",original_name:"audit.json",
     purpose:"candidate",state:"pending",version_id:null,etag:null,sha256:null,byte_size:null,mime_type:null,
     source_version_id:null,source_etag:null,source_sha256:null,source_byte_size:null,source_mime_type:null,
@@ -379,7 +383,7 @@ test("the authenticated service edge, not a caller field or header, selects the 
     owner_user_id: signedActor.userId,
     bucket_name: "mathpilot-working",
     object_key: "objects/tnt_signed/thread/obj_test0001/content",
-    source_object_key: "quarantine/tnt_signed/thread/obj_test0001/audit.json",
+    source_object_key: "quarantine/tnt_signed/thread/obj_test0001/source",
     declared_byte_size: 17,
     declared_mime_type: "text/plain",
     purpose: "thread",
@@ -400,9 +404,19 @@ test("the authenticated service edge, not a caller field or header, selects the 
     verification_started_at: null,
     verification_attempts: 1,
   };
-  const harness = createHarness((text) => text.includes("object_id=any") ? [readyObject] : []);
+  const downloadRequests: Parameters<StorageObjectOperations["presignedDownload"]>[0][] = [];
+  const operations: StorageObjectOperations = {
+    ...storageObjects(),
+    async presignedDownload(input) {
+      downloadRequests.push(input);
+      return input.audience === "public"
+        ? "http://minio.public.test:9000/download"
+        : "http://minio.internal.test:9000/download";
+    },
+  };
+  const harness = createHarness((text) => text.includes("object_id=any") ? [readyObject] : [], operations);
   const path = "/internal/objects/resolve";
-  const body = { object_refs: ["storage-object:obj_test0001"] };
+  const body = { object_refs: ["storage-object:obj_test0001"], download_intent: "attachment" };
   const token = await assertion("api-next", "api-to-storage", path, body);
   const response = await harness.app.inject({
     method: "POST",
@@ -417,6 +431,67 @@ test("the authenticated service edge, not a caller field or header, selects the 
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().objects[0].download.url, "http://minio.public.test:9000/download");
   assert.equal(response.json().objects[0].version_id, "version-test");
+  assert.equal(downloadRequests[0]?.intent, "attachment");
   assert.deepEqual(harness.actors, [signedActor]);
   await harness.app.close();
+});
+
+test("canonical WebP may be resolved inline while other content remains download-only", async () => {
+  const readyImage = {
+    object_id: "obj_image001",
+    tenant_id: signedActor.tenantId,
+    owner_user_id: signedActor.userId,
+    bucket_name: "mathpilot-session",
+    object_key: "objects/tnt_signed/thread/obj_image001/content",
+    source_object_key: "quarantine/tnt_signed/thread/obj_image001/source",
+    declared_byte_size: 17,
+    declared_mime_type: "image/png",
+    purpose: "thread",
+    state: "ready",
+    original_name: "photo.png",
+    mime_type: "image/webp",
+    byte_size: 17,
+    sha256: "a".repeat(64),
+    version_id: "version-image",
+    etag: "etag-image",
+    source_version_id: "source-version-image",
+    source_etag: "source-etag-image",
+    source_sha256: "b".repeat(64),
+    source_byte_size: 17,
+    source_mime_type: "image/png",
+    expires_at: new Date(Date.now() + 60_000),
+    verification_lease_id: null,
+    verification_started_at: null,
+    verification_attempts: 1,
+  };
+  const intents: string[] = [];
+  const operations: StorageObjectOperations = {
+    ...storageObjects(),
+    async presignedDownload(input) {
+      intents.push(input.intent);
+      return "http://minio.public.test:9000/image";
+    },
+  };
+  const inlineHarness = createHarness((text) => text.includes("object_id=any") ? [readyImage] : [], operations);
+  const path = "/internal/objects/resolve";
+  const inlineBody = { object_refs: ["storage-object:obj_image001"], download_intent: "inline" };
+  const inlineToken = await assertion("api-next", "api-to-storage", path, inlineBody);
+  const inline = await inlineHarness.app.inject({
+    method: "POST", url: path, headers: { authorization: `Bearer ${inlineToken}` }, payload: inlineBody,
+  });
+  assert.equal(inline.statusCode, 200);
+  assert.deepEqual(intents, ["inline"]);
+  await inlineHarness.app.close();
+
+  const unsafeHarness = createHarness((text) => text.includes("object_id=any")
+    ? [{ ...readyImage, mime_type: "text/markdown" }]
+    : [], operations);
+  const unsafeToken = await assertion("api-next", "api-to-storage", path, inlineBody);
+  const unsafe = await unsafeHarness.app.inject({
+    method: "POST", url: path, headers: { authorization: `Bearer ${unsafeToken}` }, payload: inlineBody,
+  });
+  assert.equal(unsafe.statusCode, 422);
+  assert.equal(unsafe.json().code, "object_not_inline_safe");
+  assert.deepEqual(intents, ["inline"]);
+  await unsafeHarness.app.close();
 });

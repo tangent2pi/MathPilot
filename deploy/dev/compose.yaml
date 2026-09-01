@@ -314,11 +314,16 @@ services:
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: mathpilot_storage_next
       PORT: "3017"
     depends_on:
       db-seed:
         condition: service_completed_successfully
       minio:
+        condition: service_healthy
+      temporal:
         condition: service_healthy
       internal-identity-preflight:
         condition: service_completed_successfully

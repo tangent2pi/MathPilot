@@ -1,7 +1,8 @@
 #!/bin/sh
 # Bootstrap the final schema for the deliberately separate mathpilot_pi
 # database. Historical Pi schemas are intentionally unsupported; the schema
-# file fails closed and asks operators to recreate this dedicated database.
+# file fails closed before DDL. Keep/export the old database and point this
+# command at a separately provisioned empty mathpilot_pi database.
 set -eu
 
 : "${PI_DATABASE_URL:?PI_DATABASE_URL required}"

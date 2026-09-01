@@ -93,7 +93,10 @@ test("Pi stages verified Storage objects before replacing input/original", async
       resolves += 1;
       assert.equal(edge, "pi-to-storage");
       assert.equal(route, "/internal/objects/resolve");
-      assert.deepEqual(options.json, { object_refs: [descriptor.object_ref] });
+      assert.deepEqual(options.json, {
+        object_refs: [descriptor.object_ref],
+        download_intent: "attachment",
+      });
       return new Response(JSON.stringify({
         objects: [{
           ...descriptor,

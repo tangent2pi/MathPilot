@@ -7,6 +7,53 @@
 -- retain the exact version/size/digest descriptor they claimed.
 begin;
 
+-- 0041 is a fresh-Next cutover, not an in-place converter for byte-bearing
+-- data created by the retired schemas. Refuse every shape that cannot be
+-- preserved exactly before executing any DDL. Because this check is the first
+-- statement in the transaction, an operator can safely keep/export the old
+-- database and provision a separate fresh database for the final schema.
+do $$
+begin
+  if exists (select 1 from identity_user_avatar) then
+    raise exception using
+      message='pre-integrity avatars require a fresh Next database',
+      detail='0041 did not modify identity_user_avatar or invent immutable object descriptors',
+      hint='keep/export the existing database, provision a separate fresh database, and migrate avatar bytes only through an explicitly verified import';
+  end if;
+  if exists (select 1 from storage_object) then
+    raise exception using
+      message='pre-integrity storage objects require a fresh Next database',
+      detail='0041 did not infer source versions or retire pending storage objects',
+      hint='keep/export the existing database and object-store volume, provision a separate fresh database, and migrate objects only through an explicitly verified import';
+  end if;
+  if exists (
+    select 1
+      from science_v3_canonical_message message
+      cross join lateral jsonb_array_elements(message.parts) part
+     where part->>'type'='attachment'
+  ) then
+    raise exception using
+      message='pre-integrity message attachments require a fresh Next database',
+      detail='0041 did not rewrite attachment parts or synthesize immutable claims',
+      hint='keep/export the existing database and object-store volume, provision a separate fresh database, and migrate attachments only through an explicitly verified import';
+  end if;
+  if exists (select 1 from content_candidate_set) then
+    raise exception using
+      message='pre-integrity candidate sets require a fresh Next database',
+      detail='0041 did not modify content_candidate_set',
+      hint='keep/export the existing database and provision a separate fresh database for this schema';
+  end if;
+  if exists (select 1 from content_source where storage_object_id is not null)
+     or exists (select 1 from content_source_page where page_object_id is not null)
+     or exists (select 1 from content_package where manifest_object_id is not null) then
+    raise exception using
+      message='pre-integrity content object pointers require a fresh Next database',
+      detail='0041 did not modify content object pointers',
+      hint='keep/export the existing database and provision a separate fresh database for this schema';
+  end if;
+end
+$$;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Storage-owned lifecycle and immutable source/stored provenance
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -37,49 +84,6 @@ alter table storage_object
 alter table storage_object
   drop constraint if exists storage_object_purpose_check,
   drop constraint if exists storage_object_state_check;
-
--- Rows written by the earlier partial PUT implementation are either complete
--- immutable versions or are retired. An unversioned row is never promoted to
--- ready merely because legacy metadata said so.
-update storage_object
-   set original_name=coalesce(nullif(btrim(original_name),''),'object'),
-       declared_byte_size=greatest(coalesce(byte_size,0),1),
-       declared_mime_type=coalesce(nullif(split_part(mime_type,';',1),''),'application/octet-stream'),
-       source_object_key=object_key,
-       expires_at=case
-         when state='ready' and version_id is not null and sha256 is not null then now()+interval '24 hours'
-         else now()
-       end;
-
-update storage_object
-   set source_version_id=version_id,
-       source_etag=etag,
-       source_sha256=sha256,
-       source_byte_size=byte_size,
-       source_mime_type=mime_type
- where state='ready' and version_id is not null and sha256 is not null
-   and byte_size is not null and byte_size>0 and mime_type is not null;
-
-update storage_object
-   set state='failed',
-       last_failure_code='pre_integrity_object_retired',
-       last_failure_at=now(),
-       expires_at=now()
- where state in ('pending','ready')
-   and (source_version_id is null or source_sha256 is null
-     or source_byte_size is null or source_byte_size<1 or source_mime_type is null);
-
--- The retired implementation could leave a tombstone without tombstone
--- metadata. Preserve the lifecycle fact, but make it legal in the final
--- state machine before constraints are validated.
-update storage_object
-   set deleted_at=coalesce(verified_at,created_at,now()),
-       expires_at=null,
-       verification_lease_id=null,
-       verification_started_at=null,
-       deletion_lease_id=null,
-       deletion_started_at=null
- where state='deleted';
 
 alter table storage_object
   alter column declared_byte_size set not null,
@@ -644,22 +648,6 @@ create trigger content_source_claim_object
   before insert on content_source
   for each row execute function mathpilot_content_claim_source_reference();
 
--- Earlier candidate rows do not contain the exact input manifest required by
--- the final architecture.  Refuse an ambiguous incremental cutover instead of
--- inventing paths or silently keeping a compatibility branch.
-do $$
-begin
-  if exists (select 1 from content_candidate_set) then
-    raise exception 'pre-integrity candidate sets require a clean Next content cutover';
-  end if;
-  if exists (select 1 from content_source where storage_object_id is not null)
-     or exists (select 1 from content_source_page where page_object_id is not null)
-     or exists (select 1 from content_package where manifest_object_id is not null) then
-    raise exception 'pre-integrity content object pointers require a clean Next content cutover';
-  end if;
-end
-$$;
-
 -- Every retained domain pointer carries tenant identity in its foreign key.
 -- RLS on the referencing table alone cannot prove that an object belongs to
 -- the same tenant.
@@ -1128,134 +1116,6 @@ create table science_v3_message_attachment (
 create index science_v3_message_attachment_object_idx
   on science_v3_message_attachment(tenant_id,object_id,conversation_thread_id);
 
--- Strictly upgrade current Next messages. No runtime compatibility branch is
--- retained for the earlier four-field attachment part.
-do $$
-begin
-  if exists (
-    select 1
-      from science_v3_canonical_message message
-      join science_v3_conversation_thread thread
-        on thread.tenant_id=message.tenant_id and thread.conversation_thread_id=message.conversation_thread_id
-      join science_v3_student student
-        on student.tenant_id=thread.tenant_id and student.student_id=thread.student_id
-      cross join lateral jsonb_array_elements(message.parts) part
-      left join storage_object object
-        on object.tenant_id=message.tenant_id
-       and object.object_id=substring(part->>'attachment_ref' from '^storage-object:(obj_[A-Za-z0-9]{8,})$')
-     where part->>'type'='attachment' and (
-       message.author_kind<>'student' or message.author_user_id<>student.user_id
-       or object.object_id is null or object.owner_user_id<>student.user_id
-       or object.purpose<>'thread' or object.state<>'ready'
-       or object.version_id is null or object.sha256 is null or object.byte_size is null
-       or object.source_version_id is null or object.source_sha256 is null
-       or object.mime_type not in (
-         'application/json','text/plain','text/markdown','text/csv',
-         'image/jpeg','image/png','image/webp','image/gif','image/bmp'
-       )
-       or object.mime_type<>part->>'mime_type' or coalesce(object.original_name,'')<>part->>'name'
-       or object.expires_at<=clock_timestamp()
-       or (part ? 'version_id' and part->>'version_id'<>object.version_id)
-       or (part ? 'sha256' and part->>'sha256'<>object.sha256)
-       or (part ? 'byte_size' and part->>'byte_size'<>object.byte_size::text)
-     )
-  ) then
-    raise exception 'cannot bind an invalid existing Science-v3 attachment';
-  end if;
-  if exists (
-    select 1
-      from science_v3_canonical_message message
-      cross join lateral jsonb_array_elements(message.parts) part
-     where part->>'type'='attachment'
-     group by substring(part->>'attachment_ref' from '^storage-object:(obj_[A-Za-z0-9]{8,})$')
-    having count(distinct message.message_id)>1
-  ) then
-    raise exception 'a thread object cannot be bound to multiple canonical messages';
-  end if;
-  if exists (
-    select 1
-      from science_v3_canonical_message message
-      cross join lateral jsonb_array_elements(message.parts) part
-      join storage_object object
-        on object.tenant_id=message.tenant_id
-       and object.object_id=substring(part->>'attachment_ref' from '^storage-object:(obj_[A-Za-z0-9]{8,})$')
-     where part->>'type'='attachment'
-     group by message.tenant_id,message.message_id
-    having sum(object.byte_size)>50331648
-  ) then
-    raise exception 'existing Science-v3 message attachments exceed 48 MiB';
-  end if;
-end
-$$;
-
-alter table science_v3_canonical_message disable trigger science_v3_canonical_message_guard;
-alter table science_v3_canonical_message disable trigger science_v3_canonical_message_client_event;
-with upgraded as (
-  select message.tenant_id,message.message_id,
-         jsonb_agg(
-           case when part.value->>'type'='attachment' then
-             part.value || jsonb_build_object(
-               'version_id',object.version_id,'sha256',object.sha256,'byte_size',object.byte_size
-             )
-           else part.value end order by part.ordinality
-         ) as parts
-    from science_v3_canonical_message message
-    cross join lateral jsonb_array_elements(message.parts) with ordinality part(value,ordinality)
-    left join storage_object object
-      on object.tenant_id=message.tenant_id
-     and object.object_id=substring(part.value->>'attachment_ref' from '^storage-object:(obj_[A-Za-z0-9]{8,})$')
-   group by message.tenant_id,message.message_id
-  having bool_or(part.value->>'type'='attachment')
-)
-update science_v3_canonical_message message
-   set parts=upgraded.parts
-  from upgraded
- where message.tenant_id=upgraded.tenant_id and message.message_id=upgraded.message_id;
-alter table science_v3_canonical_message enable trigger science_v3_canonical_message_client_event;
-alter table science_v3_canonical_message enable trigger science_v3_canonical_message_guard;
-
-with bound as (
-  select distinct message.tenant_id,message.message_id,object.object_id,
-         object.version_id,object.sha256,object.byte_size,object.mime_type,
-         object.original_name,object.source_version_id,object.source_sha256,
-         object.source_byte_size,object.source_mime_type
-    from science_v3_canonical_message message
-    cross join lateral jsonb_array_elements(message.parts) part
-    join storage_object object
-      on object.tenant_id=message.tenant_id
-     and object.object_id=substring(part->>'attachment_ref' from '^storage-object:(obj_[A-Za-z0-9]{8,})$')
-   where part->>'type'='attachment'
-)
-insert into storage_object_claim(
-  tenant_id,object_id,claim_kind,claim_ref,version_id,sha256,byte_size,mime_type,
-  original_name,source_version_id,source_sha256,source_byte_size,source_mime_type
-)
-select tenant_id,object_id,'thread_attachment','message:'||message_id,
-       version_id,sha256,byte_size,mime_type,original_name,
-       source_version_id,source_sha256,source_byte_size,source_mime_type
-  from bound;
-update storage_object object set expires_at=null
- where exists (
-   select 1 from storage_object_claim claim
-    where claim.tenant_id=object.tenant_id and claim.object_id=object.object_id
- );
-
-insert into science_v3_message_attachment(
-  tenant_id,conversation_thread_id,message_id,part_index,object_id,
-  version_id,sha256,byte_size,mime_type,original_name,
-  source_version_id,source_sha256,source_byte_size,source_mime_type,created_at
-)
-select message.tenant_id,message.conversation_thread_id,message.message_id,part.ordinality::integer-1,
-       object.object_id,object.version_id,object.sha256,object.byte_size,object.mime_type,
-       object.original_name,object.source_version_id,object.source_sha256,
-       object.source_byte_size,object.source_mime_type,message.created_at
-  from science_v3_canonical_message message
-  cross join lateral jsonb_array_elements(message.parts) with ordinality part(value,ordinality)
-  join storage_object object
-    on object.tenant_id=message.tenant_id
-   and object.object_id=substring(part.value->>'attachment_ref' from '^storage-object:(obj_[A-Za-z0-9]{8,})$')
- where part.value->>'type'='attachment';
-
 create or replace function mathpilot_science_v3_claim_message_attachments() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare
@@ -1381,6 +1241,8 @@ create trigger science_v3_message_attachment_immutable
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Avatar is now a claimed immutable object pointer, never application bytea
 -- ─────────────────────────────────────────────────────────────────────────────
+-- The transaction-level preflight above proved that no legacy avatar bytes
+-- exist. Never move this drop ahead of that guard or weaken it to a warning.
 drop table identity_user_avatar;
 create table identity_user_avatar (
   auth_user_id      text primary key references "user"(id),

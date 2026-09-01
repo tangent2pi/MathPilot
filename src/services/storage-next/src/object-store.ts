@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import { basename, parse, win32 } from "node:path";
 import {
   CreateBucketCommand,
   DeleteObjectCommand,
@@ -11,13 +12,33 @@ import {
   S3Client,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
+import type { StorageObjectDownloadIntent } from "@mathpilot/content-integrity";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
+import contentDisposition from "content-disposition";
+import { extension } from "mime-types";
 
 export const BUCKETS = ["mathpilot-content", "mathpilot-working", "mathpilot-session"] as const;
 export type BucketName = (typeof BUCKETS)[number];
 export type DataPlaneAudience = "public" | "internal";
+
+function canonicalDownloadName(originalName: string, mimeType: string): string {
+  if (mimeType !== "image/webp") return originalName;
+  const canonicalExtension = extension(mimeType);
+  if (!canonicalExtension) throw new Error(`no filename extension is registered for ${mimeType}`);
+  const leaf = win32.basename(basename(originalName));
+  const stem = parse(leaf).name || "object";
+  return `${stem}.${canonicalExtension}`;
+}
+
+export function objectContentDisposition(
+  intent: StorageObjectDownloadIntent,
+  originalName: string,
+  mimeType: string,
+): string {
+  return contentDisposition(canonicalDownloadName(originalName, mimeType), { type: intent });
+}
 
 export interface ObjectStoreConfiguration {
   readonly endpoint: string;
@@ -274,17 +295,17 @@ export class ObjectStore {
     expiresSeconds: number;
     mimeType: string;
     originalName: string;
+    intent: StorageObjectDownloadIntent;
   }, signal: AbortSignal): Promise<string> {
     await this.ensureBuckets(signal);
     abortIfRequested(signal);
     const selected = input.audience === "public" ? this.public : this.internal;
-    const filename = input.originalName.replace(/[\r\n"\\]/g, "_").slice(0, 180) || "object";
     const value = await getSignedUrl(selected.client, new GetObjectCommand({
       Bucket: input.bucket,
       Key: input.key,
       VersionId: input.versionId,
       ResponseContentType: input.mimeType,
-      ResponseContentDisposition: `attachment; filename="${filename}"`,
+      ResponseContentDisposition: objectContentDisposition(input.intent, input.originalName, input.mimeType),
     }), { expiresIn: input.expiresSeconds });
     abortIfRequested(signal);
     return value;

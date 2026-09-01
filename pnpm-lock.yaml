@@ -120,6 +120,9 @@ importers:
       lucide-react:
         specifier: ^1.35.0
         version: 1.35.0(react@19.2.7)
+      mime:
+        specifier: 4.1.0
+        version: 4.1.0
       radix-ui:
         specifier: ^1.6.7
         version: 1.6.7(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -221,9 +224,15 @@ importers:
 
   src/packages/internal-service:
     dependencies:
+      '@temporalio/client':
+        specifier: 1.23.0
+        version: 1.23.0
       canonicalize:
         specifier: 4.0.0
         version: 4.0.0
+      fastify:
+        specifier: ^5.2.0
+        version: 5.12.0
       jose:
         specifier: 6.2.10
         version: 6.2.10
@@ -234,9 +243,6 @@ importers:
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
-      fastify:
-        specifier: ^5.2.0
-        version: 5.12.0
       tsx:
         specifier: 4.20.6
         version: 4.20.6
@@ -590,9 +596,27 @@ importers:
       '@smithy/node-http-handler':
         specifier: ^4.11.3
         version: 4.11.3
+      '@temporalio/activity':
+        specifier: 1.23.0
+        version: 1.23.0
+      '@temporalio/client':
+        specifier: 1.23.0
+        version: 1.23.0
+      '@temporalio/worker':
+        specifier: 1.23.0
+        version: 1.23.0(esbuild@0.27.7)(lightningcss@1.33.0)(postcss@8.5.26)
+      '@temporalio/workflow':
+        specifier: 1.23.0
+        version: 1.23.0
+      content-disposition:
+        specifier: 1.1.0
+        version: 1.1.0
       fastify:
         specifier: ^5.2.0
         version: 5.12.0
+      mime-types:
+        specifier: 3.0.2
+        version: 3.0.2
       pg:
         specifier: ^8.13.1
         version: 8.23.0
@@ -600,6 +624,12 @@ importers:
         specifier: 4.20.6
         version: 4.20.6
     devDependencies:
+      '@types/content-disposition':
+        specifier: 0.5.9
+        version: 0.5.9
+      '@types/mime-types':
+        specifier: 3.0.1
+        version: 3.0.1
       '@types/pg':
         specifier: ^8.11.10
         version: 8.21.0
@@ -3146,6 +3176,9 @@ packages:
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
+  '@types/content-disposition@0.5.9':
+    resolution: {integrity: sha512-8uYXI3Gw35MhiVYhG3s295oihrxRyytcRHjSjqnqZVDDy/xcGBRny7+Xj1Wgfhv5QzRtN2hB2dVRBUX9XW3UcQ==}
+
   '@types/cross-spawn@6.0.6':
     resolution: {integrity: sha512-fXRhhUkG4H3TQk5dBhQ7m/JDdSNHKwR2BBia62lhwEIq9xGiQKLxd6LymNhn47SjXhsUEPmxi+PKw2OkW4LLjA==}
 
@@ -3172,6 +3205,9 @@ packages:
 
   '@types/mdast@4.0.4':
     resolution: {integrity: sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==}
+
+  '@types/mime-types@3.0.1':
+    resolution: {integrity: sha512-xRMsfuQbnRq1Ef+C+RKaENOxXX87Ygl38W1vDfPHRku02TgQr+Qd8iivLtAMcR0KF5/29xlnFihkTlbqFrGOVQ==}
 
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
@@ -4555,6 +4591,11 @@ packages:
   mime-types@3.0.2:
     resolution: {integrity: sha512-Lbgzdk0h4juoQ9fCKXW4by0UJqj+nOOrI9MJ1sSj4nI8aI2eo1qmvQEie4VD1glsS250n15LsWsYtCugiStS5A==}
     engines: {node: '>=18'}
+
+  mime@4.1.0:
+    resolution: {integrity: sha512-X5ju04+cAzsojXKes0B/S4tcYtFAJ6tTMuSPBEn9CPGlrWr8Fiw7qYeLT0XyH80HSoAoqWCaz+MWKh22P7G1cw==}
+    engines: {node: '>=16'}
+    hasBin: true
 
   min-indent@1.0.1:
     resolution: {integrity: sha512-I9jwMn07Sy/IwOj3zVkVik2JTvgpaykDZEigL6Rx6N9LbMywwUSMtxET+7lVoDLLd3O3IXwJwvuuns8UB/HeAg==}
@@ -8338,6 +8379,8 @@ snapshots:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
 
+  '@types/content-disposition@0.5.9': {}
+
   '@types/cross-spawn@6.0.6':
     dependencies:
       '@types/node': 24.13.3
@@ -8365,6 +8408,8 @@ snapshots:
   '@types/mdast@4.0.4':
     dependencies:
       '@types/unist': 3.0.3
+
+  '@types/mime-types@3.0.1': {}
 
   '@types/ms@2.1.0': {}
 
@@ -10005,6 +10050,8 @@ snapshots:
   mime-types@3.0.2:
     dependencies:
       mime-db: 1.54.0
+
+  mime@4.1.0: {}
 
   min-indent@1.0.1: {}
 

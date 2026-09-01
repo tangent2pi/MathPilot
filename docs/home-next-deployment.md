@@ -1,14 +1,14 @@
-# home：next 对话实现容器部署与数据复制
+# home：Next final schema fresh-only 切换
 
 目标主机为 `home`，部署根为 `/srv/stacks/mathpilot`，唯一 Compose 根为
 `deploy/dev/compose.yaml`。
 
 ## 不可破坏约束
 
-1. 旧 PostgreSQL 卷 `mathpilot_pgdata` 必须保留，禁止删除、清空或挂载为新库的写入目标。
-2. 新部署使用 `mathpilot_pgdata_next`。本机当前 `mathpilot` 与 `mathpilot_pi` 通过逻辑备份复制进去。
-3. 本机 `~/.mathpilot/runtime` 必须同步到新卷 `mathpilot_pi_chat_runtime`；线程索引与这些文件是一组数据。
-4. 旧 `mathpilot_pi_sessions`、`mathpilot_agent_workspaces` 与 `mathpilot_content_artifacts` 保留。
+1. 所有已有 PostgreSQL、Pi runtime 与 MinIO 卷都必须保留，禁止删除、清空或挂载为 fresh schema 的写入目标。
+2. `0041_content_integrity.sql` 与新的 Pi schema 是明确的 fresh-only 边界，不能在恢复旧 dump 后当作幂等升级执行。
+3. 切换前仍须导出 `mathpilot`、`mathpilot_pi` 和 `~/.mathpilot/runtime`；这些副本是待另行设计、验证的数据迁移输入，不导入本次 fresh 数据库/运行时卷。
+4. 旧 `mathpilot_pgdata`、当前 Next 数据卷、`mathpilot_pi_sessions`、`mathpilot_agent_workspaces`、`mathpilot_content_artifacts` 与对象卷全部保留，直到独立迁移验收明确允许处置。
 5. 不把 `pi-chat-runtime` 合并回旧 `agent-runtime`。后者继续服务 learning/content/profile 的批处理任务。
 6. `.env`、数据库 dump、Pi runtime 归档和模型/对象存储密钥都不得提交 Git。
 
@@ -35,8 +35,8 @@ PostgreSQL、Pi 和领域服务不向公网映射端口。浏览器通过同源 
 以下命令中的 dump 路径使用临时目录，完成并核验后再清理。不要使用
 `docker compose down -v`。
 
-1. 在开发机分别对 `mathpilot`、`mathpilot_pi` 执行 `pg_dump -Fc --no-owner --no-acl`。
-2. 打包 `~/.mathpilot/runtime`，保留 `agent/sessions`、`sessions` 和附件状态目录。
+1. 在开发机分别对 `mathpilot`、`mathpilot_pi` 执行 `pg_dump -Fc --no-owner --no-acl`，校验 dump 可读后放入受保护的迁移归档。
+2. 打包 `~/.mathpilot/runtime`，保留 `agent/sessions`、`sessions` 和历史附件目录；本次不把它解入新的 active runtime 卷。
 3. 推送 Git 的 `next` 分支，并把同一提交同步到 `/srv/stacks/mathpilot`；远端
    `deploy/dev/.env` 单独保留。
 4. 在远端 `deploy/dev/.env` 明确设置：
@@ -46,9 +46,10 @@ PostgreSQL、Pi 和领域服务不向公网映射端口。浏览器通过同源 
    DEFAULT_TENANT_ID=<production-tenant-id>
    # 可选多租户 worker 覆盖；省略时使用 DEFAULT_TENANT_ID
    LEARNING_NEXT_TENANT_IDS=
-   POSTGRES_VOLUME=mathpilot_pgdata_next
-   PI_CHAT_RUNTIME_VOLUME=mathpilot_pi_chat_runtime
-   MINIO_VOLUME=mathpilot_minio_data
+   # 三个名称都必须是尚不存在的新卷，不得复用已有卷
+   POSTGRES_VOLUME=mathpilot_pgdata_content_integrity
+   PI_CHAT_RUNTIME_VOLUME=mathpilot_pi_chat_runtime_content_integrity
+   MINIO_VOLUME=mathpilot_minio_data_content_integrity
    MINIO_PUBLIC_ENDPOINT=https://mathpilot.tangentpi.com
    MINIO_CORS_ALLOWED_ORIGINS=https://mathpilot.tangentpi.com
    MATHPILOT_INTERNAL_REPLAY_MODE=memory-single-replica
@@ -72,9 +73,9 @@ PostgreSQL、Pi 和领域服务不向公网映射端口。浏览器通过同源 
    当前 replay store 是进程内单副本实现。生产必须显式声明
    `memory-single-replica`，且在接入共享 replay store 前不得横向扩容任一接收服务。
 
-5. 仅启动新 PostgreSQL 容器，确认它实际挂载 `mathpilot_pgdata_next`，再创建并恢复两个数据库。
-6. 把 Pi runtime 归档解入 `mathpilot_pi_chat_runtime` 的卷根。
-7. 运行 `pi-db-migrate`，使 schema 幂等收敛并向 `mathpilot_app` 授最小权限。
+5. 仅启动新 PostgreSQL 容器，确认它挂载的是刚创建的空卷；由 `db-migrate` 从 `0001` 到 `0041` 建立主库，禁止先恢复旧主库 dump。
+6. 创建空的 Pi runtime 与 MinIO 卷；保留归档但不要解入 active runtime，也不要复制旧对象版本。
+7. 在空的 `mathpilot_pi` 数据库运行 `pi-db-migrate`。若脚本报告 legacy/partial schema，立即停止并修正卷指向，不能删表后继续。
 8. 构建并启动 `minio`、`storage-next`、`content-next`、`pi-chat-runtime`、`learning-next`、`api`、`web`。
 9. 先运行官方导入 dry-run 并审核报告，再加 `--execute` 导入固定清单；确认 174 个修订和
    `pkg_official_home_v1` 后才切流。其余领域服务与旧 `agent-runtime` 保留原职责。
@@ -110,11 +111,11 @@ docker compose --env-file deploy/dev/.env -f deploy/dev/compose.yaml run \
 ## 切换前后核验
 
 - `docker volume inspect mathpilot_pgdata` 仍成功，且没有容器把它作为新 PostgreSQL 写入卷。
-- 新 PostgreSQL 同时存在 `mathpilot` 和 `mathpilot_pi`。
-- 新主库的迁移表、Better Auth `user/session/account`、身份表和既有学习数据存在。
-- `mathpilot_pi.pi_threads` 数量与开发机一致；对应 JSONL 和工作区存在于 Pi runtime 卷。
+- 新 PostgreSQL 同时存在 fresh `mathpilot` 和 fresh `mathpilot_pi`，主库迁移表到达 `0041_content_integrity`。
+- 新库只包含本次 fresh bootstrap/官方导入产生的数据；不得用“旧用户、旧线程数量一致”作为本次切换门禁。
+- 旧 dump、Pi runtime 归档及其校验值仍可读取，并与所有旧卷一起处于只读保留状态，等待独立数据迁移。
 - `web` 仅反代 `api-next`；API 只走 API→Content/Storage 两条边，Pi 只由 Content 调度。
-- 未登录主页可见；首次发送要求登录；登录后旧线程可读、新线程可建、消息可发送。
+- 未登录主页可见；首次发送要求登录；登录后新线程可建、消息可发送。旧线程迁移不属于本次 fresh-only 切换承诺。
 - 图片与普通文件在消息中可见且可下载；对象存在 MinIO，Pi JSONL/工作区仍在 runtime 卷。
 - `content_entity_revision` 与官方包项均为 174；`student_cases.*` 未进入官方内容库。
 - 浏览器 PUT/GET 的响应体不经过 api-next，数据库没有保存预签名 URL。
@@ -128,7 +129,10 @@ docker compose --env-file deploy/dev/.env -f deploy/dev/compose.yaml run \
 - 开发机 Pi 库：9 条线程记录、0 条 MinIO 归档引用。
 - 开发机 Pi runtime 目录约 7 MiB；因此本次迁移以数据库与 runtime 文件联合快照为准。
 
-## 2026-08-30 实际执行结果
+## 2026-08-30 历史执行记录（不可作为当前切换步骤）
+
+以下记录描述早期 schema 的一次部署。它不证明旧 dump 可恢复到 `0041` 或当前 Pi schema，
+也不得据此复用其中的 active 卷名；数据仍需按上述约束保留并另行迁移。
 
 - 部署代码提交：`b84ce21`（`next` 分支已推送到 `origin`）。
 - 旧展开源码保存为 `/srv/stacks/mathpilot-source-pre-next-20260830`。

@@ -6,11 +6,18 @@ export const storageObjectPurposeSchema = z.enum(["source", "candidate", "packag
 export type StorageObjectPurpose = z.infer<typeof storageObjectPurposeSchema>;
 export const uploadPurposeSchema = z.enum(["thread", "avatar", "candidate"]);
 export type UploadPurpose = z.infer<typeof uploadPurposeSchema>;
+export const storageObjectDownloadIntentSchema = z.enum(["inline", "attachment"]);
+export type StorageObjectDownloadIntent = z.infer<typeof storageObjectDownloadIntentSchema>;
 
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 export const storageObjectIdSchema = z.string().regex(/^obj_[A-Za-z0-9]{8,}$/);
 export const storageObjectReferenceSchema = z.string().regex(STORAGE_OBJECT_REFERENCE_PATTERN);
-const mimeTypeSchema = z.string().min(3).max(160).regex(/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/);
+export const mimeTypeSchema = z.string().min(3).max(160)
+  .regex(/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/);
+export const declaredMimeTypeSchema = z.preprocess(
+  (value) => typeof value === "string" ? value.split(";", 1)[0]!.trim().toLowerCase() : value,
+  mimeTypeSchema,
+);
 
 const immutableObjectDescriptorShape = {
   object_id: storageObjectIdSchema,
@@ -55,6 +62,7 @@ export type ResolvedObjectDescriptor = z.infer<typeof resolvedObjectDescriptorSc
 
 export const storageObjectResolveRequestSchema = z.object({
   object_refs: z.array(storageObjectReferenceSchema).min(1).max(64),
+  download_intent: storageObjectDownloadIntentSchema,
 }).strict().superRefine((value, context) => {
   if (new Set(value.object_refs).size !== value.object_refs.length) {
     context.addIssue({ code: "custom", path: ["object_refs"], message: "object_refs must be unique" });
@@ -137,6 +145,23 @@ export const CONTENT_POLICIES = Object.freeze({
 } satisfies Record<UploadPurpose, ContentPolicy>);
 
 export const contentPolicy = (purpose: UploadPurpose): ContentPolicy => CONTENT_POLICIES[purpose];
+
+export const storagePublicationRequestSchema = z.object({
+  purpose: uploadPurposeSchema,
+  original_name: z.string().trim().min(1).max(240),
+  mime_type: declaredMimeTypeSchema,
+  byte_size: z.number().int().positive(),
+}).strict().superRefine((value, context) => {
+  const policy = contentPolicy(value.purpose);
+  if (value.byte_size > policy.maximumSourceBytes) {
+    context.addIssue({ code: "custom", path: ["byte_size"], message: "byte_size exceeds the content policy" });
+  }
+  if (!policy.allowedMimeTypes.includes(value.mime_type)) {
+    context.addIssue({ code: "custom", path: ["mime_type"], message: "mime_type is not allowed by the content policy" });
+  }
+});
+
+export type StoragePublicationRequest = z.infer<typeof storagePublicationRequestSchema>;
 
 export const parseObjectReference = (value: string): string | undefined =>
   STORAGE_OBJECT_REFERENCE_PATTERN.exec(value)?.[1];

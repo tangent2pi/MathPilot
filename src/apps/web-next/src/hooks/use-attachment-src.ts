@@ -39,7 +39,7 @@ export const useAttachmentSrc = () => {
       return filePart?.type === "file" ? { objectRef: filePart.data } : {};
     }),
   );
-  const storageUrl = useStorageObjectUrl(objectRef);
+  const storageUrl = useStorageObjectUrl(objectRef, "inline");
 
   return useFileSrc(file) ?? src ?? storageUrl;
 };

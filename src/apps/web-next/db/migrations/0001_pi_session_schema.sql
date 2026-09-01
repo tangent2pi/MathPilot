@@ -10,11 +10,11 @@ declare
 begin
   if to_regclass('public.pi_threads') is not null
      and coalesce(obj_description(to_regclass('public.pi_threads'), 'pg_class'), '') <> schema_marker then
-    raise exception 'unsupported legacy mathpilot_pi schema; recreate the dedicated mathpilot_pi database';
+    raise exception 'unsupported legacy mathpilot_pi schema; keep/export it and provision a separate empty mathpilot_pi database';
   end if;
   if to_regclass('public.pi_threads') is null
      and to_regclass('public.pi_thread_acl') is not null then
-    raise exception 'partial mathpilot_pi schema; recreate the dedicated mathpilot_pi database';
+    raise exception 'partial mathpilot_pi schema; keep/export it and provision a separate empty mathpilot_pi database';
   end if;
   if exists (
     select 1
@@ -23,7 +23,7 @@ begin
        and tablename ~ '^pi_'
        and tablename not in ('pi_threads', 'pi_thread_acl')
   ) then
-    raise exception 'unsupported legacy mathpilot_pi tables; recreate the dedicated mathpilot_pi database';
+    raise exception 'unsupported legacy mathpilot_pi tables; keep/export them and provision a separate empty mathpilot_pi database';
   end if;
 end
 $$;

@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   CONTENT_POLICIES,
   immutableObjectDescriptorSchema,
+  storageObjectResolveRequestSchema,
   type ImmutableObjectDescriptor,
 } from "@mathpilot/content-integrity";
 import {
@@ -158,7 +159,10 @@ export async function materializeHostSourceManifest(input: {
         "/internal/objects/resolve",
         {
           method: "POST",
-          json: { object_refs: objectRefs },
+          json: storageObjectResolveRequestSchema.parse({
+            object_refs: objectRefs,
+            download_intent: "attachment",
+          }),
           signal,
           timeoutMs: 30_000,
         },

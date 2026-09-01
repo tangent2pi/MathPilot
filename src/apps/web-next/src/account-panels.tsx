@@ -8,7 +8,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { authClient, type AuthPrincipal } from "./auth";
-import { deleteStorageObject, uploadStorageObject } from "./storage-upload";
+import {
+  deleteStorageObject,
+  storageUploadDeclaration,
+  storageUploadFileTypes,
+  uploadStorageObject,
+} from "./storage-upload";
 
 export type AccountPanel = "settings" | "help";
 type SettingsSection = "profile" | "classes";
@@ -166,6 +171,21 @@ function ProfileSettings({
     }
   };
 
+  const selectAvatar = (next: File | null) => {
+    if (!next) {
+      setFile(null);
+      return;
+    }
+    try {
+      storageUploadDeclaration(next, "avatar");
+      setFile(next);
+      setFeedback("");
+    } catch (error) {
+      setFile(null);
+      setFeedback(error instanceof Error ? error.message : "不支持这个头像文件");
+    }
+  };
+
   const removeAvatar = async () => {
     setSaving("avatar");
     setFeedback("");
@@ -231,7 +251,12 @@ function ProfileSettings({
           </Avatar>
           <div className="min-w-0 flex-1 space-y-2">
             <label htmlFor="account-avatar" className="text-muted-foreground block text-xs font-medium">选择新头像</label>
-            <Input id="account-avatar" accept="image/png,image/jpeg,image/webp" type="file" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+            <Input
+              id="account-avatar"
+              accept={storageUploadFileTypes("avatar").join(",")}
+              type="file"
+              onChange={(event) => selectAvatar(event.target.files?.[0] ?? null)}
+            />
             <div className="flex flex-wrap gap-2">
               <Button disabled={!file || saving !== null} onClick={() => void uploadAvatar()}>
                 <Camera aria-hidden="true" />{saving === "avatar" ? "正在保存…" : "保存头像"}

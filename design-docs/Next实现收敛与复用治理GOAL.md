@@ -417,21 +417,31 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 
 | 门禁 | 当前可复现证据 |
 |---|---|
-| 最终 owner 与稳定边界 | `@mathpilot/content-integrity` 唯一拥有 purpose policy、MIME magic-byte 识别、stream/size/hash、Sharp 图片完整解码与无元数据 WebP 重编码、verified materialization、单 fd host-file seal 和 upload publication 状态机；Storage 唯一拥有对象版本、claim、expiry、lease/GC 与 presign 数据面；各领域只保留 purpose、actor 和 route adapter |
+| 最终 owner 与稳定边界 | `@mathpilot/content-integrity` 唯一拥有 purpose policy、publication/resolve Schema、MIME magic-byte 识别、stream/size/hash、Sharp 图片完整解码与无元数据 WebP 重编码、verified materialization、单 fd host-file seal 和 upload publication 状态机；Storage 唯一拥有对象版本、claim、expiry、lease/GC、presign 数据面及该对象生命周期的 Temporal Schedule/Workflow/Activity；各领域只保留 purpose、actor 和薄 route adapter |
 | 全部 production consumer | Web 附件/头像、API 消息附件与头像绑定、Storage 上传/解析/删除、Content 候选结果/receipt/source/题图、Pi 不可信模型输出与 immutable source manifest、Learning attachment workspace projection 与 JSON artifact 均迁入同一边界；触发消息附件要求完整物化，projection 对 files+objects 使用一个总预算并显式记录 omissions |
-| 传输、失败和取消 | Storage 以 AWS SDK v3 `S3Client`、presigner/presigned-post 和 Smithy `NodeHttpHandler` 统一 custom endpoint、path-style、连接/请求/socket deadline、有限 attempts 与 AbortSignal；init/upload/complete 只发布 seal 后的精确版本、字节数和 SHA，不匹配会清理未 claim 对象。内容错误区分 terminal/retryable，不以 catch-all 吞掉 I/O、权限、timeout 或 cancel |
-| 数据库权威 | fresh-only `0041_content_integrity.sql` 以复合 tenant/object FK、SECURITY DEFINER 上下文检查、列 ACL、候选 audit 双对象原子 claim、source binder+seal、附件单消息 48 MiB、avatar claim/release、GC lease/lifecycle 约束承接最终对象状态；同 tenant+source SHA 使用事务 advisory lock 和唯一 canonical source，不保留旧表兼容分支 |
+| 传输、失败和取消 | Storage 以 AWS SDK v3 `S3Client`、presigner/presigned-post 和 Smithy `NodeHttpHandler` 统一 custom endpoint、path-style、连接/请求/socket deadline、有限 attempts 与 AbortSignal；共享 resolve Schema 要求显式 `inline/attachment` intent，只有 canonical `image/webp` 可 inline，普通文件保持 attachment；响应文件名按 canonical MIME 校正扩展名并由 RFC 6266 codec 序列化。init/upload/complete 只发布 seal 后的精确版本、字节数和 SHA，不匹配会清理未 claim 对象。内容错误区分 terminal/retryable，不以 catch-all 吞掉 I/O、权限、timeout 或 cancel |
+| 数据库权威 | fresh-only `0041_content_integrity.sql` 的首段 preflight 对 legacy `identity_user_avatar`、任何既有 `storage_object`、Science-v3 message attachment part、candidate set 和既有 content object pointer 统一 fail-closed，先给出明确错误再进入 DDL；迁移不再保留逻辑不可达的 attachment rewrite/claim/backfill，也不会静默丢弃头像字节。旧主库/Pi 库只保留 dump/volume 供另行验证迁移，不能恢复进 final schema 后声称幂等升级，也不得删除旧数据。通过门禁后的 fresh schema 以复合 tenant/object FK、SECURITY DEFINER 上下文检查、列 ACL、候选 audit 双对象原子 claim、source binder+seal、附件单消息 48 MiB、avatar claim/release、GC lease/lifecycle 承接最终对象状态；同 tenant+source SHA 使用事务 advisory lock 和唯一 canonical source，不保留旧表兼容分支 |
 | 宿主沙箱 | `@anthropic-ai/sandbox-runtime` 是唯一 Bubblewrap 能力 owner；Pi 两类调用方复用同一 SRT config/spawn runtime，只声明各自 read/write policy。宿主文件由 lexical+real root、`O_NOFOLLOW` 单 fd 和 `/proc/self/fd` containment 封存；未整体暴露 `/etc`，already-aborted、spawn failure 与 listener/并发计数 cleanup 为幂等 |
-| 成熟库与薄 adapter | `file-type 22.0.2`、`sharp 0.35.4`、`canonicalize 4.0.0`、AWS SDK v3/Smithy、Uppy AWS S3 和 Anthropic SRT 分别承担识别/解码、canonical JSON、S3 协议/timeout、浏览器上传与宿主 confinement；AWS SDK 的 AbortSignal、timeout、custom endpoint/force-path-style 和 presigned-post 语义已按官方文档核对，没有复制 SDK 状态机或手写 Bubblewrap |
-| 删除与防返工 | 删除 MinIO JS client、Pi 直连对象存储/旧附件 extension 与五段增量 Pi 表迁移、重复 Web/Pi 上传状态机、Pi path stat/realpath/reopen 封存、两套 SRT config/spawn、Storage 进程内 `setInterval` GC。下一消费者只需薄 adapter；后续工作是接 durable schedule、扩大真实部署证据和删除，不重写本 tranche 的 policy、codec、transport 或 DB 状态模型 |
+| 成熟库与薄 adapter | `file-type 22.0.2`、`sharp 0.35.4`、`canonicalize 4.0.0`、AWS SDK v3/Smithy、Uppy Core/AWS S3、browser-safe ESM `mime/lite 4.1.0`、`content-disposition 1.1.0`、Storage 侧 `mime-types 3.0.2` 和 Anthropic SRT 分别承担 magic-byte/图片解码、canonical JSON、S3 协议/timeout、浏览器上传/空或 generic MIME 的扩展名 fallback、RFC 6266 header、canonical 扩展名和宿主 confinement；Web 只以 shared policy allowlist 收窄库结果，服务端 magic-byte/完整解码仍是权威。Storage 不手写 MIME 表、filename header codec 或 Bubblewrap |
+| 删除与防返工 | 删除 MinIO JS client、Pi 直连对象存储/旧附件 extension 与五段增量 Pi 表迁移、重复 Web/Pi 上传状态机、Pi path stat/realpath/reopen 封存、两套 SRT config/spawn、Storage 进程内 `setInterval` GC、隔离 key 的无必要 filename sanitizer，以及 Web/Learning/Storage 各自的 object-ref/MIME transport Schema。Storage GC 复用 `@mathpilot/internal-service/temporal::reconcileTemporalSchedule`，与 Learning schedule 共用 create-or-update 机制并保留 operator pause/note/remainingActions；API/Content/Pi/Storage 的 Fastify create/register/listen/失败清理也归同一个 shared runtime。没有第二套 job runtime，不向 DELETE 产品响应泄漏 executor 实现，也不保留服务私有 startup helper。下一消费者只需薄 adapter；后续只扩大真实部署证据和删除，不重写本 tranche 的 policy、codec、transport、schedule reconciler 或 DB 状态模型 |
 
-实施结果绑定 `CONTENT_INTEGRITY_IMPLEMENTATION_COMMIT=c1e2acb0c31eff176ec99df8f69cd84b421bd42e`：
+原 B 实施结果绑定 `CONTENT_INTEGRITY_IMPLEMENTATION_COMMIT=c1e2acb0c31eff176ec99df8f69cd84b421bd42e`。以下三条只记录该 commit 当时冻结的证据，不包含后续关闭复核修正：
 
 - `content-integrity`、Storage、Content、Pi、Learning、API、Web 七包集中 typecheck 全部退出 0；七包完整定向 test runner 全部退出 0，Learning 的五项 PostgreSQL 环境测试按既有条件 skip，不计作本 tranche 数据库证据；Pi sandbox boundary 5/5 通过；
-- 当前文件上的 fresh schema 从 `0001` 迁移到 `0041` 并执行 `app-role.sql`/`bootstrap.sql` 均退出 0；真实 app/storage 对抗覆盖 ACL、claim/seal、候选冻结、projection owner、附件 MIME/48 MiB 原子回滚、avatar release 和 GC NULL/limit/lifecycle；同 SHA 并发结果为 `first=0 second=1 canonical_rows=1`；
+- 该 commit 当时冻结的 fresh schema 从 `0001` 迁移到 `0041` 并执行 `app-role.sql`/`bootstrap.sql` 均退出 0；真实 app/storage 对抗覆盖 ACL、claim/seal、候选冻结、projection owner、附件 MIME/48 MiB 原子回滚、avatar release 和 GC NULL/limit/lifecycle；同 SHA 并发结果为 `first=0 second=1 canonical_rows=1`；
 - 使用本地实际 `.env` 的 `docker compose ... config --quiet` 退出 0；`git diff --cached --check` 通过；两个 fresh-schema 临时 PostgreSQL 验证容器已停止并自动删除。
 
-本 tranche 关闭的是 B 的最终共同架构与当前 production-reachable consumer，不把 G1 或完整 Goal 标成完成。Storage GC 的 durable Temporal Schedule 仍在 G4；真实浏览器→MinIO→服务、多副本、重启和完整部署矩阵仍在 G6；通用 Artifact interaction promise、Problem Details、500 脱敏、安全头、threat-model rate limit 与 G2–G6 继续开放。保留边界只需扩展/验证和删除，不要求重写本节核心。
+关闭后复核基线为 `POST_CLOSE_REVIEW_BASE=5594df3c05ed84b6567a7a4a972d5649c7e128ea`。下列修正当前仍在**未提交工作树**，尚无 implementation commit，不能回写或暗算进 `c1e2acb`：
+
+- fresh-only preflight 前移到 `0041` 首段并覆盖 legacy avatar、既有 storage row、既有 message attachment、candidate/object pointer；删除其后已不可达的 storage retirement、attachment rewrite/claim/backfill。部署手册同步改为保留旧 dump/runtime/MinIO volume、另建空库/空卷，禁止恢复后伪称幂等升级；
+- Storage GC 在 listener 前 fail-fast 接入 Temporal Schedule/Workflow/Activity，复用 `@mathpilot/internal-service/temporal::reconcileTemporalSchedule` 而非再写 create-or-update；其测试证明 production activity 可达、Schedule 语义、operator pause 保留、startup failure drain 顺序，并用 SDK `bundleWorkflowCode` 编译真实 workflow 且校验 Schedule action 对应真实 export。worker 意外终止的两个分支复用同一 server-close 路径并观察/记录 shutdown rejection，不制造未处理 Promise；它不向 DELETE 响应泄漏 executor，也不构成 G4 完成；
+- publication/resolve Zod schema、object ref 与 MIME 规范归 shared owner；Web/Learning/Storage 删除重复正则/字段限制。浏览器以 Uppy + shared `CONTENT_POLICIES` 做真实 size/type 前置限制，空或 `application/octet-stream` MIME 由 browser-safe `mime/lite 4.1.0` 识别 `.md/.json/.bmp`；Uppy 薄 adapter 在 listener 安装后与 upload settle 后都重验 AbortSignal，定向测试覆盖安装竞态与 generic cancel failure 均保持 `AbortError`。Storage 以 `content-disposition`/`mime-types` 生成 inline/attachment 和 canonical WebP 文件名，并删除无必要 quarantine filename sanitizer；一行头像 request builder/test 已内联回 API owner，未留下为测试而拆的碎片；
+- Fastify create/health/register/listen/启动失败 close 不再由 API、Content、Pi、Storage 各复制一套，统一归 `@mathpilot/internal-service/fastify::startFastifyService`，四个 Next consumer 只声明领域 register 与各自 `bodyLimit`；共享 fake 测试同时锁住 register/listen 失败都会进入官方 `close()`/`onClose` 生命周期。Storage 的 bucket/schema preflight 位于首个幂等资源 hook 之后，失败时同样关闭 Temporal、object clients 与 pool；
+- `nix develop path:/home/tangent/MathPilot -c pnpm install --lockfile-only` 与 `... pnpm install --frozen-lockfile` 均退出 0，workspace supply-chain policy 通过；八包集中 typecheck 全部退出 0；八包集中 test 总计 116 pass、0 fail、5 skip，其中 `internal-service 13/13`、`content-integrity 9/9`、Web `12/12`、API `8/8`、Pi `17/17`、Storage `17/17`、Content `10/10`，Learning `30 pass/5 DB-env skip`，skip 不计作通过；
+- `nix develop path:/home/tangent/MathPilot -c pnpm --filter @mathpilot/web-next build` 退出 0，Vite 8 production build 转换 3383 modules；只有既有大 chunk 提示，没有 Node builtin externalization，证明 `mime/lite` 可进入浏览器 bundle；
+- 真实 PostgreSQL A 使用 Nix PostgreSQL 16 隔离 Unix-socket cluster，在先执行部署前置 `app-role.sql` 后，从新空库逐文件运行 `psql -v ON_ERROR_STOP=1 -q -f db/migrations/*.sql`，退出 0，`0041_content_integrity` 登记为 1 且 final avatar 表含 `storage_object_id`。真实 PostgreSQL B 在另一新空库运行 `0001`→`0040` 后插入 `legacy-auth-user:image/png:89504e47`，执行 `psql -v ON_ERROR_STOP=1 -f db/migrations/0041_content_integrity.sql` 退出 3 并返回 `pre-integrity avatars require a fresh Next database`；事后读回仍为相同字节，`image_bytes` column=1、`storage_object_id` column=0、`0041` migration row=0，证明 DDL 前 fail-closed 且事务未改旧行/旧表；两个隔离验证 cluster 已停止。
+
+本 tranche 关闭的是 B 的最终共同架构与当前 production-reachable consumer，不把 G1、G4、G6 或完整 Goal 标成完成。Storage GC 的 durable Temporal 生产启动接点已接入并在 listener 前 fail-fast；这只是对象生命周期的窄执行切片，不等于 G4 的 Agent Runtime/执行内核已经收敛。真实 Temporal+PostgreSQL+MinIO、浏览器上传、进程重启、多副本和完整部署矩阵仍在 G6；通用 Artifact interaction promise、Problem Details、500 脱敏、安全头、threat-model rate limit 与 G2–G6 继续开放。保留边界只需扩展/验证和删除，不要求重写本节核心。
 
 ## 6. 不可破坏的设计准则
 
@@ -574,7 +584,7 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 - 可执行 Artifact 使用独立 untrusted origin + sandbox iframe/窄 `postMessage`；当前 deployed Pi 入口已 fail-closed，若未来恢复能力仍须完成独立 origin；
 - api-next production config fail-fast 与独立 evidence secret（O-13 窄项已关闭）；
 - 正式 Next 五个服务 production internal config fail-fast 与共同 identity/service-context（六条 edge 已由 5.10 收口；其他领域 config 仍进 G5）；
-- Avatar/附件/被动 Artifact 内容识别、图片解码重编码、stream/size/hash/expiry（B 共同架构与当前 production consumer 已由 5.11 收口；durable GC/完整部署证据仍进 G4/G6）；
+- Avatar/附件/被动 Artifact 内容识别、图片解码重编码、stream/size/hash/expiry（B 共同架构、当前 production consumer 与 Storage durable GC 窄接点已由 5.11 收口；这不完成 G4，真实部署证据仍进 G6）；
 - `validated`、`sandboxed`、interaction token、dedup 等承诺与真实运行时一致；
 - 全局 Problem Details、默认 500 脱敏、安全头和按 threat model 的 rate limit。
 
@@ -627,7 +637,7 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 - Gateway proxy streaming、generated internal client、service-context/internal assertion；
 - `@fastify/sse` + durable sequence catch-up/通知 bridge，删除手写帧和每客户端恒定全表轮询；
 - Router/Query/principal 单一来源，删除裸 fetch、`window.location.assign`、每页 polling/loading/error；
-- Uppy/object client、stream materialization、pending GC/abort；
+- Uppy/object client、stream materialization、跨页面 abort/失败 UX；Storage durable GC 窄接点已在 5.11，真实部署/重启证据仍进 G6；
 - path、Artifact、ID、canonical JSON、cursor codec、CSV/migration runner 按第 8 节边界收敛；
 - Artifact published index 原子、并发安全，GET 不再重发布。
 

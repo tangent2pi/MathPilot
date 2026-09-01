@@ -25,7 +25,7 @@
 ```text
 apps/web-next（正式对话前端：assistant-ui Thread / ThreadList / Generative UI）
 services/api-next（Better Auth 网关与账户/线程授权）
-services/pi-chat-runtime（自托管 react-pi 线程宿主：Pi JSONL/工作区/附件/卡片）
+services/pi-chat-runtime（自托管 react-pi 线程宿主：Pi JSONL/工作区；对象统一经 storage-next）
 services/content-next（新对话的规范化 K/T/Q/E/R、候选复核、ER handoff、内容包）
 services/storage-next（私有 MinIO 对象登记、校验、浏览器预签名直传直下）
 services/agent-runtime（既有批处理 Pi 宿主；不承载 next 对话线程）
@@ -34,7 +34,7 @@ services/learning（一题一 Session：判答→错因归因→追问卡→双�
 services/profile（画像采集→Dream 三段式（pyBKT Roster 基准+画像大模型）→快照/计划）
 services/review（教师复核：supersede+重放+修订 SLR）
 packages/contracts（21 契约 schema） mastery（OATutor 移植+保持率） selector（选题） providers/{model,ocr}
-db/（主 PostgreSQL：身份/学习/审计）+ mathpilot_pi（线程归属/ACL/卡片事件）+ MinIO（归档）
+db/（主 PostgreSQL：身份/学习/审计/对象生命周期）+ mathpilot_pi（线程归属/ACL/本地路径映射）+ MinIO（经校验的不可变对象版本）
 ```
 
 ## 快速启动（开发环境）

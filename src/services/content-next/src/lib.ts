@@ -1,25 +1,9 @@
 import pg from "pg";
-import type { FastifyInstance } from "fastify";
 
 export interface Principal {
   tenantId: string;
   userId: string;
   roles: readonly string[];
-}
-
-export interface ServiceOptions {
-  name: string;
-  port: number;
-  register?: (app: FastifyInstance) => void | Promise<void>;
-}
-
-export async function startService(options: ServiceOptions): Promise<FastifyInstance> {
-  const app = (await import("fastify")).default({ logger: true, bodyLimit: 40 * 1024 * 1024 });
-  app.get("/healthz", async () => ({ status: "ok", service: options.name }));
-  app.get("/readyz", async () => ({ status: "ready", service: options.name }));
-  if (options.register) await options.register(app);
-  await app.listen({ host: "0.0.0.0", port: options.port });
-  return app;
 }
 
 export function createPool(connectionString = process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot"): pg.Pool {

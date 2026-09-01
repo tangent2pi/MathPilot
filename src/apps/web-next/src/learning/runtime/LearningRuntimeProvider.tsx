@@ -27,6 +27,7 @@ import { useNavigate } from "react-router-dom";
 import { UnifiedAttachmentAdapter } from "@/AttachmentAdapter";
 import { AUTH_DRAFT_KEY, useAuth } from "@/auth";
 import { mathpilotObjectMetadata } from "@/storage-upload";
+import { parseObjectReference } from "@mathpilot/content-integrity";
 import type {
   CanonicalMessagePart,
   LearningThreadMessage,
@@ -248,7 +249,7 @@ function appendMessageParts(message: AppendMessage): UserSubmittedMessagePart[] 
     .map((part) => ({ type: "text", text: part.text }));
   for (const attachment of message.attachments ?? []) {
     const file = attachment.content.find((part) => part.type === "file");
-    if (!file || !file.data.startsWith("storage-object:obj_")) {
+    if (!file || !parseObjectReference(file.data)) {
       throw new Error(`附件 ${attachment.name} 缺少可提交的存储引用`);
     }
     const object = mathpilotObjectMetadata(file.providerMetadata?.mathpilot);

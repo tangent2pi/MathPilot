@@ -4,9 +4,11 @@ import {
   canonicalObjectReference,
   contentPolicy,
   parseObjectReference,
+  storagePublicationRequestSchema,
   storageObjectResolveRequestSchema,
   uploadPurposeSchema,
   type ImmutableObjectDescriptor,
+  type StorageObjectDownloadIntent,
   type StorageObjectPurpose,
   type UploadPurpose,
 } from "@mathpilot/content-integrity";
@@ -19,7 +21,6 @@ import { newId, type Principal } from "./lib.ts";
 
 const WRITE_EDGES = ["api-to-storage", "pi-to-storage"] as const;
 const READ_EDGES = ["api-to-storage", "pi-to-storage", "learning-to-storage"] as const;
-const MIME = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
 const MAX_VERIFICATION_ATTEMPTS = 16;
 
 type StorageEdge = "api-to-storage" | "pi-to-storage" | "learning-to-storage";
@@ -138,12 +139,6 @@ function bucketForPurpose(purpose: UploadPurpose): BucketName {
   return purpose === "candidate" ? "mathpilot-working" : "mathpilot-session";
 }
 
-function safeName(value: string): string {
-  const basename = value.replaceAll("\\", "/").split("/").pop() ?? "object";
-  const safe = basename.replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^\.+$/, "");
-  return (safe || "object").slice(0, 180);
-}
-
 function contextOf(request: FastifyRequest): { principal: Principal; audience: DataPlaneAudience; edge: string } {
   const context = internalServiceContext(request);
   return {
@@ -156,20 +151,23 @@ function contextOf(request: FastifyRequest): { principal: Principal; audience: D
 function validateInit(request: FastifyRequest): {
   purpose: UploadPurpose; mimeType: string; byteSize: number; originalName: string;
 } {
-  const body = (request.body ?? {}) as Record<string, unknown>;
-  const parsedPurpose = uploadPurposeSchema.safeParse(body.purpose);
-  const mimeType = typeof body.mime_type === "string" ? body.mime_type.split(";", 1)[0]!.trim().toLowerCase() : "";
-  const byteSize = typeof body.byte_size === "number" && Number.isSafeInteger(body.byte_size) ? body.byte_size : -1;
-  const originalName = typeof body.original_name === "string" ? body.original_name.trim() : "";
-  if (!parsedPurpose.success || !MIME.test(mimeType) || originalName.length<1 || originalName.length>240) {
-    throw new StorageRouteError(422, "invalid_object_declaration", "invalid object declaration");
+  const parsed = storagePublicationRequestSchema.safeParse(request.body);
+  if (!parsed.success) {
+    throw new StorageRouteError(422, "object_policy_rejected", "object declaration violates its content policy");
   }
-  const policy = contentPolicy(parsedPurpose.data);
-  if (byteSize<1 || byteSize>policy.maximumSourceBytes || !policy.allowedMimeTypes.includes(mimeType)) {
-    throw new StorageRouteError(422, "object_policy_rejected", "object declaration exceeds its content policy");
+  assertPurposeAllowed(internalServiceContext(request).edge, "init", parsed.data.purpose);
+  return {
+    purpose: parsed.data.purpose,
+    mimeType: parsed.data.mime_type,
+    byteSize: parsed.data.byte_size,
+    originalName: parsed.data.original_name,
+  };
+}
+
+function assertDownloadIntentAllowed(row: ObjectRow, intent: StorageObjectDownloadIntent): void {
+  if (intent === "inline" && row.mime_type !== "image/webp") {
+    throw new StorageRouteError(422, "object_not_inline_safe", "only canonical safe images may be displayed inline");
   }
-  assertPurposeAllowed(internalServiceContext(request).edge, "init", parsedPurpose.data);
-  return { purpose: parsedPurpose.data, mimeType, byteSize, originalName };
 }
 
 const queryObject = async (client: StorageQueryClient, objectId: string): Promise<ObjectRow | undefined> =>
@@ -237,8 +235,7 @@ export function registerStorageRoutes(server: FastifyInstance, dependencies: Sto
     const declaration = validateInit(request);
     const objectId = newId("obj");
     const bucket = bucketForPurpose(declaration.purpose);
-    const name = safeName(declaration.originalName);
-    const sourceKey = `quarantine/${principal.tenantId}/${declaration.purpose}/${objectId}/${name}`;
+    const sourceKey = `quarantine/${principal.tenantId}/${declaration.purpose}/${objectId}/source`;
     const objectKey = `objects/${principal.tenantId}/${declaration.purpose}/${objectId}/content`;
     const uploadExpiresAt = new Date(Date.now()+5*60_000);
     await runWithPrincipal(principal, (client) => client.query(
@@ -449,8 +446,10 @@ export function registerStorageRoutes(server: FastifyInstance, dependencies: Sto
         const row = byId.get(id)!;
         assertPurposeAllowed(edge,"resolve",row.purpose);
         const value = descriptor(row);
+        assertDownloadIntentAllowed(row, body.data.download_intent);
         const url = await objects.presignedDownload({ audience,bucket:row.bucket_name,key:row.object_key,
-          versionId:value.version_id,expiresSeconds:300,mimeType:value.mime_type,originalName:value.original_name },
+          versionId:value.version_id,expiresSeconds:300,mimeType:value.mime_type,originalName:value.original_name,
+          intent:body.data.download_intent },
         cancellation.signal);
         return { ...value,download:{ url,expires_at:expiresAt } };
       }));
