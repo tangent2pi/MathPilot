@@ -1,7 +1,7 @@
 # MathPilot 科学内核、Dream 与配套前端实施 Goal
 
 > 用途：为一个长期开发 Session 提供单一、耐久、可验证的实施目标。
-> 状态：ready；尚未据此宣称任何实现阶段完成。
+> 状态：`transferred-by-user, incomplete`（2026-09-01）；P7 与终态验收未完成，剩余工作已明确移交至 [Next 实现收敛与复用治理 Goal](../Next实现收敛与复用治理GOAL.md)，这不是本 Goal 的完成声明。
 > 设计基线：[README.md](./README.md)
 > Goal 机制依据：[OpenClaw Goal](../../references/openclaw/docs/tools/goal.md)
 
@@ -211,13 +211,39 @@
 本节是可更新的恢复记录，不是完成声明。
 
 ```text
-conceptual phase: P0-P6 complete on the Next path; P7 read models and user frontend
-completed: authoritative design suite; prior Next stack checkpoint f355c48; science-v3 contracts and permission boundary; durable learning-next runtime; atomic question facts, Cut and finalization; versioned EvidencePolicy compiler; replayable OATutor BKT and TS-FSRS projections; replayable ErrorEvidence/ErrorPattern loop; teacher-correction replay; stale-safe model selection and intent revision; gated Light/REM/Deep semantic memory and same-account read-only WorkspaceProjection
-current: implement the P7 LearningView/read-model commands and connect the existing assistant-ui Next frontend to those sole science-v3 authorities
-next action: inventory the current web-next/API-next learning surfaces against document 07, then implement only the missing P7 read models, commands and user-visible views on the Next path
-implementation phases accepted: P0 — contracts and permission invariants; P1 — PostgreSQL operation/outbox foundation and Temporal-owned runtime; P2 — canonical messages, QuestionSession isolation, atomic Cut and bounded finalization; P3 — eligible evidence compilation, versioned M/R algorithms and correction replay; P4 — per-candidate diagnostic evidence, replayable C_e and bounded consumer actions on the sole Next application path; P5 — one normalized question_catalog capability, revision-signalled Selector and host-revalidated atomic QuestionOpened commit; P6 — QuestionSession Light, host-compiled REM windows, gated/versioned Deep AnnotationChangeSet, Diary/preimage/rollback/stale handling and official Pi read/grep over a same-account read-only WorkspaceProjection
+conceptual phase: user-directed handoff after a partial P7 implementation; original P7 and terminal Goal conditions remain incomplete
+completed at handoff boundary: prior Science v3 foundations and the evidenced P7 sub-tranches recorded below; canonical learning record cards; exact validated math teaching artifact; official assistant-ui MathBlock/MarkdownText rendering path; authorized read-side artifact hydration; runnable isolated Next stack
+current: implementation stopped at P7 code baseline 70999cdfaff11c351fa7e9bf0771b50040518e01 for an explicit incomplete transfer
+next action: activate design-docs/Next实现收敛与复用治理GOAL.md at G0 and close only items with current handoff evidence
+previous phase acceptance: P0-P6 had been accepted on then-current evidence; the handoff audit reopens C-01 diagnostic terminal facts, C-02 production claim/outcome facts, and C-03 production RetentionUnit facts, so that acceptance is not terminal proof and must be revalidated in the successor Goal
 external blockers: none recorded
 ```
+
+### 8.1 2026-09-01 用户明确移交
+
+- 移交状态：`transferred-by-user, incomplete`。用户要求把当前 P7 完成到合理限度后转入新 Goal；未实现或未验收内容不得标为已完成。
+- P7 代码基线：`70999cdfaff11c351fa7e9bf0771b50040518e01`；相关检点为 `654f543`、`f4a549a`、`70999cd`。
+- 合理收尾边界：只完成已经在途的 canonical learning record cards 与 validated math teaching artifact/MathBlock 链，并补齐 `learning-next` 镜像对 canonical contracts 的运行时打包；没有在交接前扩张修复其余审计项。
+- 当前证据：contracts、learning-next、api-next、web-next 定向 typecheck 均退出 0；contracts examples/权限守门通过；learning-next 28 项中 23 项通过、5 项因需显式数据库环境而跳过；api-next teaching-artifact 2 项通过；web-next production build 通过（3193 modules）；`git diff --check` 通过；真实 PostgreSQL 解析 hydration 查询成功且返回 0 行；隔离栈 Web/API/Content/Storage/MinIO 健康入口均为 HTTP 200，learning worker 为 `RUNNING`。
+- 证据边界：上述窄测试只证明对应子不变量和栈可运行，不证明 P7 route、ACL、断线 replay、刷新/跨端一致性、浏览器流程或无障碍终态。
+
+仍未完成并移交的范围：
+
+| 范围 | 交接结论 | 当前事实 |
+|---|---|---|
+| LearningView/ACL/cursor/ETag/event stream | 部分实现，未完成 | 代码存在；缺 route/ACL/断线 replay 集成证据，SSE 仍含每客户端 polling |
+| External Store/registry/capability | 部分实现，未完成 | External Store 与 registry 已接入；message capability 仍为空，静态 action slot 尚未收敛 |
+| 权威卡与更新生产链 | 部分实现，未完成 | Question/AnswerReceipt/Judgment/QuestionClosure 有生产投影；probe、learning/memory update、review due 缺完整生产 writer/验收 |
+| C-01 诊断硬门 | 未完成 | 正常 `completed/student_switch` 仍可写永久 `diagnostic_status='unclassified'` |
+| C-02 错因事实链 | 未完成 | DiagnosticClaim/DiagnosisOutcome 的生产 insert 尚未脱离测试 fixture 形成完整链 |
+| C-03 RetentionUnit 事实链 | 未完成 | RetentionUnit/rule 的 insert 尚未脱离 scientific-core fixture；官方导入没有对应 writer |
+| 上下文、记录、状态、错因、记忆、复习、证据与教师视图 | 部分实现，未完成 | 广泛存在读模型和 UI；缺完整组件—命令—权限—降级—刷新验收 |
+| 发送失败恢复 | 未完成 | send catch 仍清空 pending，失败消息与附件可能消失 |
+| 取消传播 | 未完成 | DB terminal guard 存在；API 取消尚未传播到对应 Workflow/Activity |
+| 响应式、键盘、读屏、dark、zoom、reduced-motion | 未完成验收 | 有样式实现意图；无完整 Playwright/a11y/viewport/screen-reader 证据 |
+| P7 自动化与真实服务 E2E | 未完成 | 没有足以覆盖 route、External Store replay、上传/失败和多题闭环的自动化证据 |
+
+以上开放项以 successor Goal 第 5 节 ledger 为唯一继续入口；不得把本节的“部分实现”解释为 P7 或本 Goal complete。
 
 已知设计证据：
 
