@@ -5,13 +5,22 @@ import path from "node:path";
 const ARTIFACT_ID = /^art_[A-Za-z0-9]{8,92}$/;
 const ALLOWED_EXTENSIONS = new Set([".html", ".json", ".md", ".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".woff", ".woff2"]);
 const ALLOWED_KINDS = new Set(["knowledge_visualization", "question_card", "mixed_lesson"]);
-const ALLOWED_RENDERERS = new Set(["native_card", "sandboxed_html", "media"]);
+const ALLOWED_RENDERERS = new Set(["native_card", "media"]);
+const ACTIVE_ARTIFACT_EXTENSIONS = new Set([".html", ".js", ".svg"]);
 const MIME_BY_EXTENSION: Record<string, string> = {
   ".html": "text/html", ".json": "application/json", ".md": "text/markdown",
   ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml",
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
   ".gif": "image/gif", ".mp4": "video/mp4", ".webm": "video/webm", ".woff": "font/woff", ".woff2": "font/woff2",
 };
+
+export function publishedArtifactContentType(extension: string): string | null {
+  const normalized = extension.toLowerCase();
+  if (ACTIVE_ARTIFACT_EXTENSIONS.has(normalized)) return null;
+  const mime = MIME_BY_EXTENSION[normalized];
+  if (!mime) return null;
+  return mime.startsWith("text/") || mime === "application/json" ? `${mime}; charset=utf-8` : mime;
+}
 
 interface ArtifactManifest {
   schema: string;
@@ -29,7 +38,7 @@ interface ArtifactManifest {
 
 export interface PublishedArtifact {
   artifact_id: string;
-  kind: "html" | "question_card" | "image" | "video";
+  kind: "question_card" | "image" | "video";
   artifact_kind: string;
   renderer: string;
   title: string;
@@ -86,6 +95,14 @@ function validateMagic(extension: string, bytes: Buffer): void {
   if (!valid) throw new Error(`artifact content does not match extension: ${extension}`);
 }
 
+function validatePassiveArtifactFile(extension: string, bytes: Buffer): void {
+  if (!ALLOWED_EXTENSIONS.has(extension) || ACTIVE_ARTIFACT_EXTENSIONS.has(extension)) {
+    throw new Error(`active or unsupported artifact file type is forbidden: ${extension}`);
+  }
+  if (extension === ".css") validateBrowserText(bytes.toString("utf8"));
+  else validateMagic(extension, bytes);
+}
+
 function validatePolicy(policy: ArtifactManifest["response_policy"]): void {
   if (!policy || policy.required !== false || policy.allow_skip !== true || policy.allow_free_text_without_answer !== true) {
     throw new Error("artifact response_policy violates the optional-card contract");
@@ -104,7 +121,6 @@ function validateQuestionCard(raw: string, artifactId: string): void {
 
 function browserKind(manifest: ArtifactManifest, entry: string): PublishedArtifact["kind"] {
   if (manifest.renderer === "native_card") return "question_card";
-  if (manifest.renderer === "sandboxed_html") return "html";
   return [".mp4", ".webm"].includes(path.extname(entry).toLowerCase()) ? "video" : "image";
 }
 
@@ -135,7 +151,6 @@ export async function publishWorkspaceArtifacts(workspaceRoot: string, sessionRe
     validatePolicy(manifest.response_policy);
     const entry = safeRelative(manifest.entry);
     if (manifest.renderer === "native_card" && entry !== "card.json") throw new Error("native card entry must be card.json");
-    if (manifest.renderer === "sandboxed_html" && entry !== "index.html") throw new Error("HTML entry must be index.html");
     if (manifest.renderer === "media" && !entry.startsWith(`media${path.sep}`)) throw new Error("media entry must be below media/");
     const entryStat = await lstat(path.join(source, entry));
     if (!entryStat.isFile() || entryStat.isSymbolicLink()) throw new Error(`invalid artifact entrypoint: ${directory.name}`);
@@ -150,12 +165,7 @@ export async function publishWorkspaceArtifacts(workspaceRoot: string, sessionRe
       const extension = path.extname(file.relative).toLowerCase();
       if (!declared || declared.byte_size !== file.size || declared.content_hash !== `sha256:${file.hash}` || declared.mime_type !== MIME_BY_EXTENSION[extension]) throw new Error(`manifest metadata mismatch: ${file.relative}`);
       const bytes = await readFile(path.join(source, file.relative));
-      if ([".html", ".css", ".js"].includes(extension)) validateBrowserText(bytes.toString("utf8"));
-      else if (extension === ".svg") {
-        const svg = bytes.toString("utf8");
-        validateBrowserText(svg);
-        if (/<script\b|<foreignObject\b|\son[a-z]+\s*=/i.test(svg)) throw new Error("active SVG content is forbidden");
-      } else validateMagic(extension, bytes);
+      validatePassiveArtifactFile(extension, bytes);
     }
     if (!declarations.has(entry)) throw new Error("manifest entry is absent from file inventory");
     if (manifest.renderer === "native_card") validateQuestionCard(await readFile(path.join(source, entry), "utf8"), directory.name);
@@ -183,12 +193,20 @@ export async function publishWorkspaceArtifacts(workspaceRoot: string, sessionRe
 export async function readPublishedArtifact(workspaceRoot: string, artifactId: string, filePath: string): Promise<{ bytes: Buffer; extension: string } | null> {
   if (!ARTIFACT_ID.test(artifactId)) return null;
   const index = JSON.parse(await readFile(path.join(workspaceRoot, ".agent", "published-artifacts.json"), "utf8")) as PublishedArtifact[];
-  if (!index.some((artifact) => artifact.artifact_id === artifactId)) return null;
+  const artifact = index.find((candidate) => candidate.artifact_id === artifactId);
+  if (!artifact || !ALLOWED_RENDERERS.has(artifact.renderer) || !artifact.manifest || !ALLOWED_RENDERERS.has(artifact.manifest.renderer)) return null;
   const root = path.join(workspaceRoot, ".agent", "published", artifactId);
   const target = path.join(root, safeRelative(filePath));
   const rootReal = await realpath(root), targetReal = await realpath(target);
   if (!targetReal.startsWith(`${rootReal}${path.sep}`)) return null;
   const stat = await lstat(targetReal);
   if (!stat.isFile() || stat.isSymbolicLink()) return null;
-  return { bytes: await readFile(targetReal), extension: path.extname(targetReal).toLowerCase() };
+  const bytes = await readFile(targetReal);
+  const extension = path.extname(targetReal).toLowerCase();
+  try {
+    validatePassiveArtifactFile(extension, bytes);
+  } catch {
+    return null;
+  }
+  return { bytes, extension };
 }

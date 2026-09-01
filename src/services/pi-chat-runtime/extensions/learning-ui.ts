@@ -84,10 +84,9 @@ export default async (pi: ExtensionAPI) => {
       ]),
       renderer: Type.Union([
         Type.Literal("native_card"),
-        Type.Literal("sandboxed_html"),
         Type.Literal("media"),
       ]),
-      entry: Type.String({ pattern: "^(index\\.html|card\\.json|media/[A-Za-z0-9._-]+)$" }),
+      entry: Type.String({ pattern: "^(card\\.json|media/[A-Za-z0-9._-]+)$" }),
       version: Type.Optional(Type.String()),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, context) {

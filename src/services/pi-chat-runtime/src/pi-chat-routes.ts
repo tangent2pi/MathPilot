@@ -7,7 +7,11 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiThreadStore, type PiPrincipal, type PiThreadRecord } from "./pi-thread-store.ts";
 import { PiObjectStore } from "./pi-object-store.ts";
 import { assemblePiChatWorkspace, bindPiThreadWorkspace } from "./pi-chat-workspace.ts";
-import { publishWorkspaceArtifacts, readPublishedArtifact } from "./artifact-publisher.ts";
+import {
+  publishWorkspaceArtifacts,
+  publishedArtifactContentType,
+  readPublishedArtifact,
+} from "./artifact-publisher.ts";
 import type { PiChatRuntime } from "./pi-chat-server.ts";
 import {
   bindAttachmentTurn,
@@ -734,18 +738,11 @@ export function registerPiChatRoutes(
       await publishWorkspaceArtifacts(workspace, threadId, artifactId);
       const result = await readPublishedArtifact(workspace, artifactId, file);
       if (!result) return reply.code(404).send({ error: "artifact not found" });
-      const mime: Record<string, string> = {
-        ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-        ".json": "application/json; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".svg": "image/svg+xml",
-        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
-        ".mp4": "video/mp4", ".webm": "video/webm", ".woff": "font/woff", ".woff2": "font/woff2",
-      };
-      reply.header("content-type", mime[result.extension] ?? "application/octet-stream");
+      const contentType = publishedArtifactContentType(result.extension);
+      if (!contentType) return reply.code(404).send({ error: "artifact not found" });
+      reply.header("content-type", contentType);
       reply.header("cache-control", "private, max-age=31536000, immutable");
       reply.header("x-content-type-options", "nosniff");
-      if (result.extension === ".html") {
-        reply.header("content-security-policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'");
-      }
       return reply.send(result.bytes);
     } catch (error) {
       request.log.error({ err: error, threadId, artifactId }, "Pi learning artifact read failed");
