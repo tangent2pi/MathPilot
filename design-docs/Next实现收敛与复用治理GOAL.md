@@ -1,7 +1,7 @@
 # MathPilot Next 实现收敛与复用治理 Goal
 
 > 用途：承接 Science v3 P7 的用户明确未完成移交，统一关闭 Next 路径中的隐藏省略、伪能力、重复运行机制与不必要手写基础设施。
-> 状态：`active`（2026-09-01）；G0 handoff baseline 已建立，当前执行防误修复验与基线冻结。
+> 状态：`active`（2026-09-01）；G0 的 handoff、反误修与横向机制计数已冻结，产品问题族仍待逐 owner 过门；C-04 的独立实施门已就绪，尚未声明任何 G1 代码修复完成。
 > P7 权威 Goal：[科学内核与 Dream 配套前端实施 Goal](./科学内核与Dream封版v3/GOAL.md)
 > 唯一审计输入：[Next 实现整合审计 v3](./Next实现隐藏省略设计忠实度与复用整合审计v3.md)
 > 历史审计：v1、v2 补充与忠实度 v1 已 superseded，只可沿 v3 的裁决追溯，不得直接生成任务。
@@ -66,6 +66,7 @@
 | P7 移交前工作树 | 已冻结 | 只用于追溯 `p7-pending`，不用于关闭问题 |
 | `P7_HANDOFF_COMMIT=70999cdfaff11c351fa7e9bf0771b50040518e01` | 可复现 | 本 Goal 唯一代码现状基线 |
 | `G0_AUDIT_INPUT_COMMIT=8548c05e11ec8496c52e34c84c1f8322a01340d5` | 可复现 | 四份审计输入原样入库后的治理审计基线 |
+| `G0_REPLAY_BASELINE=d5e34aa2259d5fda95566c27a4b96f87cf573c21` | 可复现 | 工作树干净；相对 P7 handoff 的正式 Next、packages、DB 与 deploy 产品代码差异为零；第 5.3～5.6 节的计数可同时代表 handoff 与本次复验实况 |
 
 以后所有问题关闭记录必须包含 commit、路径、测试或运行证据。禁止再次使用“HEAD + 未提交改动”作为审计基线。
 
@@ -218,6 +219,88 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 - `invalid`：审计论断错误，记录反证后撤销；
 - `deferred-by-user`：只有用户明确决定才可使用，不等于完成。
 
+### 5.3 G0 canonical replay ledger（已冻结 tranche）
+
+以下状态只来自整合审计 v3，并在 `G0_REPLAY_BASELINE` 上重放。`open` 表示事实已确认但代码未修；`changed` 表示原问题形态或权威边界已经改变，实施前还要对该窄 owner 重放第 4.5 节门禁。
+
+| v3 入口 | 当前状态 | production reachability、反证与影响 | 最小 owner / 进入阶段 |
+|---|---|---|---|
+| C-01 诊断硬门 | `open` | finalize 生产链仍可把正常关闭留在 `unclassified`；fixture 与 reducer 存在不能形成终态 | Question finalize/diagnosis / G2 |
+| C-02 错因事实链 | `open` | DiagnosticClaim/DiagnosisOutcome 的完整 production insert→ErrorEvidence→消费链仍不存在；测试 fixture 是反证，不是 producer | diagnosis workflow + error core / G2 |
+| C-03 RetentionUnit | `open` | official/teacher content 没有可追溯 unit/rule writer，真实 Attempt 因而不能证明进入 R/复习链 | content cutover + retention / G2 |
+| C-04 archive symlink | `open` | 配置对象存储后，已授权 archive route 会在 sandbox 外递归 workspace；`Dirent.isDirectory()` 把 symlink 送给会跟随链接的 MinIO `fPutObject`。默认 compose 未配置该 Pi 对象分支，只降低默认开发可达性，不撤销可配置部署风险 | `pi-object-store.ts` + archive route / G1 P0；完整实施门见 5.6 |
+| C-05 AnswerReceipt | `open` | P7 已接 canonical receipt 与 renderer，但缺真实 route、丢回包、refresh/cross-device replay | learning route + External Store / G2、G6 |
+| C-06 context manifest | `open` | P7 已从 WorkspaceProjection 持久化并显示 manifest，但缺“实际注入 items = 显示 items”、ACL、刷新与降级集成证据 | projection + Pi input + read model / G2、G6 |
+| C-07 Schema/Task truth | `open` | 97 个正式 HTTP method/path 无 Fastify route schema；9 个 TaskSpec 中 grade/diagnose/teach_summary/semantic_decomposition 仍断链；7 个 runtime Schema URI 无 `$id` 文档 | contracts runtime registry + 各 route/Task adapter / G3 |
+| C-08 durable Agent runtime | `changed` | Content 5 秒 dispatcher 与 Pi Map/marker/transcript 恢复是 confirmed duplication；DB outbox→Temporal 是领域事务桥，不是第二套 queue。迁移前必须先按用户最新决定修订 KTQ/ER owning 设计 | KTQ/ER design → Temporal Task Runtime + Content/Pi adapters / G4 |
+| v3 §4.1 产品问题族 | `open/changed` | 下一题、干预/LO、transfer/evidence、错因、Dream、Selector、blind retry、权威卡、附件/content semantics 与 a11y 均未被 G0 关闭；intent 来源、外部题、教师策略、Export 与 generative UI 范围先核对 owning 设计。数学推导 artifact 的 O-14 窄子项仍按 5.1 `closed-by-p7` | 各领域 owner / G2、G5、G6；逐项过门后才改代码 |
+| v3 §4.2 横向机制 | `open/changed` | pool/config/SSE/server-state/object/path/ID/cursor/CSV/migration/build graph 的当前实况见 5.5；跨进程 pool、浏览器 EventSource、presigned data-plane fetch、局部 Map/Set 与字节 SHA 是合理例外 | 第 8 节对应共同机制 owner / G1、G4、G5、G6 |
+
+本表没有把 G0 整体标成完成：v3 §4.1 中按产品问题族分组的条目仍须逐 owner 补齐生产 trigger→write→consumer、反证与当前设计范围，才能从 `open/changed` 家族升级为可实施的窄任务。C-04 不依赖这些领域裁决，且已单独完成第 5.6 节全部门禁，因此可以作为下一 tranche 先行。
+
+### 5.4 防误修反回归 ledger
+
+| v3 裁决 | 当前状态与可复现反证 | 禁止的错误实现 |
+|---|---|---|
+| O-12 cancel | `open`（修正版）：`api-next/src/learning-command/service.ts` 只把 operation/request 写为 cancelled，没有拿 Temporal handle 传播 cancel；`0038_science_v3_interaction_read_model.sql` 的 foreground commit 函数已拒绝 terminal request | 不重写或移除 DB terminal guard；只治理传播、竞态、算力与跨 operation 一致性 |
+| O-15 Workflow retry | `invalid`：`learning-next/src/outbox-relay.ts` 启动 Workflow 未传 workflow retry；仓库锁定 Temporal 1.23.0 只在显式 `options.retry` 时编译 RetryPolicy；现有 `retry` 是 ActivityOptions | 不为伪问题添加 Workflow retry；另测 Workflow Task bug/failure/alert |
+| O-18 provenance | `changed`：Content candidate、official import、question/dream/selection store 均写或读 model/prompt/source provenance；它们属于审计职责 | 不因普通 UI 无 reader 删除设计要求的 provenance；只审理确无 owner 的 view/index |
+| O-21 seed | `invalid`：默认 compose 的 `db-seed` 挂载 `deploy/dev/bootstrap.sql`，它有 existence guard/`ON CONFLICT`；fixture `seed.sql` 只在 `fixtures` profile | 不重写已经幂等的默认 seed；只保留真实 down/up 回归 |
+| R-27 CORS | `changed`：浏览器→API 是同源，Better Auth trusted origins 与 MinIO browser CORS 均由环境配置；Web 已有 `nosniff`/Referrer-Policy | 不为清单完整而给同源 API 加 CORS；rate limit/其余 headers 按 threat model 独立治理 |
+| R-18 file content | `open`（修正版）：声明 MIME 与解码/重编码缺口成立，已利用的存储型 XSS 未被证明 | 不用推测冒充 exploit；以 `file-type`、`sharp`、size/pixel 限制和浏览器测试验收 |
+| D-29 Copy/Export | `changed`：纯本地 Copy/Export 不天然需要服务端 capability；改写事实或受授权资源才需要 | 不恢复无版本/证据锁的历史编辑，也不为本地动作伪造领域 capability |
+| D-33 304 | `changed`：只有客户端发送条件请求时 304 才可达；当前真实缺口是 stale/degradation 协议证据 | 不在没有真实条件请求的链路上实现猜测性 304 分支 |
+| D-38/D-55/D-59 | `invalid/changed`：旧 Web/profile 与阶段外发布索引不是 Next 缺陷；只有当前 v3 承诺且存在 Next production connection 才升级 | 不修旧实现、不恢复旧事实源、不把阶段外功能塞入本 Goal |
+| D-49 dormant tools | `changed`：未路由的 Bash/Write/Edit 不是当前可利用能力；若正式 Task 不需要则按 reachability 删除 | 不把 dormant 声明写成公网漏洞，也不保留不可授予的死 capability |
+| D-61 dirty files | `invalid`：瞬时脏工作树已由 handoff/audit commits 消除 | 不把历史工作树状态当持久产品缺陷 |
+| Content poller 旧设计 | `invalid-authority`，归入 C-08：旧 5 秒 poller 文档低于用户最新统一 Runtime 决定 | 不继续加固 poller，也不在未修订 owning 设计前暗迁语义 |
+
+### 5.5 G0 当前机制与测试计数
+
+所有数量均以 `70999cdfaff11c351fa7e9bf0771b50040518e01` 的产品代码为准；`G0_REPLAY_BASELINE` 到该提交只有文档差异。
+
+| 审计面 | 当前计数与事实 | 裁决 / owner |
+|---|---|---|
+| HTTP route | 4 个正式 HTTP 服务有 87 个 route 声明，展开为 97 个 method/path；Fastify `schema` 为 0/97 | `open` / G3 contracts + route adapters |
+| Task/Schema | 9 TaskSpec、9 Skill；5 个 direct workflow route，grade 由真实 child 启动；diagnose、teach_summary、semantic_decomposition 无 production starter，grade 等 4 项缺 host output validator；45 个 `$id` 文档，19 个 runtime literal URI 中 7 个 missing-document | `changed/open` / G2 reachability + G3 registry |
+| pools | 正式五进程有 11 个常驻 app pool、声明 max 合计 63；其中 learning 同进程 6 个/max 32，API 同进程 2 个/max 10；另 2 个 importer/bootstrap 短期 pool | 同进程重复 `open`；跨进程独立 pool 与短期 pool 是例外 / G5 postgres-context |
+| env/config | 正式 production src 18 文件、108 次 `process.env`；composition roots 可保留，cursor、store/lib、Pi route/extension 与 executor 等业务深层读取仍存在，evidence/auth/internal secret 有 dev fallback | security fail-fast `open` / G1；注入式 config `open` / G5 |
+| Web/server-state | Web 8 文件有 9 个 `fetch()`、7 个 `window.location.assign`、2 个 2 秒 polling；14 个 service fetch 中 11 个 control-plane、3 个 presigned data-plane，API relay 还会全量 `arrayBuffer()` | control-plane/generated client、Router/Query 与 streaming proxy `open`；data-plane fetch 是例外 / G5 |
+| SSE/timer/runtime | 两套手写 SSE：learning 逐 client 1 秒 DB poll，Pi 20 秒 heartbeat；Content 5 秒扫两类 pending command；Pi 有 3 个进程 Map 及 ER/review marker+transcript 恢复 | SSE `open` / G5；Content/Pi durable state `changed` 且有 design prerequisite / G4 |
+| ID/hash/cursor | 8 份 deterministic SHA-truncate helper、3 份随机 `newId`、2 个浏览器 `Math.random` fallback；canonical JSON hash 有排序/裸 stringify 双轨；API、Content、Selection 三套 cursor，Content 多 kind 会静默把 offset 归零 | `open/changed` / G5 codecs + 各领域稳定排序；字节 SHA 与局部视觉随机是例外 |
+| object/path/artifact | C-04 无 `PiObjectStore/uploadDirectory/archive` 测试；Artifact index 读改普通 `writeFile` 无锁/原子发布，GET 会触发发布 | C-04 `open` / G1；index `open` / G5 |
+| CSV/migration/build graph | official import 有手写 CSV parser；根 DB 与 web-next Pi DB 有两套 shell migrator；正式 Next 内部 manifest 只声明 web/api/learning→contracts 3 条边，Pi extensions 有隐藏源码依赖，通用 Dockerfile 与 API/Web build 仍扩大到全 workspace | `open` / G5 codecs/db-platform、G6 dependency/removal；PostgreSQL 原生 CSV 是例外 |
+| tests | workspace 18 包，11 个有 test script、7 个没有；根 `--if-present` 会静默跳过。正式 Next 中 web-next/storage-next 无 script，content-next 收集 0 test 仍 exit 0；api-next 仅 2 个 artifact 窄测试；learning-next 28 项为 23 pass/5 DB skip；pi-chat-runtime 8 pass | R-30/R-38 `open` / G6；旧 package 无脚本不自动成为 Next 缺陷 |
+
+标准 runner 的其余当前结果是：legacy Web 26 pass、agent-runtime 16 pass、legacy Content 2 pass；mastery/selector/profile 分别自打印 27/8/17 个 `ok`；contracts 验证 44 个 example files/45 schemas 并另跑权限/authority/no-legacy invariant。它们不能代替缺失的 Next route/browser/PostgreSQL evidence，5 个 DB skip 也不能算 integration 通过。
+
+关键复现命令：
+
+```sh
+git diff --quiet 70999cdfaff11c351fa7e9bf0771b50040518e01..d5e34aa2259d5fda95566c27a4b96f87cf573c21 -- . ':(exclude)design-docs/**'
+rg -n --glob '*.ts' '^\s*(app|server)\.(get|post|put|patch|delete|head|options)\(|^\s*(app|server)\.route\(\{' src/services/{api-next,content-next,storage-next,pi-chat-runtime}/src
+rg -n 'directWorkflowRoute|DIRECT_WORKFLOW_TYPES|executeChild\(agentTaskWorkflow|allowedChildTasksWorkflow' src/services/learning-next/{src,test}
+rg -n '\bfetch\s*\(|window\.location\.assign|setInterval' src/apps/web-next/src
+rg -n 'new pg\.Pool|new Pool\(' src/services/{api-next,content-next,storage-next,learning-next,pi-chat-runtime}
+rg -n 'PiObjectStore|uploadDirectory|archive' src/services/pi-chat-runtime/test
+nix develop path:/home/tangent/MathPilot -c pnpm -r --if-present run test
+```
+
+### 5.6 C-04 首个 implementation door
+
+| 门禁 | 已冻结证据 |
+|---|---|
+| 干净基线 | `P7_HANDOFF_COMMIT` 的相关代码与 `G0_REPLAY_BASELINE` 相同；G0 审计没有修改产品代码 |
+| 当前权威 | 整合审计 v3 C-04/R-21 与本 Goal G1：拒绝 symlink，验证 local root 与 object key containment，限制资源，并以恶意用例验收 |
+| production chain | 已授权 `POST /pi/threads/:threadId/archive` → `PiObjectStore.uploadDirectory(workspace)` → `readdir(withFileTypes)` → 非 directory entry 交给 MinIO 8.0.7 `fPutObject` → `stat/createReadStream` 跟随 symlink → 对象存储。unarchive 的 `downloadDirectory` 还把 object name 拼入本地 target |
+| 反证 | route 先校验 thread owner；默认 dev compose 没给 Pi Runtime `MINIO_*`，且空 session 不归档；这些条件不阻止启用对象存储的正式配置读取 workspace root 外字节。现有 artifact publisher 的 `lstat` guard 不覆盖该 route，相关测试搜索为 0 |
+| 影响强度 | 可配置部署上的条件性 P0 边界逃逸；不是“已有失败测试”，也不宣称默认 dev 已被利用 |
+| 库/已有平台评估 | MinIO 只负责对象传输，不拥有本地 symlink policy。首修复用 Node `lstat/realpath` 与仓库现有 regular-file/containment 约定；不先造巨型 object abstraction。共同 path/object policy 等第二个真实消费者一起在 G5 收敛 |
+| 工作归属与 owner | P7 handoff 后该文件无在途改动；owner 为 `src/services/pi-chat-runtime/src/pi-object-store.ts`、archive/unarchive adapter 与 `pi-chat-runtime/test` |
+| 最小验收 | 任意层级 symlink、root 外 realpath、绝对/`..` object name、非 regular file 必须拒绝；合法嵌套目录可往返；失败不得标 archived/写 `minio_key`；测试不连接真实公网对象服务 |
+
+该 door 只授权下一 tranche 修改上述新 Next owner，不代表 C-04 已修复，也不授权触碰旧 Agent Runtime 或手写 Bubblewrap。
+
 ## 6. 不可破坏的设计准则
 
 ### 6.1 真实性与禁止伪完成
@@ -337,7 +420,7 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 
 ### G0：P7 handoff、防误修复验和基线冻结
 
-当前状态：`in_progress`。P7 代码基线、验证边界、工作树归属和初始 ledger 已记录；整合审计 v3 的逐项基线重放与当前计数尚未完成，不得把 G0 标为完成。
+当前状态：`in_progress`。已完成的是 handoff、防误修与横向机制计数基线：第 5.3 节保存本 tranche 的 v3 replay 状态，第 5.4 节保存反误修结论，第 5.5 节保存当前机制/测试计数，第 5.6 节只为 C-04 打开首个实施门。正式 Next 产品代码从 `P7_HANDOFF_COMMIT` 到 `G0_REPLAY_BASELINE` 无差异。尚未逐 owner 过门的 v3 §4.1 产品问题族保持 `open/changed`，因此不得把 G0 标为完成。
 
 交付：
 
@@ -350,6 +433,8 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 门槛：所有后续工作都指向 handoff commit 的开放项；没有依赖脏工作树行号或过时计数。
 
 ### G1：安全边界与错误承诺
+
+当前状态：`not_started`。C-04 已通过第 4.5 节实施前门禁，但修复、测试和关闭证据均尚未形成。
 
 交付：
 
