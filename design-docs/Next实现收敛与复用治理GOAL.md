@@ -1,7 +1,7 @@
 # MathPilot Next 实现收敛与复用治理 Goal
 
 > 用途：承接 Science v3 P7 的用户明确未完成移交，统一关闭 Next 路径中的隐藏省略、伪能力、重复运行机制与不必要手写基础设施。
-> 状态：`active`（2026-09-01）；G0 handoff baseline 已建立，P7 剩余项只按第 5 节开放状态继续。
+> 状态：`ready-for-activation`（2026-09-01）；G0 handoff baseline 已建立，等待 operator 将 session Goal objective 切换到本文件后继续。
 > P7 权威 Goal：[科学内核与 Dream 配套前端实施 Goal](./科学内核与Dream封版v3/GOAL.md)
 > 唯一审计输入：[Next 实现整合审计 v3](./Next实现隐藏省略设计忠实度与复用整合审计v3.md)
 > 历史审计：v1、v2 补充与忠实度 v1 已 superseded，只可沿 v3 的裁决追溯，不得直接生成任务。
@@ -336,7 +336,7 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 
 ### G0：P7 handoff、防误修复验和基线冻结
 
-当前状态：`in_progress`。P7 代码基线、验证边界、工作树归属和初始 ledger 已记录；整合审计 v3 的逐项基线重放与当前计数尚未完成，不得把 G0 标为完成。
+当前状态：`ready-for-activation`。P7 代码基线、验证边界、工作树归属和初始 ledger 已记录；切换 session Goal 后进入 `in_progress`，整合审计 v3 的逐项基线重放与当前计数尚未完成，不得把 G0 标为完成。
 
 交付：
 
