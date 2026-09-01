@@ -1,7 +1,7 @@
 # MathPilot Next 实现收敛与复用治理 Goal
 
 > 用途：承接 Science v3 P7 的用户明确未完成移交，统一关闭 Next 路径中的隐藏省略、伪能力、重复运行机制与不必要手写基础设施。
-> 状态：`active`（2026-09-01）；G0 的逐 owner 产品 replay 已记录，待提交后绑定冻结证据；G1 正在实施，C-04 的窄 path/object boundary 已关闭，但 G1 其余安全项与 G2–G6 均未完成。
+> 状态：`active`（2026-09-01）；G0 审计检查点已完成并冻结逐 owner 产品 replay；G1 正在实施，C-04 的窄 path/object boundary 已关闭，但 G1 其余安全项与 G2–G6 均未完成。
 > P7 权威 Goal：[科学内核与 Dream 配套前端实施 Goal](./科学内核与Dream封版v3/GOAL.md)
 > 唯一审计输入：[Next 实现整合审计 v3](./Next实现隐藏省略设计忠实度与复用整合审计v3.md)
 > 历史审计：v1、v2 补充与忠实度 v1 已 superseded，只可沿 v3 的裁决追溯，不得直接生成任务。
@@ -68,6 +68,7 @@
 | `G0_AUDIT_INPUT_COMMIT=8548c05e11ec8496c52e34c84c1f8322a01340d5` | 可复现 | 四份审计输入原样入库后的治理审计基线 |
 | `G0_REPLAY_BASELINE=d5e34aa2259d5fda95566c27a4b96f87cf573c21` | 可复现 | 工作树干净；相对 P7 handoff 的正式 Next、packages、DB 与 deploy 产品代码差异为零；第 5.3～5.5 节的计数可同时代表 handoff 与本次复验实况，第 5.6 节只有 implementation-door 基线部分属于该提交 |
 | `G0_PRODUCT_REPLAY_BASELINE=eaad78bec4c73471e1047c6164932fe063c89fd5` | 可复现 | 工作树干净；第 5.7 节以该提交的产品树为 replay 输入，未以随后 C-04 代码改动反向改写审计事实；该 SHA 不声称包含稍后写入的 replay 文档 |
+| `G0_PRODUCT_REPLAY_EVIDENCE_COMMIT=fffee99d1979b385027c7d10d6781157471f7b32` | 可复现 | 包含第 5.7 节十二个产品问题族的逐 owner 事实、反证、最小 owner 与正式 Next evidence anchors；这是文档冻结证据，与产品树 replay baseline 分离 |
 
 以后所有问题关闭记录必须包含 commit、路径、测试或运行证据。禁止再次使用“HEAD + 未提交改动”作为审计基线。
 
@@ -234,7 +235,7 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 | C-06 context manifest | `open` | P7 已从 WorkspaceProjection 持久化并显示 manifest，但缺“实际注入 items = 显示 items”、ACL、刷新与降级集成证据 | projection + Pi input + read model / G2、G6 |
 | C-07 Schema/Task truth | `open` | 97 个正式 HTTP method/path 无 Fastify route schema；9 个 TaskSpec 中 grade/diagnose/teach_summary/semantic_decomposition 仍断链；7 个 runtime Schema URI 无 `$id` 文档 | contracts runtime registry + 各 route/Task adapter / G3 |
 | C-08 durable Agent runtime | `changed` | Content 5 秒 dispatcher 与 Pi Map/marker/transcript 恢复是 confirmed duplication；DB outbox→Temporal 是领域事务桥，不是第二套 queue。迁移前必须先按用户最新决定修订 KTQ/ER owning 设计 | KTQ/ER design → Temporal Task Runtime + Content/Pi adapters / G4 |
-| v3 §4.1 产品问题族 | `open/changed` | 十二个问题族已在 5.7 以 `G0_PRODUCT_REPLAY_BASELINE` 的产品树逐 owner 重放；这完成的是事实定位，不是产品实现。数学推导 artifact 的 O-14 窄子项仍按 5.1 `closed-by-p7`，其余开放面按 5.7 进入 G2/G4/G5/G6 | 各领域 owner / 逐项实施前继续走窄门禁 |
+| v3 §4.1 产品问题族 | `open/changed` | 十二个问题族已在 5.7 以 `G0_PRODUCT_REPLAY_BASELINE` 的产品树逐 owner 重放，并由 `G0_PRODUCT_REPLAY_EVIDENCE_COMMIT` 冻结证据；这完成的是事实定位，不是产品实现。数学推导 artifact 的 O-14 窄子项仍按 5.1 `closed-by-p7`，其余开放面按 5.7 进入 G2/G4/G5/G6 | 各领域 owner / 逐项实施前继续走窄门禁 |
 | v3 §4.2 横向机制 | `open/changed` | pool/config/SSE/server-state/object/path/ID/cursor/CSV/migration/build graph 的当前实况见 5.5；跨进程 pool、浏览器 EventSource、presigned data-plane fetch、局部 Map/Set 与字节 SHA 是合理例外 | 第 8 节对应共同机制 owner / G1、G4、G5、G6 |
 
 本表不把任一 `open/changed` 产品问题族标成实现完成。第 5.7 节补齐逐 owner 的 trigger→write→consumer、反证、影响与最小归属后，G0 作为**审计检查点**可以结束；每个代码 tranche 仍须按第 4.5 节在其 owner 上重新确认。C-04 已沿独立门禁先行关闭窄边界，不代表 G1 或对象生命周期整体完成。
@@ -310,9 +311,9 @@ nix develop path:/home/tangent/MathPilot -c pnpm -r --if-present run test
 
 该关闭仅对应 C-04 已确认的 path/object boundary。未做真实公网对象服务测试是门禁的明确边界；跨进程 reservation 进入 G4 并在 G6 验收，orphan generation GC 与统一 object/path abstraction 保持在 G5，完整 PostgreSQL/MinIO E2E 保持在 G6。全程只修改正式 Next `pi-chat-runtime`，未触碰旧 Agent Runtime，也没有手写 Bubblewrap。
 
-### 5.7 G0 产品问题族逐 owner replay（待证据提交冻结）
+### 5.7 G0 产品问题族逐 owner replay（已冻结）
 
-以下事实以 `G0_PRODUCT_REPLAY_BASELINE` 的产品树为输入，并按 v3 §4.1 的 owning 设计重放。`open/changed` 是后续实施输入，不是完成声明；表后 evidence anchors 给出逐族最小复现入口。
+以下事实以 `G0_PRODUCT_REPLAY_BASELINE` 的产品树为输入，按 v3 §4.1 的 owning 设计重放，并由 `G0_PRODUCT_REPLAY_EVIDENCE_COMMIT` 固化记录。`open/changed` 是后续实施输入，不是完成声明；表后 evidence anchors 给出逐族最小复现入口。
 
 | 问题族 | 当前状态与 production/反证 | 影响与最小 owner / 阶段 |
 |---|---|---|
@@ -348,7 +349,7 @@ nix develop path:/home/tangent/MathPilot -c pnpm -r --if-present run test
 
 这些条目是领域生产可达性与现有 adapter 的审计，不是“缺一个第三方库”的问题。最小复用裁决已写入各行 owner：继续复用现有 outbox/Temporal、科学 compiler/store、storage/content contracts 与官方 assistant-ui 元素；共享抽象只在后续阶段出现第二个真实消费者时收敛，不在 G0 造新框架。
 
-本节只记录逐 owner 事实；提交形成可复现 evidence anchor 后，G0 才能作为审计检查点结束。表中所有 `open/changed` 继续作为后续阶段的必需输入，不会因 G0 检查点结束而被关闭。
+G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻结。表中所有 `open/changed` 继续作为后续阶段的必需输入；它们没有因为 G0 审计检查点结束而被关闭。
 
 ## 6. 不可破坏的设计准则
 
@@ -469,7 +470,7 @@ nix develop path:/home/tangent/MathPilot -c pnpm -r --if-present run test
 
 ### G0：P7 handoff、防误修复验和基线冻结
 
-当前状态：`in_progress`。第 5.3 节保存 canonical replay，第 5.4 节保存反误修结论，第 5.5 节保存横向机制/测试计数，第 5.7 节已按 `G0_PRODUCT_REPLAY_BASELINE` 的产品树记录十二个问题族；在包含该记录的提交成为明确 evidence anchor 前，不把 G0 标成完成。正式 Next 产品代码从 `P7_HANDOFF_COMMIT` 到该基线无差异，表内 `open/changed` 全部继续进入后续阶段。
+当前状态：`completed`（审计检查点，不是 Goal 完成）。第 5.3 节保存 canonical replay，第 5.4 节保存反误修结论，第 5.5 节保存横向机制/测试计数，第 5.7 节按 `G0_PRODUCT_REPLAY_BASELINE` 的产品树重放十二个问题族，并由 `G0_PRODUCT_REPLAY_EVIDENCE_COMMIT` 冻结证据。正式 Next 产品代码从 `P7_HANDOFF_COMMIT` 到产品基线无差异；表内 `open/changed` 全部继续进入后续阶段，未因 G0 完成而被标成实现完成。
 
 交付：
 
