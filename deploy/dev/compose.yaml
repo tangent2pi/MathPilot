@@ -296,6 +296,7 @@ services:
       context: ../..
       dockerfile: src/services/api-next/Dockerfile
     environment:
+      MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       CONTENT_NEXT_URL: http://content-next:3016
       CONTENT_NEXT_SECRET: ${CONTENT_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}
@@ -303,6 +304,7 @@ services:
       STORAGE_NEXT_URL: http://storage-next:3017
       STORAGE_NEXT_SECRET: ${STORAGE_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-mathpilot-dev-secret-change-me-at-least-32-characters}
+      LEARNING_EVIDENCE_SECRET: ${LEARNING_EVIDENCE_SECRET:-mathpilot-dev-evidence-secret-change-me-at-least-32-characters}
       BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       BETTER_AUTH_SECURE_COOKIES: ${BETTER_AUTH_SECURE_COOKIES:-false}
       BETTER_AUTH_IP_ADDRESS_HEADERS: ${BETTER_AUTH_IP_ADDRESS_HEADERS:-x-real-ip}

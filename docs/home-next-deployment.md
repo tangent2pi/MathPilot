@@ -42,12 +42,19 @@ PostgreSQL、Pi 和领域服务不向公网映射端口。浏览器通过同源 
 4. 在远端 `.env` 明确设置：
 
    ```dotenv
+   MATHPILOT_ENVIRONMENT=production
    POSTGRES_VOLUME=mathpilot_pgdata_next
    PI_CHAT_RUNTIME_VOLUME=mathpilot_pi_chat_runtime
    MINIO_VOLUME=mathpilot_minio_data
    MINIO_PUBLIC_ENDPOINT=https://mathpilot.tangentpi.com
    MINIO_CORS_ALLOWED_ORIGINS=https://mathpilot.tangentpi.com
+   BETTER_AUTH_SECRET=<独立的 32 字节以上生产密钥>
+   LEARNING_EVIDENCE_SECRET=<另一把独立的 32 字节以上生产密钥>
    ```
+
+   两把密钥不得相同，也不得使用仓库中的 development 示例值。Compose 要求显式声明
+   `MATHPILOT_ENVIRONMENT`；`api-next` 会在构造 Better Auth 或 evidence codec 前拒绝
+   缺失、过短、共用或公开开发默认密钥。
 
 5. 仅启动新 PostgreSQL 容器，确认它实际挂载 `mathpilot_pgdata_next`，再创建并恢复两个数据库。
 6. 把 Pi runtime 归档解入 `mathpilot_pi_chat_runtime` 的卷根。
@@ -55,6 +62,16 @@ PostgreSQL、Pi 和领域服务不向公网映射端口。浏览器通过同源 
 8. 构建并启动 `minio`、`storage-next`、`content-next`、`pi-chat-runtime`、`api`、`web`。
 9. 先运行官方导入 dry-run 并审核报告，再加 `--execute` 导入固定清单；确认 174 个修订和
    `pkg_official_home_v1` 后才切流。其余领域服务与旧 `agent-runtime` 保留原职责。
+
+正式启动前先运行以下不回显密钥值的门禁：
+
+```sh
+test "${MATHPILOT_ENVIRONMENT:?MATHPILOT_ENVIRONMENT is required}" = production
+test -n "${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}"
+test -n "${LEARNING_EVIDENCE_SECRET:?LEARNING_EVIDENCE_SECRET is required}"
+test "$BETTER_AUTH_SECRET" != "$LEARNING_EVIDENCE_SECRET"
+docker compose -f deploy/dev/compose.yaml config --quiet
+```
 
 ## 切换前后核验
 

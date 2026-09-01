@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { apiNextSecurityConfig } from "../security-config.ts";
 
 const cursorPrefix = "mathpilot-cursor-v1:";
 
@@ -33,17 +34,11 @@ export interface EvidenceReference {
   studentId: string;
 }
 
-const evidenceSecret = (): string => {
-  const value = process.env.LEARNING_EVIDENCE_SECRET
-    ?? process.env.BETTER_AUTH_SECRET
-    ?? "mathpilot-dev-evidence-secret-change-me";
-  if (value.length < 32) throw new Error("LEARNING_EVIDENCE_SECRET must contain at least 32 characters");
-  return value;
-};
+const evidenceSecret = apiNextSecurityConfig().evidenceSecret;
 
 export function evidenceHandle(reference: EvidenceReference): string {
   const payload = Buffer.from(JSON.stringify({ v: 1, ...reference }), "utf8").toString("base64url");
-  const signature = createHmac("sha256", evidenceSecret()).update(payload).digest("base64url");
+  const signature = createHmac("sha256", evidenceSecret).update(payload).digest("base64url");
   return `${payload}.${signature}`;
 }
 
@@ -51,7 +46,7 @@ export function parseEvidenceHandle(value: string): EvidenceReference {
   if (!value || value.length > 1000) throw new LearningReadError(404, "evidence_not_found", "依据不存在或已失效");
   const [payload, supplied, extra] = value.split(".");
   if (!payload || !supplied || extra) throw new LearningReadError(404, "evidence_not_found", "依据不存在或已失效");
-  const expected = createHmac("sha256", evidenceSecret()).update(payload).digest();
+  const expected = createHmac("sha256", evidenceSecret).update(payload).digest();
   let actual: Buffer;
   try { actual = Buffer.from(supplied, "base64url"); } catch { throw new LearningReadError(404, "evidence_not_found", "依据不存在或已失效"); }
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {

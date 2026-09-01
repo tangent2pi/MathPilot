@@ -3,10 +3,11 @@ import { fromNodeHeaders } from "better-auth/node";
 import type { IncomingHttpHeaders } from "node:http";
 import pg from "pg";
 import { newId, withTenant } from "./lib.ts";
+import { apiNextSecurityConfig } from "./security-config.ts";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot";
 const AUTH_BASE_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:5174";
-const AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "mathpilot-dev-secret-change-me-at-least-32-characters";
+const AUTH_SECRET = apiNextSecurityConfig().betterAuthSecret;
 const DEV_TENANT = process.env.DEV_TENANT_ID ?? "tnt_dev00001";
 const trustedOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? AUTH_BASE_URL).split(",").map((value) => value.trim()).filter(Boolean);
 const ipAddressHeaders = (process.env.BETTER_AUTH_IP_ADDRESS_HEADERS ?? "x-real-ip").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
