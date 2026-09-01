@@ -1,7 +1,7 @@
 # MathPilot Next 实现收敛与复用治理 Goal
 
 > 用途：承接 Science v3 P7 的用户明确未完成移交，统一关闭 Next 路径中的隐藏省略、伪能力、重复运行机制与不必要手写基础设施。
-> 状态：`active`（2026-09-01）；G0 审计检查点已完成并冻结逐 owner 产品 replay；G1 正在实施，C-04 的窄 path/object boundary 已关闭，但 G1 其余安全项与 G2–G6 均未完成。
+> 状态：`active`（2026-09-01）；G0 审计检查点已完成并冻结逐 owner 产品 replay；G1 正在实施，C-04 path/object 与 O-13 evidence secret 两个窄边界已关闭，但 G1 其余安全项与 G2–G6 均未完成。
 > P7 权威 Goal：[科学内核与 Dream 配套前端实施 Goal](./科学内核与Dream封版v3/GOAL.md)
 > 唯一审计输入：[Next 实现整合审计 v3](./Next实现隐藏省略设计忠实度与复用整合审计v3.md)
 > 历史审计：v1、v2 补充与忠实度 v1 已 superseded，只可沿 v3 的裁决追溯，不得直接生成任务。
@@ -98,7 +98,7 @@
 |---|---|---|
 | O-11 发送失败静默丢消息 | `7843ab8` 确认 | 属于 P7 退出条件；失败时保留草稿/乐观消息并进入 assistant-ui 原生 incomplete/error 状态 |
 | O-12 取消后结果仍落盘 | **原影响判断不成立，范围收窄** | API 确实未向 Temporal 传播取消，但 `mathpilot_science_v3_commit_foreground_response` 会拒绝 terminal request，foreground 结果不能在取消后提交。治理取消传播、算力浪费、完成延迟和其他 operation 的一致取消协议 |
-| O-13 evidence HMAC 默认密钥 | 确认，且下游 ACL 二次鉴权降低了直接危害 | 与生产配置 fail-fast 合并；非 development 必须提供独立 secret，默认 secret 只能存在于显式 dev profile |
+| O-13 evidence HMAC 默认密钥 | 确认，且下游 ACL 二次鉴权降低了直接危害 | `O13_IMPLEMENTATION_COMMIT` + `O13_PREFLIGHT_COMMIT` 已关闭该窄项：非 development 必须提供独立 secret，默认 secret 只存在于显式 dev profile，生产 Compose 有不回显值的同 loader 预检；证据见 5.8。其余内部身份/config 不随之关闭 |
 | O-14 `present_validated_artifact` 名不副实 | 确认 | 接入真实 canonical artifact schema 校验，或去掉 `validated` 承诺；不能只验字段形状和 schema 名字正则 |
 | O-15 Workflow 失败后无限重启 | **撤销** | `@temporalio/client` 1.23.0 在未提供 `options.retry` 时发送 `retryPolicy: undefined`；未捕获的 `TemporalFailure` 会令 Workflow Execution 失败，不会自动创建无限新 run。不得为修复此伪问题反而添加 Workflow retry。补终态行为测试，并单独防范普通编程错误造成 Workflow Task 反复失败 |
 | O-16 action slots/capability 双轨 | `7843ab8` 确认，P7 正在修改相关面 | 属于 P7 交接复验；capability 必须从同一领域状态生成，静态 slot 不得与命令受理条件矛盾 |
@@ -235,10 +235,10 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 | C-06 context manifest | `open` | P7 已从 WorkspaceProjection 持久化并显示 manifest，但缺“实际注入 items = 显示 items”、ACL、刷新与降级集成证据 | projection + Pi input + read model / G2、G6 |
 | C-07 Schema/Task truth | `open` | 97 个正式 HTTP method/path 无 Fastify route schema；9 个 TaskSpec 中 grade/diagnose/teach_summary/semantic_decomposition 仍断链；7 个 runtime Schema URI 无 `$id` 文档 | contracts runtime registry + 各 route/Task adapter / G3 |
 | C-08 durable Agent runtime | `changed` | Content 5 秒 dispatcher 与 Pi Map/marker/transcript 恢复是 confirmed duplication；DB outbox→Temporal 是领域事务桥，不是第二套 queue。迁移前必须先按用户最新决定修订 KTQ/ER owning 设计 | KTQ/ER design → Temporal Task Runtime + Content/Pi adapters / G4 |
-| v3 §4.1 产品问题族 | `open/changed` | 十二个问题族已在 5.7 以 `G0_PRODUCT_REPLAY_BASELINE` 的产品树逐 owner 重放，并由 `G0_PRODUCT_REPLAY_EVIDENCE_COMMIT` 冻结证据；这完成的是事实定位，不是产品实现。数学推导 artifact 的 O-14 窄子项仍按 5.1 `closed-by-p7`，其余开放面按 5.7 进入 G2/G4/G5/G6 | 各领域 owner / 逐项实施前继续走窄门禁 |
+| v3 §4.1 产品问题族 | `open/changed` | 十二个问题族已在 5.7 以 `G0_PRODUCT_REPLAY_BASELINE` 的产品树逐 owner 重放，并由 `G0_PRODUCT_REPLAY_EVIDENCE_COMMIT` 冻结证据；这完成的是事实定位，不是产品实现。O-13 evidence secret 窄项当前关闭证据见 5.8；数学推导 artifact 的 O-14 窄子项仍按 5.1 `closed-by-p7`；其余开放面按 5.7 进入 G1/G2/G4/G5/G6 | 各领域 owner / 逐项实施前继续走窄门禁 |
 | v3 §4.2 横向机制 | `open/changed` | pool/config/SSE/server-state/object/path/ID/cursor/CSV/migration/build graph 的当前实况见 5.5；跨进程 pool、浏览器 EventSource、presigned data-plane fetch、局部 Map/Set 与字节 SHA 是合理例外 | 第 8 节对应共同机制 owner / G1、G4、G5、G6 |
 
-本表不把任一 `open/changed` 产品问题族标成实现完成。第 5.7 节补齐逐 owner 的 trigger→write→consumer、反证、影响与最小归属后，G0 作为**审计检查点**可以结束；每个代码 tranche 仍须按第 4.5 节在其 owner 上重新确认。C-04 已沿独立门禁先行关闭窄边界，不代表 G1 或对象生命周期整体完成。
+本表不把任一 `open/changed` 产品问题族标成实现完成。第 5.7 节补齐逐 owner 的 trigger→write→consumer、反证、影响与最小归属后，G0 作为**审计检查点**可以结束；每个代码 tranche 仍须按第 4.5 节在其 owner 上重新确认。C-04 与 O-13 已分别沿独立门禁关闭窄边界，不代表 G1、对象生命周期或 production config/internal identity 整体完成。
 
 ### 5.4 防误修反回归 ledger
 
@@ -266,13 +266,13 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 | HTTP route | 4 个正式 HTTP 服务有 87 个 route 声明，展开为 97 个 method/path；Fastify `schema` 为 0/97 | `open` / G3 contracts + route adapters |
 | Task/Schema | 9 TaskSpec、9 Skill；5 个 direct workflow route，grade 由真实 child 启动；diagnose、teach_summary、semantic_decomposition 无 production starter，grade 等 4 项缺 host output validator；45 个 `$id` 文档，19 个 runtime literal URI 中 7 个 missing-document | `changed/open` / G2 reachability + G3 registry |
 | pools | 正式五进程有 11 个常驻 app pool、声明 max 合计 63；其中 learning 同进程 6 个/max 32，API 同进程 2 个/max 10；另 2 个 importer/bootstrap 短期 pool | 同进程重复 `open`；跨进程独立 pool 与短期 pool 是例外 / G5 postgres-context |
-| env/config | 正式 production src 18 文件、108 次 `process.env`；composition roots 可保留，cursor、store/lib、Pi route/extension 与 executor 等业务深层读取仍存在，evidence/auth/internal secret 有 dev fallback | security fail-fast `open` / G1；注入式 config `open` / G5 |
+| env/config | 基线正式 production src 18 文件、108 次 `process.env`；composition roots 可保留，cursor、store/lib、Pi route/extension 与 executor 等业务深层读取仍存在，evidence/auth/internal secret 有 dev fallback。当前 api-next auth/evidence 的 O-13 fallback 已移除并 fail-fast，见 5.8；内部 edge secret 与其余深层读取仍开放 | O-13 窄项 `closed` / G1；internal identity 仍 `open` / G1；注入式 config `open` / G5 |
 | Web/server-state | Web 8 文件有 9 个 `fetch()`、7 个 `window.location.assign`、2 个 2 秒 polling；14 个 service fetch 中 11 个 control-plane、3 个 presigned data-plane，API relay 还会全量 `arrayBuffer()` | control-plane/generated client、Router/Query 与 streaming proxy `open`；data-plane fetch 是例外 / G5 |
 | SSE/timer/runtime | 两套手写 SSE：learning 逐 client 1 秒 DB poll，Pi 20 秒 heartbeat；Content 5 秒扫两类 pending command；Pi 有 3 个进程 Map 及 ER/review marker+transcript 恢复 | SSE `open` / G5；Content/Pi durable state `changed` 且有 design prerequisite / G4 |
 | ID/hash/cursor | 8 份 deterministic SHA-truncate helper、3 份随机 `newId`、2 个浏览器 `Math.random` fallback；canonical JSON hash 有排序/裸 stringify 双轨；API、Content、Selection 三套 cursor，Content 多 kind 会静默把 offset 归零 | `open/changed` / G5 codecs + 各领域稳定排序；字节 SHA 与局部视觉随机是例外 |
 | object/path/artifact | 基线上的 C-04 无 `PiObjectStore/uploadDirectory/archive` 测试；Artifact index 读改普通 `writeFile` 无锁/原子发布，GET 会触发发布 | C-04 在该基线为 `open`、当前关闭证据见 5.6；index `open` / G5 |
 | CSV/migration/build graph | official import 有手写 CSV parser；根 DB 与 web-next Pi DB 有两套 shell migrator；正式 Next 内部 manifest 只声明 web/api/learning→contracts 3 条边，Pi extensions 有隐藏源码依赖，通用 Dockerfile 与 API/Web build 仍扩大到全 workspace | `open` / G5 codecs/db-platform、G6 dependency/removal；PostgreSQL 原生 CSV 是例外 |
-| tests | 基线 workspace 18 包，11 个有 test script、7 个没有；根 `--if-present` 会静默跳过。正式 Next 中 web-next/storage-next 无 script，content-next 收集 0 test 仍 exit 0；api-next 仅 2 个 artifact 窄测试；learning-next 28 项为 23 pass/5 DB skip；pi-chat-runtime 基线 8 pass、C-04 后 24 pass | R-30/R-38 `open` / G6；C-04 当前证据见 5.6，旧 package 无脚本不自动成为 Next 缺陷 |
+| tests | 基线 workspace 18 包，11 个有 test script、7 个没有；根 `--if-present` 会静默跳过。正式 Next 中 web-next/storage-next 无 script，content-next 收集 0 test 仍 exit 0；api-next 基线 2 项、O-13 后当前 6 项；learning-next 28 项为 23 pass/5 DB skip；pi-chat-runtime 基线 8 pass、C-04 后 24 pass | R-30/R-38 `open` / G6；C-04 当前证据见 5.6，O-13 当前证据见 5.8；旧 package 无脚本不自动成为 Next 缺陷 |
 
 标准 runner 的其余当前结果是：legacy Web 26 pass、agent-runtime 16 pass、legacy Content 2 pass；mastery/selector/profile 分别自打印 27/8/17 个 `ok`；contracts 验证 44 个 example files/45 schemas 并另跑权限/authority/no-legacy invariant。它们不能代替缺失的 Next route/browser/PostgreSQL evidence，5 个 DB skip 也不能算 integration 通过。
 
@@ -350,6 +350,27 @@ nix develop path:/home/tangent/MathPilot -c pnpm -r --if-present run test
 这些条目是领域生产可达性与现有 adapter 的审计，不是“缺一个第三方库”的问题。最小复用裁决已写入各行 owner：继续复用现有 outbox/Temporal、科学 compiler/store、storage/content contracts 与官方 assistant-ui 元素；共享抽象只在后续阶段出现第二个真实消费者时收敛，不在 G0 造新框架。
 
 G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻结。表中所有 `open/changed` 继续作为后续阶段的必需输入；它们没有因为 G0 审计检查点结束而被关闭。
+
+### 5.8 O-13 evidence HMAC implementation door 与关闭证据
+
+| 门禁 | 当前可复现证据 |
+|---|---|
+| 干净基线 | `c0672b9e9707a3e89714a8226af3f5d1e23e2840`；其产品父链已包含 C-04，工作树干净，O-13 相关文件尚未修改 |
+| 当前权威 | 整合审计 v3 O-13 与本 Goal G1：非 development 启动必须显式提供 auth/evidence secret，evidence key 与 auth key 独立，公开 dev 默认值不得进入 test/production |
+| production chain | api-next composition root 构造 Better Auth 前读取同一 security config；learning read service 生成 evidence handle，`/api/learning/evidence/:evidenceHandle` 解析 handle，随后仍执行 thread/tenant/principal ACL。旧 cursor 会按 `LEARNING_EVIDENCE_SECRET ?? BETTER_AUTH_SECRET ?? public-dev-default` 取 key |
+| 反证 | HMAC、constant-time comparison 与 handle 后的 ACL 原本存在，降低直接影响但不能使公开/共用签名 key 合格；仅修改 `.env.example` 或只做 shell 非空检查也不能证明容器实际配置安全 |
+| 影响强度 | 条件性签名伪造与环境误配置边界；不宣称可绕过 handle 消费端的二次 ACL，也不把它扩写成全部内部身份问题 |
+| 库/抽象评估 | 继续复用 Node 官方 `crypto.createHmac`/`timingSafeEqual`；第二个独立安全配置消费者尚未形成，不新造配置框架 |
+| 工作归属与最小验收 | owner 为 `api-next/src/security-config.ts`、auth/cursor composition、Compose 与 home runbook；missing、short、shared、两把公开 dev sentinel、tamper、非 production preflight 均须 fail-closed，成功预检不得输出密钥值 |
+
+实施结果绑定 `O13_IMPLEMENTATION_COMMIT=01fe1341b9fd06348a1b8b22661a3a25cde5df22` 与 `O13_PREFLIGHT_COMMIT=02082c4deb4a87c34b1fb2a44358c6bcbdc41f55`：
+
+- `MATHPILOT_ENVIRONMENT` 缺失时按 production 安全默认处理；只有显式 `development` 可使用两把互不相同的公开开发值，test/production 必须显式提供至少 32 bytes 且互不相同的非 sentinel 值；
+- Better Auth 在构造前读取 `betterAuthSecret`，evidence codec 只读取 `evidenceSecret`，不再回退到 auth secret；handle 篡改继续由 HMAC 拒绝，消费端 ACL 未被削弱；
+- Compose 显式要求 environment 并分别注入两把变量；生产 runbook 的密钥项故意留空，one-off 容器使用实际 Compose 环境和同一 loader 强制 production，失败只输出固定文本；
+- `nix develop path:/home/tangent/MathPilot -c pnpm --filter @mathpilot/api-next test` 为 6/6 pass，typecheck 退出 0；production preflight 成功路径退出 0，development profile 退出 1；使用固定假密钥的 `docker compose ... run --rm --no-deps --build ... preflight:production` 退出 0，未启动依赖或回显配置。
+
+该关闭只对应 O-13 的 api-next auth/evidence secret 边界。Content↔Pi 等内部 edge secret 的 fallback/方向不一致、其余服务 production fail-fast、深层 `process.env` 注入与全系统 secret rotation/readiness 仍分别留在 G1/G5/G6；因此 G1 和终态安全矩阵仍未完成。
 
 ## 6. 不可破坏的设计准则
 
@@ -484,18 +505,19 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 
 ### G1：安全边界与错误承诺
 
-当前状态：`in_progress`。C-04 窄 path/object boundary 已由 `C04_IMPLEMENTATION_COMMIT` 关闭并在第 5.6 节留证；本阶段其余 Artifact origin、production secret/config、内容识别、错误承诺、Problem Details 与安全头等交付仍开放，因此不得把 G1 标为完成。
+当前状态：`in_progress`。C-04 窄 path/object boundary 与 O-13 api-next auth/evidence secret boundary 已分别由第 5.6、5.8 节留证；本阶段其余 Artifact origin、内部身份/config、内容识别、错误承诺、Problem Details、安全头与 rate limit 等交付仍开放，因此不得把 G1 标为完成。
 
 交付：
 
 - P0 修复 Pi archive symlink/containment；加入恶意 symlink、绝对/穿越 object key 测试；
 - 可执行 Artifact 使用独立 untrusted origin + sandbox iframe/窄 `postMessage`；完成前保持不可执行或移除入口；
-- production config fail-fast、独立 evidence secret、内部身份过渡加固；
+- api-next production config fail-fast 与独立 evidence secret（O-13 窄项已关闭）；
+- 其余服务 production config fail-fast 与内部身份过渡加固；
 - Avatar/附件/Artifact 内容识别、图片解码重编码、stream/size/hash/expiry；
 - `validated`、`sandboxed`、interaction token、dedup 等承诺与真实运行时一致；
 - 全局 Problem Details、默认 500 脱敏、安全头和按 threat model 的 rate limit。
 
-门槛：安全测试证明 sandbox 外归档不能读取授权 root 外字节；非 dev 默认 secret 拒绝启动；主动内容不能继承应用 origin；文件声明与实际内容不一致被拒绝。
+门槛：安全测试证明 sandbox 外归档不能读取授权 root 外字节；api-next 非 dev 默认/共用 secret 已拒绝启动并有 production preflight；其余内部身份/config 收敛；主动内容不能继承应用 origin；文件声明与实际内容不一致被拒绝。
 
 ### G2：P7 剩余真实性、状态终态与可达性
 
@@ -626,7 +648,7 @@ nix develop path:/home/tangent/MathPilot -c pnpm test
 | 范围 | 最低完成证据 |
 |---|---|
 | P7 交接 | 整合审计 v3 全项 ledger；历史误判被隔离；P7 修复项有 handoff commit 与测试，未重复实现 |
-| 安全 | symlink/containment、untrusted origin、secret fail-fast、文件解码、500 脱敏攻击测试 |
+| 安全 | symlink/containment、untrusted origin、secret fail-fast/independence/production preflight、文件解码、500 脱敏攻击测试 |
 | 功能真实性 | action/Task/status/tool 字段 reachability 100%，无 placeholder/no-op/静态矛盾能力 |
 | Contracts | route/Agent/Python/Web 共用 canonical Schema，生成物一致，悬空 URI 为零 |
 | Runtime | Content/Science/Dream 非前台任务统一 Temporal；cancel/retry/crash/duplicate 多副本测试 |
@@ -649,6 +671,7 @@ nix develop path:/home/tangent/MathPilot -c pnpm test
 - 建了共享 package，但各服务仍维护自己的 policy；
 - 只消除文字重复，没有收敛同机制不同职责的 Runtime；
 - 只通过 typecheck、mock 单测、旧 smoke、0-test package 或一次演示；
+- 只关闭 C-04/O-13 窄项或只通过 config 单测，却把 G1 或终态矩阵“安全”行标为完成；
 - 因治理范围大而删除领域审计字段、降低安全门禁或恢复旧实现；
 - 用代码量、阶段名称、测试文件数或时间投入代替 requirement → evidence。
 
