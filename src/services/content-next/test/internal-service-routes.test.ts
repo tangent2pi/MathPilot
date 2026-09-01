@@ -7,10 +7,10 @@ import {
   type InternalEdgeId,
   type InternalServiceRuntime,
 } from "@mathpilot/internal-service";
-import { internalServiceContext, internalServiceGuard } from "@mathpilot/internal-service/fastify";
+import { installProblemDetails, internalServiceContext, internalServiceGuard } from "@mathpilot/internal-service/fastify";
 import { internalServiceTestEnvironment } from "@mathpilot/internal-service/testing";
 import Fastify from "fastify";
-import type { CandidateRepository } from "../src/candidate-repository.ts";
+import { ContentRejection, type CandidateRepository } from "../src/candidate-repository.ts";
 import { dispatchErCommands, type ErCommandRepository } from "../src/command-dispatch.ts";
 import { registerContentNextRoutes } from "../src/routes.ts";
 
@@ -53,6 +53,7 @@ test("content routes accept only their signed edge, consume assertions once, and
     },
   } as unknown as CandidateRepository;
   const app = Fastify();
+  installProblemDetails(app);
   registerContentNextRoutes(app, repository, receiver);
 
   const apiAuthorization = await bearer(api, "api-to-content", signedTeacher, "GET", "/packages");
@@ -101,6 +102,40 @@ test("content routes accept only their signed edge, consume assertions once, and
   });
   assert.equal(wrongPiEdge.statusCode, 401);
 
+  await app.close();
+});
+
+test("Content exposes typed rejections but unknown repository failures use the safe shared 500", async () => {
+  const source = internalServiceTestEnvironment();
+  const receiver = createInternalServiceRuntime("content-next", source);
+  const pi = createInternalServiceRuntime("pi-chat-runtime", source);
+  const api = createInternalServiceRuntime("api-next", source);
+  const repository = {
+    async searchLibrary() { throw new Error("secret SQL token /srv/content-private.ts"); },
+    async releasePackage() { throw new ContentRejection("private rejection explanation"); },
+  } as unknown as CandidateRepository;
+  const app = Fastify();
+  installProblemDetails(app);
+  registerContentNextRoutes(app, repository, receiver);
+
+  const searchPath = "/agent/library/search";
+  const search = await app.inject({
+    method: "GET", url: searchPath,
+    headers: { authorization: await bearer(pi, "pi-to-content", signedTeacher, "GET", searchPath) },
+  });
+  assert.equal(search.statusCode, 500);
+  assert.equal(search.json().code, "internal_server_error");
+  assert.doesNotMatch(search.body, /secret|SQL|token|private/);
+
+  const releasePath = "/packages/pkg_test/releases";
+  const releaseBody = { class_id: "cls_test" };
+  const release = await app.inject({
+    method: "POST", url: releasePath, payload: releaseBody,
+    headers: { authorization: await bearer(api, "api-to-content", signedTeacher, "POST", releasePath, releaseBody) },
+  });
+  assert.equal(release.statusCode, 422);
+  assert.equal(release.json().code, "release_rejected");
+  assert.doesNotMatch(release.body, /private rejection explanation/);
   await app.close();
 });
 

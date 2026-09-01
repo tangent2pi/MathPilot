@@ -1,5 +1,5 @@
 import type { UserSubmittedMessagePart } from "../contracts";
-import { LearningApiError } from "../data/client";
+import { HttpProblemError } from "../../lib/http-problem";
 
 export type MessageCommandEnvelope = {
   readonly signature: string;
@@ -61,7 +61,7 @@ export function bindMessageCommandThread(
 
 /** Only an explicit application 4xx (except timeout) proves no command receipt exists. */
 export function messageCommandOutcomeIsUnknown(error: unknown): boolean {
-  return !(error instanceof LearningApiError
+  return !(error instanceof HttpProblemError
     && error.status >= 400
     && error.status < 500
     && error.status !== 408);

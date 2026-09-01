@@ -6,6 +6,9 @@ import {
   storageObjectResolveResponseSchema,
   type StorageObjectDownloadIntent,
 } from "@mathpilot/content-integrity";
+import { responseJson } from "../lib/http-problem";
+
+type StorageObjectResolveBody = ReturnType<typeof storageObjectResolveRequestSchema.parse>;
 
 export function storageObjectResolveBody(reference: string, downloadIntent: StorageObjectDownloadIntent) {
   const objectId = parseObjectReference(reference);
@@ -14,6 +17,24 @@ export function storageObjectResolveBody(reference: string, downloadIntent: Stor
     object_refs: [canonicalObjectReference(objectId)],
     download_intent: downloadIntent,
   });
+}
+
+export async function resolveStorageObjectUrl(
+  body: StorageObjectResolveBody,
+  fetcher: typeof fetch = fetch,
+): Promise<string> {
+  const response = await fetcher("/api/storage/objects/resolve", {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const result = storageObjectResolveResponseSchema.parse(
+    await responseJson<unknown>(response, "无法读取附件"),
+  );
+  const object = result.objects[0];
+  if (!object) throw new Error("附件地址无效");
+  return object.download.url;
 }
 
 export function useStorageObjectUrl(
@@ -28,19 +49,7 @@ export function useStorageObjectUrl(
     staleTime: 240_000,
     gcTime: 300_000,
     retry: 1,
-    queryFn: async () => {
-      const response = await fetch("/api/storage/objects/resolve", {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) throw new Error(`无法读取附件（${response.status}）`);
-      const result = storageObjectResolveResponseSchema.parse(await response.json());
-      const object=result.objects[0];
-      if (!object) throw new Error("附件地址无效");
-      return object.download.url;
-    },
+    queryFn: () => resolveStorageObjectUrl(body!),
   });
   return query.data;
 }

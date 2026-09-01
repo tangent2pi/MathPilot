@@ -218,12 +218,24 @@ importers:
 
   src/packages/contracts:
     devDependencies:
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
+      esbuild:
+        specifier: 0.27.7
+        version: 0.27.7
+      tsx:
+        specifier: 4.20.6
+        version: 4.20.6
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
 
   src/packages/internal-service:
     dependencies:
+      '@mathpilot/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@temporalio/client':
         specifier: 1.23.0
         version: 1.23.0
@@ -509,6 +521,9 @@ importers:
       '@mathpilot/content-integrity':
         specifier: workspace:*
         version: link:../../packages/content-integrity
+      '@mathpilot/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@mathpilot/internal-service':
         specifier: workspace:*
         version: link:../../packages/internal-service

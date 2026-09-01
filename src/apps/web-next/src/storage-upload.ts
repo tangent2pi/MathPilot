@@ -13,13 +13,9 @@ import { publishStorageObject } from "@mathpilot/content-integrity/publication";
 import Uppy from "@uppy/core";
 import AwsS3 from "@uppy/aws-s3";
 import mime from "mime/lite";
+import { responseProblem } from "./lib/http-problem";
 
 const jsonHeaders = { "content-type": "application/json" } as const;
-
-const responseError = async (response: Response, fallback: string): Promise<Error> => {
-  const body = await response.json().catch(() => ({})) as { error?: unknown };
-  return new Error(typeof body.error === "string" ? body.error : `${fallback} (${response.status})`);
-};
 
 const byteLimit = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MiB`;
 
@@ -116,7 +112,7 @@ export async function uploadStorageObject(
         const response = await fetch("/api/storage/objects/init", {
           method:"POST",headers:jsonHeaders,signal,body:JSON.stringify(request),
         });
-        if (!response.ok) throw await responseError(response,"storage initialization failed");
+        if (!response.ok) throw await responseProblem(response,"storage initialization failed");
         return response.json();
       },
       async upload(descriptor,signal) {
@@ -139,20 +135,30 @@ export async function uploadStorageObject(
         const response = await fetch(`/api/storage/objects/${encodeURIComponent(objectId)}/complete`,{
           method:"POST",headers:jsonHeaders,body:"{}",signal,
         });
-        if (!response.ok) throw await responseError(response,"storage verification failed");
+        if (!response.ok) throw await responseProblem(response,"storage verification failed");
         return response.json();
       },
       async removeUnclaimed(objectId,signal) {
-        await fetch(`/api/storage/objects/${encodeURIComponent(objectId)}`,{ method:"DELETE",signal });
+        await deleteStorageObject(objectId,{ signal });
       },
     },
   });
 }
 
-export async function deleteStorageObject(objectId: string): Promise<void> {
-  const response = await fetch(`/api/storage/objects/${encodeURIComponent(objectId)}`,{ method:"DELETE" });
-  if (!response.ok && response.status!==404 && response.status!==410) {
-    throw await responseError(response,"storage object removal failed");
+export async function deleteStorageObject(
+  objectId: string,
+  options: { signal?: AbortSignal; fetcher?: typeof fetch } = {},
+): Promise<void> {
+  const response = await (options.fetcher ?? fetch)(
+    `/api/storage/objects/${encodeURIComponent(objectId)}`,
+    options.signal ? { method:"DELETE",signal:options.signal } : { method:"DELETE" },
+  );
+  if (response.status===404 || response.status===410) {
+    await response.body?.cancel().catch(() => undefined);
+    return;
+  }
+  if (!response.ok) {
+    throw await responseProblem(response,"storage object removal failed");
   }
 }
 

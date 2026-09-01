@@ -2,23 +2,12 @@ import type {
   CreateThreadReceipt,
   ForegroundReceipt,
   LearningView,
-  ProblemDetails,
   ThreadListView,
   ThreadMessagesView,
   ThreadSummary,
   UserSubmittedMessagePart,
 } from "../contracts";
-
-export class LearningApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly code?: string,
-    readonly currentVersion?: number,
-  ) {
-    super(message);
-  }
-}
+import { responseJson } from "../../lib/http-problem";
 
 export const learningKeys = {
   all: ["learning"] as const,
@@ -40,16 +29,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
-  if (!response.ok) {
-    const problem = await response.json().catch(() => ({})) as ProblemDetails;
-    throw new LearningApiError(
-      problem.title || problem.error || `请求失败（${response.status}）`,
-      response.status,
-      problem.code,
-      problem.current_version,
-    );
-  }
-  return response.json() as Promise<T>;
+  return responseJson<T>(response);
 }
 
 function commandInit(key: string, body: Record<string, unknown>): RequestInit {
@@ -81,7 +61,7 @@ export const learningApi = {
       if (!next.data.has_more) return combined;
       after = next.data.next_cursor;
     }
-    if (!combined) throw new LearningApiError("对话记录为空", 500, "empty_thread_view");
+    if (!combined) throw new Error("对话记录为空");
     return combined;
   },
 

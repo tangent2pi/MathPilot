@@ -5,6 +5,7 @@ import {
   InternalAssertionCodec,
   createInternalServiceRuntime,
 } from "@mathpilot/internal-service";
+import { installProblemDetails, isProblemDetails } from "@mathpilot/internal-service/fastify";
 import { internalServiceTestEnvironment } from "@mathpilot/internal-service/testing";
 import { registerPiChatRoutes } from "../src/pi-chat-routes.ts";
 
@@ -19,6 +20,7 @@ test("Pi exposes only signed Content dispatch routes", async () => {
   const content = createInternalServiceRuntime("content-next", source);
   const pi = createInternalServiceRuntime("pi-chat-runtime", source);
   const app = Fastify();
+  installProblemDetails(app);
   registerPiChatRoutes(
     app,
     { client: {} } as never,
@@ -45,6 +47,10 @@ test("Pi exposes only signed Content dispatch routes", async () => {
     payload: body,
   });
   assert.equal(accepted.statusCode, 422);
+  assert.match(accepted.headers["content-type"] ?? "", /^application\/problem\+json/);
+  assert.equal(accepted.headers["cache-control"], "no-store");
+  assert.equal(isProblemDetails(accepted.json()), true);
+  assert.equal(accepted.json().code, "invalid_er_handoff");
 
   const replayed = await app.inject({
     method: "POST",

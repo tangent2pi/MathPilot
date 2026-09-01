@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/auth";
 import { contentApi, type ContentPackageDetail } from "@/lib/content-api";
+import { responseJson } from "@/lib/http-problem";
 
 type Classroom = { class_id: string; name: string; student_count?: number };
 
@@ -22,8 +23,7 @@ export function ContentPackagePage({ packageId }: { packageId: string }) {
       const [packageValue, classValue] = await Promise.all([
         contentApi<ContentPackageDetail>(`/packages/${encodeURIComponent(packageId)}`, { signal }),
         isTeacher ? fetch("/api/classes", { credentials: "include", signal }).then(async (response) => {
-          const body = await response.json().catch(() => ({})) as { classes?: Classroom[]; error?: string };
-          if (!response.ok) throw new Error(body.error || "无法读取班级");
+          const body = await responseJson<{ classes?: Classroom[] }>(response, "无法读取班级");
           return body.classes ?? [];
         }) : Promise.resolve([]),
       ]);

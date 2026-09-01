@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { publicProblemMessage,readProblemDetails } from "@mathpilot/contracts";
 import { configuredInternalService } from "@mathpilot/internal-service";
 import { Type } from "typebox";
 import { readHostPrincipal } from "./lib/host-principal.ts";
@@ -16,7 +17,17 @@ const entityKinds = Type.Optional(Type.Array(entityKind, { minItems: 1, maxItems
 const entityRef = Type.Optional(Type.String({ pattern: "^(knowledge|question_type|question|error_cause|diagnosis_rule):[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" }));
 const packageRef = Type.Optional(Type.String({ pattern: "^package:[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" }));
 
-type LibraryResponse = { items?: unknown[]; entity?: unknown; error?: unknown };
+type LibraryResponse = { items?: unknown[]; entity?: unknown };
+
+export const contentLibraryResponseBody = async (response: Response): Promise<LibraryResponse> => {
+  if (!response.ok) {
+    const problem = await readProblemDetails(response);
+    throw new Error(problem
+      ? publicProblemMessage(problem)
+      : `content library request failed (${response.status})`);
+  }
+  return await response.json() as LibraryResponse;
+};
 
 const requestLibrary = async (
   cwd: string,
@@ -33,9 +44,7 @@ const requestLibrary = async (
       timeoutMs: 15_000,
     },
   );
-  const body = await response.json().catch(() => ({})) as LibraryResponse;
-  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `content library request failed (${response.status})`);
-  return body;
+  return contentLibraryResponseBody(response);
 };
 
 export default function contentLibraryExtension(pi: ExtensionAPI): void {

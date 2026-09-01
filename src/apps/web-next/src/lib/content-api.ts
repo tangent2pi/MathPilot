@@ -1,3 +1,5 @@
+import { responseJson } from "./http-problem";
+
 export async function contentApi<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/content${path}`, {
     credentials: "include",
@@ -6,9 +8,7 @@ export async function contentApi<T>(path: string, init?: RequestInit): Promise<T
       ? { "content-type": "application/json", ...init.headers }
       : init?.headers,
   });
-  const body = await response.json().catch(() => ({})) as T & { error?: string; detail?: string };
-  if (!response.ok) throw new Error(body.detail || body.error || `请求失败（${response.status}）`);
-  return body;
+  return responseJson<T>(response);
 }
 
 export type CandidateItem = {

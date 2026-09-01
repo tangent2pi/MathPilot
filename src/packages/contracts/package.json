@@ -6,13 +6,19 @@
   "description": "跨模块契约：JSON Schema（唯一契约源）+ Provider TS 接口（ADR-003）",
   "exports": {
     ".": "./src/index.ts",
-    "./providers/*": "./src/providers/*"
+    "./providers/*": "./src/providers/*",
+    "./schemas/http/problem-details.schema.json": "./schemas/http/problem-details.schema.json"
   },
   "scripts": {
+    "generate:http-problem-validator": "node scripts/generate-http-problem-validator.mjs",
+    "check:http-problem-validator": "node scripts/generate-http-problem-validator.mjs --check",
     "typecheck": "tsc --noEmit",
-    "test": "python3 test/validate_examples.py && python3 test/science_v3_permissions.py"
+    "test": "node scripts/generate-http-problem-validator.mjs --check && node --import tsx test/http_problem_runtime_boundary.mjs && python3 test/validate_examples.py && python3 test/science_v3_permissions.py"
   },
   "devDependencies": {
+    "ajv": "8.20.0",
+    "esbuild": "0.27.7",
+    "tsx": "4.20.6",
     "typescript": "^5.6.0"
   }
 }

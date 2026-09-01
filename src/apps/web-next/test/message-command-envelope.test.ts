@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { UserSubmittedMessagePart } from "../src/learning/contracts";
-import { LearningApiError } from "../src/learning/data/client";
+import { HttpProblemError } from "../src/lib/http-problem";
 import {
   acquireMessageCommandEnvelope,
   bindMessageCommandThread,
@@ -76,8 +76,8 @@ test("a changed payload or unrelated route receives a new command key", () => {
 });
 
 test("only explicit non-timeout 4xx responses make the command outcome definitive", () => {
-  assert.equal(messageCommandOutcomeIsUnknown(new LearningApiError("无权限", 403)), false);
-  assert.equal(messageCommandOutcomeIsUnknown(new LearningApiError("超时", 408)), true);
-  assert.equal(messageCommandOutcomeIsUnknown(new LearningApiError("服务异常", 500)), true);
+  assert.equal(messageCommandOutcomeIsUnknown(new HttpProblemError("无权限", 403)), false);
+  assert.equal(messageCommandOutcomeIsUnknown(new HttpProblemError("超时", 408)), true);
+  assert.equal(messageCommandOutcomeIsUnknown(new HttpProblemError("服务异常", 500)), true);
   assert.equal(messageCommandOutcomeIsUnknown(new TypeError("fetch failed")), true);
 });

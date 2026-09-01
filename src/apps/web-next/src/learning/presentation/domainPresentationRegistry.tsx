@@ -17,7 +17,8 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CommandCapability, DomainUIPart } from "../contracts";
-import { LearningApiError, learningApi, learningKeys } from "../data/client";
+import { learningApi, learningKeys } from "../data/client";
+import { HttpProblemError } from "../../lib/http-problem";
 import { TeachingArtifactMessage } from "./teachingArtifactRegistry";
 
 const mathOptions = {
@@ -125,7 +126,7 @@ function QuestionCard({ part }: { part: DomainUIPart }) {
       await queryClient.invalidateQueries({ queryKey: learningKeys.all });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "提交失败，请重试");
-      if (cause instanceof LearningApiError && cause.status === 409) {
+      if (cause instanceof HttpProblemError && cause.status === 409) {
         await queryClient.invalidateQueries({ queryKey: learningKeys.all });
         await interaction.refetch();
       }

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@mathpilot/content-integrity": "workspace:*",
+    "@mathpilot/contracts": "workspace:*",
     "@mathpilot/internal-service": "workspace:*",
     "@anthropic-ai/sandbox-runtime": "0.0.74",
     "@assistant-ui/react-pi": "0.0.20",

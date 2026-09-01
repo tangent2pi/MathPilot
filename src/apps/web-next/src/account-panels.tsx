@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { responseJson } from "@/lib/http-problem";
 import { authClient, type AuthPrincipal } from "./auth";
 import {
   deleteStorageObject,
@@ -24,9 +25,7 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: init?.body ? { "content-type": "application/json", ...init.headers } : init?.headers,
   });
-  const body = await response.json().catch(() => ({})) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error || `请求失败（${response.status}）`);
-  return body;
+  return responseJson<T>(response);
 }
 
 export function AccountPanelDialog({

@@ -1,7 +1,7 @@
 import type { InternalServiceRuntime } from "@mathpilot/internal-service";
-import { internalServiceContext, internalServiceGuard } from "@mathpilot/internal-service/fastify";
-import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { CandidateInput, CandidateRepository } from "./candidate-repository.ts";
+import { internalServiceContext, internalServiceGuard, sendProblem } from "@mathpilot/internal-service/fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { ContentRejection, type CandidateInput, type CandidateRepository } from "./candidate-repository.ts";
 import { isTeacher, jsonObject, stringValue, type Principal } from "./lib.ts";
 
 function principal(request: FastifyRequest): Principal {
@@ -13,9 +13,8 @@ function requireTeacher(request: FastifyRequest): Principal | null {
   return isTeacher(value) ? value : null;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+const reject = (reply: FastifyReply, status: number, code: string, title: string) =>
+  sendProblem(reply, { status, code, title });
 
 export function registerContentNextRoutes(
   server: FastifyInstance,
@@ -25,17 +24,12 @@ export function registerContentNextRoutes(
   const fromApi = internalServiceGuard(runtime, ["api-to-content"]);
   const fromPi = internalServiceGuard(runtime, ["pi-to-content"]);
 
-  server.setErrorHandler((error, request, reply) => {
-    request.log.error({ err: error }, "content-next request failed");
-    return reply.code(500).send({ error: "content-next request failed" });
-  });
-
   server.post(
     "/internal/candidates/register",
     { preHandler: fromPi },
     async (request, reply) => {
       const actor = requireTeacher(request);
-      if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+      if (!actor) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
       const body = jsonObject(request.body);
       const phase = body.phase === "ktq" || body.phase === "er" ? body.phase : null;
       const result = jsonObject(body.result);
@@ -45,11 +39,11 @@ export function registerContentNextRoutes(
       const resultObjectId = stringValue(body.result_object_id);
       const receiptObjectId = stringValue(body.receipt_object_id);
       if (!phase || !threadId || !toolCallId || !resultSha256 || !resultObjectId || !receiptObjectId || !Object.keys(result).length) {
-        return reply.code(422).send({ error: "phase, thread_id, tool_call_id, result/receipt objects, result_sha256 and result are required" });
+        return reject(reply, 422, "invalid_candidate_registration", "Candidate registration fields are invalid");
       }
       const rawSourceObjects = body.source_objects === undefined ? [] : body.source_objects;
       if (!Array.isArray(rawSourceObjects) || rawSourceObjects.length > 64) {
-        return reply.code(422).send({ error: "source_objects must be a bounded array" });
+        return reject(reply, 422, "invalid_source_objects", "Source objects must be a bounded array");
       }
       const sourceObjects = rawSourceObjects.map((value) => {
         const source = jsonObject(value);
@@ -62,7 +56,7 @@ export function registerContentNextRoutes(
           : null;
       });
       if (sourceObjects.some((value) => !value)) {
-        return reply.code(422).send({ error: "source_objects contains invalid metadata" });
+        return reject(reply, 422, "invalid_source_objects", "Source objects contain invalid metadata");
       }
       const input: CandidateInput = {
         phase,
@@ -98,8 +92,9 @@ export function registerContentNextRoutes(
           review_url: `/content/review/${encodeURIComponent(candidate.candidate_set_id)}`,
         });
       } catch (error) {
+        if (!(error instanceof ContentRejection)) throw error;
         request.log.warn({ err: error }, "candidate registration rejected");
-        return reply.code(422).send({ error: "candidate_registration_rejected", detail: errorMessage(error) });
+        return reject(reply, 422, "candidate_registration_rejected", "Candidate registration was rejected");
       }
     },
   );
@@ -123,19 +118,15 @@ export function registerContentNextRoutes(
       const offset = cursorValue === undefined || cursorValue === "" ? 0 : Number(cursorValue);
       const limit = limitValue === undefined || limitValue === "" ? 20 : Number(limitValue);
       if (query.length > 240 || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
-        return reply.code(422).send({ error: "invalid query, cursor or limit" });
+        return reject(reply, 422, "invalid_library_query", "Library query, cursor or limit is invalid");
       }
-      try {
-        const result = await repository.searchLibrary(actor, kinds, query, offset, limit);
-        return {
-          items: result.items,
-          next_cursor: result.nextOffset === null ? null : String(result.nextOffset),
-          query_fallback: result.queryFallback,
-          transport: "normalized-content-library",
-        };
-      } catch (error) {
-        return reply.code(422).send({ error: "library_search_failed", detail: errorMessage(error) });
-      }
+      const result = await repository.searchLibrary(actor, kinds, query, offset, limit);
+      return {
+        items: result.items,
+        next_cursor: result.nextOffset === null ? null : String(result.nextOffset),
+        query_fallback: result.queryFallback,
+        transport: "normalized-content-library",
+      };
     },
   );
 
@@ -148,30 +139,30 @@ export function registerContentNextRoutes(
       const packageRef = stringValue(query.package_ref);
       if (packageRef) {
         const packageMatch = /^package:([A-Za-z0-9_.:-]{1,127})$/.exec(packageRef);
-        if (!packageMatch) return reply.code(422).send({ error: "valid package_ref is required" });
+        if (!packageMatch) return reject(reply, 422, "invalid_package_ref", "A valid package reference is required");
         const value = await repository.getPackage(actor, packageMatch[1]!, isTeacher(actor));
-        if (!value) return reply.code(404).send({ error: "package not found or not visible" });
+        if (!value) return reject(reply, 404, "package_not_found", "Package not found or not visible");
         return { package: value, transport: "normalized-content-library" };
       }
       const ref = stringValue(query.entity_ref);
       const match = /^([a-z_]+):([A-Za-z0-9_.:-]{1,127})$/.exec(ref);
       const allowed = new Set(["knowledge", "question_type", "question", "error_cause", "diagnosis_rule"]);
       if (!match || !allowed.has(match[1]!)) {
-        return reply.code(422).send({ error: "entity_ref or package_ref is required" });
+        return reject(reply, 422, "invalid_entity_ref", "An entity or package reference is required");
       }
       const entity = await repository.getLibrary(
         actor,
         match[1] as "knowledge" | "question_type" | "question" | "error_cause" | "diagnosis_rule",
         match[2]!,
       );
-      if (!entity) return reply.code(404).send({ error: "entity not found or not visible" });
+      if (!entity) return reject(reply, 404, "entity_not_found", "Entity not found or not visible");
       return { entity, transport: "normalized-content-library" };
     },
   );
 
   server.get("/candidates", { preHandler: fromApi }, async (request, reply) => {
     const actor = requireTeacher(request);
-    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    if (!actor) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
     const status = typeof (request.query as { status?: unknown }).status === "string"
       ? (request.query as { status: string }).status
       : undefined;
@@ -180,10 +171,10 @@ export function registerContentNextRoutes(
 
   server.get("/candidates/:id", { preHandler: fromApi }, async (request, reply) => {
     const actor = requireTeacher(request);
-    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    if (!actor) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
     const id = (request.params as { id: string }).id;
     const value = await repository.get(actor, id);
-    return value ? value : reply.code(404).send({ error: "candidate not found" });
+    return value ? value : reject(reply, 404, "candidate_not_found", "Candidate not found");
   });
 
   server.get(
@@ -191,21 +182,21 @@ export function registerContentNextRoutes(
     { preHandler: fromPi },
     async (request, reply) => {
       const actor = requireTeacher(request);
-      if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+      if (!actor) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
       const value = await repository.frozenKtq(actor, (request.params as { id: string }).id);
-      return value ? value : reply.code(404).send({ error: "approved KTQ candidate not found" });
+      return value ? value : reject(reply, 404, "approved_candidate_not_found", "Approved KTQ candidate not found");
     },
   );
 
   server.post("/candidates/:id/annotations", { preHandler: fromApi }, async (request, reply) => {
     const actor = requireTeacher(request);
-    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    if (!actor) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
     const body = jsonObject(request.body);
     const state = body.state === "draft" || body.state === "submitted" || body.state === "withdrawn" ? body.state : null;
     const revisionId = stringValue(body.revision_id);
     const commentText = stringValue(body.comment_text);
     if (!state || !revisionId || !commentText) {
-      return reply.code(422).send({ error: "revision_id, comment_text and state are required" });
+      return reject(reply, 422, "invalid_annotation", "Annotation fields are invalid");
     }
     try {
       const result = await repository.annotate(actor, (request.params as { id: string }).id, {
@@ -217,32 +208,38 @@ export function registerContentNextRoutes(
       });
       return reply.code(201).send(result);
     } catch (error) {
-      return reply.code(422).send({ error: "annotation_rejected", detail: errorMessage(error) });
+      if (!(error instanceof ContentRejection)) throw error;
+      request.log.warn({ err: error }, "annotation rejected");
+      return reject(reply, 422, "annotation_rejected", "Annotation was rejected");
     }
   });
 
   server.delete("/candidates/:id/annotations/:annotationId", { preHandler: fromApi }, async (request, reply) => {
     const actor = requireTeacher(request);
-    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    if (!actor) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
     const params = request.params as { id: string; annotationId: string };
     try {
       return await repository.withdrawAnnotation(actor, params.id, params.annotationId);
     } catch (error) {
-      return reply.code(422).send({ error: "annotation_withdraw_rejected", detail: errorMessage(error) });
+      if (!(error instanceof ContentRejection)) throw error;
+      request.log.warn({ err: error }, "annotation withdrawal rejected");
+      return reject(reply, 422, "annotation_withdraw_rejected", "Annotation withdrawal was rejected");
     }
   });
 
   server.post("/candidates/:id/decide", { preHandler: fromApi }, async (request, reply) => {
     const actor = requireTeacher(request);
-    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    if (!actor) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
     const value = jsonObject(request.body).decision;
     if (value !== "approved" && value !== "changes_requested") {
-      return reply.code(422).send({ error: "decision must be approved or changes_requested" });
+      return reject(reply, 422, "invalid_review_decision", "Review decision is invalid");
     }
     try {
       return await repository.decide(actor, (request.params as { id: string }).id, value);
     } catch (error) {
-      return reply.code(422).send({ error: "decision_rejected", detail: errorMessage(error) });
+      if (!(error instanceof ContentRejection)) throw error;
+      request.log.warn({ err: error }, "review decision rejected");
+      return reject(reply, 422, "decision_rejected", "Review decision was rejected");
     }
   });
 
@@ -254,24 +251,26 @@ export function registerContentNextRoutes(
   server.get("/packages/:id", { preHandler: fromApi }, async (request, reply) => {
     const actor = principal(request);
     const value = await repository.getPackage(actor, (request.params as { id: string }).id);
-    return value ? value : reply.code(404).send({ error: "package not found" });
+    return value ? value : reject(reply, 404, "package_not_found", "Package not found");
   });
 
   server.post("/packages/:id/releases", { preHandler: fromApi }, async (request, reply) => {
     const actor = requireTeacher(request);
-    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    if (!actor) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
     const classId = stringValue(jsonObject(request.body).class_id);
-    if (!classId) return reply.code(422).send({ error: "class_id is required" });
+    if (!classId) return reject(reply, 422, "invalid_class_id", "Class ID is required");
     try {
       return reply.code(201).send(await repository.releasePackage(actor, (request.params as { id: string }).id, classId));
     } catch (error) {
-      return reply.code(422).send({ error: "release_rejected", detail: errorMessage(error) });
+      if (!(error instanceof ContentRejection)) throw error;
+      request.log.warn({ err: error }, "package release rejected");
+      return reject(reply, 422, "release_rejected", "Package release was rejected");
     }
   });
 
   server.delete("/packages/:id/releases/:classId", { preHandler: fromApi }, async (request, reply) => {
     const actor = requireTeacher(request);
-    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    if (!actor) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
     try {
       return await repository.withdrawPackage(
         actor,
@@ -279,7 +278,9 @@ export function registerContentNextRoutes(
         (request.params as { classId: string }).classId,
       );
     } catch (error) {
-      return reply.code(422).send({ error: "withdraw_rejected", detail: errorMessage(error) });
+      if (!(error instanceof ContentRejection)) throw error;
+      request.log.warn({ err: error }, "package withdrawal rejected");
+      return reject(reply, 422, "withdraw_rejected", "Package withdrawal was rejected");
     }
   });
 }

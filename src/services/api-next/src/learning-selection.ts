@@ -59,14 +59,20 @@ export interface ReviseSelectionIntentResult {
 }
 
 export class SelectionCommandError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    readonly publicTitle: string,
+    message = publicTitle,
+    readonly currentVersion?: number,
+  ) {
     super(message);
   }
 }
 
 const objectValue = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new SelectionCommandError(422, "command body must be an object");
+    throw new SelectionCommandError(422, "invalid_selection_body", "Selection command body must be an object");
   }
   return value as Record<string, unknown>;
 };
@@ -78,31 +84,31 @@ function parseCommand(value: unknown): ReviseSelectionIntentCommand {
     "conversation_thread_id", "supersedes_intent_id", "natural_language_request",
   ]);
   if (Object.keys(raw).some((key) => !allowed.has(key))) {
-    throw new SelectionCommandError(422, "command contains unsupported fields");
+    throw new SelectionCommandError(422, "unsupported_selection_fields", "Selection command contains unsupported fields");
   }
   if (raw.schema_version !== 3 || raw.command_type !== "revise_selection_intent") {
-    throw new SelectionCommandError(422, "unsupported learning command");
+    throw new SelectionCommandError(422, "unsupported_selection_command", "Selection command is unsupported");
   }
   if (typeof raw.idempotency_key !== "string" || !ID.idempotency.test(raw.idempotency_key)) {
-    throw new SelectionCommandError(422, "idempotency_key is invalid");
+    throw new SelectionCommandError(422, "invalid_selection_idempotency_key", "Selection idempotency key is invalid");
   }
   if (!Number.isSafeInteger(raw.expected_version) || Number(raw.expected_version) < 0) {
-    throw new SelectionCommandError(422, "expected_version must be a non-negative integer");
+    throw new SelectionCommandError(422, "invalid_selection_version", "Selection expected version is invalid");
   }
   if (typeof raw.requested_at !== "string" || !Number.isFinite(Date.parse(raw.requested_at))) {
-    throw new SelectionCommandError(422, "requested_at must be an ISO date-time");
+    throw new SelectionCommandError(422, "invalid_selection_timestamp", "Selection request timestamp is invalid");
   }
   if (typeof raw.conversation_thread_id !== "string" || !ID.thread.test(raw.conversation_thread_id)) {
-    throw new SelectionCommandError(422, "conversation_thread_id is invalid");
+    throw new SelectionCommandError(422, "invalid_selection_thread", "Selection conversation thread is invalid");
   }
   if (raw.supersedes_intent_id !== undefined
     && (typeof raw.supersedes_intent_id !== "string" || !ID.intent.test(raw.supersedes_intent_id))) {
-    throw new SelectionCommandError(422, "supersedes_intent_id is invalid");
+    throw new SelectionCommandError(422, "invalid_superseded_intent", "Superseded selection intent is invalid");
   }
   if (typeof raw.natural_language_request !== "string"
     || !raw.natural_language_request.trim()
     || raw.natural_language_request.length > 4000) {
-    throw new SelectionCommandError(422, "natural_language_request must contain 1..4000 characters");
+    throw new SelectionCommandError(422, "invalid_selection_request", "Selection request must contain 1..4000 characters");
   }
   return {
     schema_version: 3,
@@ -168,7 +174,7 @@ function acceptExisting(
 ): ReviseSelectionIntentResult | undefined {
   if (!row) return undefined;
   if (row.requested_by_user_id !== principal.userId || row.command_sha256 !== commandSha256) {
-    throw new SelectionCommandError(409, "idempotency_key is already bound to another command");
+    throw new SelectionCommandError(409, "selection_idempotency_conflict", "Selection idempotency key is already in use");
   }
   return resultFromExisting(row);
 }
@@ -203,9 +209,11 @@ export async function reviseSelectionIntent(
       [principal.tenantId,command.conversation_thread_id],
     )).rows[0];
     if (!thread || thread.student_user_id !== principal.userId) {
-      throw new SelectionCommandError(404, "conversation thread not found");
+      throw new SelectionCommandError(404, "selection_thread_not_found", "Conversation thread not found");
     }
-    if (thread.status !== "active") throw new SelectionCommandError(409, "conversation thread is archived");
+    if (thread.status !== "active") {
+      throw new SelectionCommandError(409, "selection_thread_archived", "Conversation thread is archived");
+    }
 
     const raced = acceptExisting(
       await findExisting(client,principal.tenantId,command.idempotency_key),
@@ -214,7 +222,13 @@ export async function reviseSelectionIntent(
     );
     if (raced) return raced;
     if (Number(thread.version) !== command.expected_version) {
-      throw new SelectionCommandError(409, `thread version is ${thread.version}`);
+      throw new SelectionCommandError(
+        409,
+        "selection_version_conflict",
+        "Conversation thread version changed",
+        `thread version is ${thread.version}`,
+        Number(thread.version),
+      );
     }
 
     const latest = (await client.query<{ selection_intent_id: string; revision: string }>(
@@ -224,10 +238,10 @@ export async function reviseSelectionIntent(
       [principal.tenantId,command.conversation_thread_id],
     )).rows[0];
     if (!latest && command.supersedes_intent_id) {
-      throw new SelectionCommandError(409, "the first intent cannot supersede another intent");
+      throw new SelectionCommandError(409, "selection_supersession_conflict", "First selection intent cannot supersede another intent");
     }
     if (latest && command.supersedes_intent_id && command.supersedes_intent_id !== latest.selection_intent_id) {
-      throw new SelectionCommandError(409, "supersedes_intent_id is stale");
+      throw new SelectionCommandError(409, "selection_supersession_stale", "Superseded selection intent is stale");
     }
 
     const revision = Number(latest?.revision ?? 0)+1;
@@ -399,7 +413,9 @@ export async function reviseSelectionIntent(
     };
     let inputArtifact:ReturnType<typeof canonicalJson>;
     try { inputArtifact=canonicalJson(inputBundle); }
-    catch { throw new SelectionCommandError(422,"selector context snapshot exceeds 1 MiB"); }
+    catch {
+      throw new SelectionCommandError(422, "selector_context_too_large", "Selector context snapshot exceeds 1 MiB");
+    }
 
     await client.query(
       `insert into science_v3_operation(

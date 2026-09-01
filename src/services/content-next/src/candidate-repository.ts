@@ -71,6 +71,11 @@ export interface CandidateRegistration extends CandidateSummary {
   result_sha256: string;
 }
 
+// Only this typed error may cross the repository boundary as a caller-caused
+// rejection. Database, integration and invariant failures remain ordinary
+// errors and are handled by the shared safe 500 encoder.
+export class ContentRejection extends Error {}
+
 interface RevisionRef {
   revisionId: string;
   entityId: string;
@@ -157,7 +162,7 @@ function claimedDescriptor(row: ClaimedDescriptorRow): ImmutableObjectDescriptor
 }
 
 function normalizeCandidateSourceObjects(inputs: readonly SourceObjectInput[]): SourceObjectInput[] {
-  if (inputs.length < 1 || inputs.length > 64) throw new Error("candidate registration requires 1 to 64 source objects");
+  if (inputs.length < 1 || inputs.length > 64) throw new ContentRejection("candidate registration requires 1 to 64 source objects");
   const normalized = inputs.map((sourceObject) => ({
     ...sourceObject,
     workspacePath: normalizeWorkspaceReference(sourceObject.workspacePath),
@@ -166,12 +171,12 @@ function normalizeCandidateSourceObjects(inputs: readonly SourceObjectInput[]): 
   for (const sourceObject of normalized) {
     if (!/^input\/original\/[^/\\\u0000]+$/.test(sourceObject.workspacePath)
       || paths.has(sourceObject.workspacePath)) {
-      throw new Error("candidate source workspace path is invalid or duplicated");
+      throw new ContentRejection("candidate source workspace path is invalid or duplicated");
     }
     paths.add(sourceObject.workspacePath);
   }
   const objectIds = [...new Set(normalized.map((value) => value.objectId))];
-  if (objectIds.length!==normalized.length) throw new Error("candidate source object is duplicated");
+  if (objectIds.length!==normalized.length) throw new ContentRejection("candidate source object is duplicated");
   return normalized;
 }
 
@@ -211,7 +216,7 @@ async function bindCandidateSourceObjects(
     const descriptor=boundSource?.descriptor;
     if (!descriptor || boundSource.workspacePath!==sourceObject.workspacePath
       || descriptor.version_id!==sourceObject.versionId || descriptor.sha256!==sourceObject.sha256) {
-      throw new Error("candidate source object version or hash does not match storage");
+      throw new ContentRejection("candidate source object version or hash does not match storage");
     }
     verified.set(sourceObject.workspacePath,{ ...sourceObject,mimeType:descriptor.mime_type,descriptor });
   }
@@ -220,7 +225,7 @@ async function bindCandidateSourceObjects(
 
 function requireId(value: unknown, kind: EntityKind): string {
   const id = stringValue(value);
-  if (!ID_PATTERNS[kind].test(id)) throw new Error(`invalid ${kind} entity id`);
+  if (!ID_PATTERNS[kind].test(id)) throw new ContentRejection(`invalid ${kind} entity id`);
   return id;
 }
 
@@ -229,7 +234,7 @@ async function assertTeacher(client: pg.PoolClient, principal: Principal): Promi
     `select role from identity_user_role where tenant_id=$1 and user_id=$2 and role='teacher'`,
     [principal.tenantId, principal.userId],
   );
-  if (!role.rows.length) throw new Error("teacher role required");
+  if (!role.rows.length) throw new ContentRejection("teacher role required");
 }
 
 async function ensureVisibleRevision(
@@ -244,10 +249,10 @@ async function ensureVisibleRevision(
     [principal.tenantId, entityId],
   );
   const entity = row.rows[0];
-  if (!entity) throw new Error(`referenced entity ${entityId} was not found`);
-  if (expectedKind && entity.entity_kind !== expectedKind) throw new Error(`entity ${entityId} has the wrong kind`);
+  if (!entity) throw new ContentRejection(`referenced entity ${entityId} was not found`);
+  if (expectedKind && entity.entity_kind !== expectedKind) throw new ContentRejection(`entity ${entityId} has the wrong kind`);
   if (entity.origin === "teacher" && entity.owner_teacher_user_id !== principal.userId) {
-    throw new Error(`entity ${entityId} is owned by another teacher`);
+    throw new ContentRejection(`entity ${entityId} is owned by another teacher`);
   }
   const revision = await client.query<{ revision_id: string }>(
     `select revision_id from content_entity_revision
@@ -255,7 +260,7 @@ async function ensureVisibleRevision(
       order by revision_no desc limit 1`,
     [principal.tenantId, entityId],
   );
-  if (!revision.rows[0]) throw new Error(`entity ${entityId} has no usable revision`);
+  if (!revision.rows[0]) throw new ContentRejection(`entity ${entityId} has no usable revision`);
   return { revisionId: revision.rows[0].revision_id, entityId, kind: entity.entity_kind, created: false };
 }
 
@@ -308,7 +313,7 @@ async function insertRevision(
     [principal.tenantId, candidateSetId, entityId],
   );
   if (current.rows[0]) {
-    if (current.rows[0].entity_kind !== kind) throw new Error(`entity ${entityId} has the wrong kind`);
+    if (current.rows[0].entity_kind !== kind) throw new ContentRejection(`entity ${entityId} has the wrong kind`);
     return { revisionId: current.rows[0].revision_id, entityId, kind, created: false };
   }
 
@@ -318,7 +323,7 @@ async function insertRevision(
   );
   const entity = existing.rows[0];
   if (entity) {
-    if (entity.entity_kind !== kind) throw new Error(`entity ${entityId} has the wrong kind`);
+    if (entity.entity_kind !== kind) throw new ContentRejection(`entity ${entityId} has the wrong kind`);
     const mayCreateRevision = forceRevision
       && entity.origin === "teacher"
       && entity.owner_teacher_user_id === principal.userId;
@@ -447,7 +452,7 @@ async function addKtqQuestion(
   const source = sourceLocator(raw);
   const sourcePath = stringValue(asJson(raw.source).path);
   const sourceObject = sourcePath ? sourceObjects.get(normalizeWorkspaceReference(sourcePath)) : undefined;
-  if (sourcePath && !sourceObject) throw new Error(`source file is not backed by a verified object: ${sourcePath}`);
+  if (sourcePath && !sourceObject) throw new ContentRejection(`source file is not backed by a verified object: ${sourcePath}`);
   const knowledgeRefs = new Map<string, RevisionRef>();
   for (const entry of Array.isArray(raw.knowledge_components) ? raw.knowledge_components : []) {
     const item = asJson(entry);
@@ -522,7 +527,7 @@ async function addKtqQuestion(
     const target = asJson(value);
     const dim = stringValue(target.dim);
     const dimRef = knowledgeRefs.get(dim) ?? (dim === typeId ? typeRef : undefined);
-    if (!dimRef) throw new Error(`measurement target ${dim} is not declared by this question`);
+    if (!dimRef) throw new ContentRejection(`measurement target ${dim} is not declared by this question`);
     const itemId = await addItem(client, principal, questionRef.revisionId, "question_measurement_target", position);
     await client.query(
       `insert into content_question_measurement_target(item_id,tenant_id,dimension_revision_id,target_role,evidence_rule) values ($1,$2,$3,$4,$5)`,
@@ -532,9 +537,9 @@ async function addKtqQuestion(
   const imageRefs = stringArray(raw.image_refs);
   for (const [position, imageRef] of imageRefs.entries()) {
     const imageObject = sourceObjects.get(normalizeWorkspaceReference(imageRef));
-    if (!imageObject) throw new Error(`question image is not backed by a verified object: ${imageRef}`);
+    if (!imageObject) throw new ContentRejection(`question image is not backed by a verified object: ${imageRef}`);
     if (!imageObject.mimeType.startsWith("image/")) {
-      throw new Error(`question image is backed by a non-image object: ${imageRef}`);
+      throw new ContentRejection(`question image is backed by a non-image object: ${imageRef}`);
     }
     const itemId = await addItem(client, principal, questionRef.revisionId, "question_asset", position);
     await client.query(
@@ -612,7 +617,7 @@ async function addErEntities(
       );
     }
     for (const [position, dim] of dimensionIds.entries()) {
-      if (frozen.length && !frozen.includes(dim)) throw new Error(`diagnosis rule ${id} uses a dimension outside frozen KTQ`);
+      if (frozen.length && !frozen.includes(dim)) throw new ContentRejection(`diagnosis rule ${id} uses a dimension outside frozen KTQ`);
       const dimRef = await ensureVisibleRevision(client, principal, requireId(dim, kindForId(dim) ?? "knowledge"));
       const itemId = await addItem(client, principal, ref.revisionId, "diagnosis_rule_dimension", position);
       await client.query(
@@ -638,11 +643,11 @@ export class CandidateRepository {
   constructor(private readonly pool: pg.Pool) {}
 
   async register(principal: Principal, input: CandidateInput): Promise<CandidateRegistration> {
-    if (!/^[0-9a-f]{64}$/.test(input.resultSha256)) throw new Error("result_sha256 must be 64 lowercase hex characters");
-    if (!input.threadId || !input.toolCallId) throw new Error("thread_id and tool_call_id are required");
-    if (input.resultObjectId === input.receiptObjectId) throw new Error("result and receipt must use distinct audit objects");
+    if (!/^[0-9a-f]{64}$/.test(input.resultSha256)) throw new ContentRejection("result_sha256 must be 64 lowercase hex characters");
+    if (!input.threadId || !input.toolCallId) throw new ContentRejection("thread_id and tool_call_id are required");
+    if (input.resultObjectId === input.receiptObjectId) throw new ContentRejection("result and receipt must use distinct audit objects");
     if (canonicalJson(input.result,4*1024*1024).sha256!==input.resultSha256) {
-      throw new Error("result body does not match the canonical result object hash");
+      throw new ContentRejection("result body does not match the canonical result object hash");
     }
     const normalizedSources=normalizeCandidateSourceObjects(input.sourceObjects);
     return withPrincipal(this.pool, principal, async (client) => {
@@ -685,7 +690,7 @@ export class CandidateRepository {
           || existing.input_candidate_set_id!==(input.inputCandidateSetId??null)
           || existing.supersedes_candidate_set_id!==(input.supersedesCandidateSetId??null)
           || !sameSources) {
-          throw new Error("respond tool call is already bound to different candidate content");
+          throw new ContentRejection("respond tool call is already bound to different candidate content");
         }
         return {
           ...this.mapSummary(existing),created:false,
@@ -711,7 +716,7 @@ export class CandidateRepository {
       const verifiedSources = await bindCandidateSourceObjects(client,principal,candidateSetId,normalizedSources);
       if (input.phase === "ktq") {
         const questions = Array.isArray(input.result.questions) ? input.result.questions : [];
-        if (!questions.length) throw new Error("KTQ result has no questions");
+        if (!questions.length) throw new ContentRejection("KTQ result has no questions");
         for (const question of questions) {
           await addKtqQuestion(
             client,
@@ -727,13 +732,13 @@ export class CandidateRepository {
           );
         }
       } else {
-        if (!input.inputCandidateSetId) throw new Error("ER result requires an approved KTQ candidate");
+        if (!input.inputCandidateSetId) throw new ContentRejection("ER result requires an approved KTQ candidate");
         const inputStatus = await client.query<{ status: string; phase: Phase; owner_teacher_user_id: string }>(
           `select status,phase,owner_teacher_user_id from content_candidate_set where candidate_set_id=$1 and tenant_id=$2`,
           [input.inputCandidateSetId, principal.tenantId],
         );
         const source = inputStatus.rows[0];
-        if (!source || source.phase !== "ktq" || source.status !== "approved" || source.owner_teacher_user_id !== principal.userId) throw new Error("ER input must be an approved KTQ candidate owned by this teacher");
+        if (!source || source.phase !== "ktq" || source.status !== "approved" || source.owner_teacher_user_id !== principal.userId) throw new ContentRejection("ER input must be an approved KTQ candidate owned by this teacher");
         const refs = await addErEntities(
           client,
           principal,
@@ -745,7 +750,7 @@ export class CandidateRepository {
           input.promptVersion,
           Boolean(input.supersedesCandidateSetId),
         );
-        if (!refs.length) throw new Error("ER result has no reusable or new entities");
+        if (!refs.length) throw new ContentRejection("ER result has no reusable or new entities");
       }
       if (input.supersedesCandidateSetId) {
         await client.query(
@@ -1088,9 +1093,9 @@ export class CandidateRepository {
   async releasePackage(principal: Principal, packageId: string, classId: string): Promise<Json> {
     return withPrincipal(this.pool, principal, async (client) => {
       const allowed = await client.query<{ allowed: boolean }>(`select mathpilot_content_can_publish_package($1,$2,$3,$4,$5) as allowed`, [principal.tenantId, principal.userId, principal.roles, packageId, classId]);
-      if (!allowed.rows[0]?.allowed) throw new Error("only the owning teacher can release this ready package to their class");
+      if (!allowed.rows[0]?.allowed) throw new ContentRejection("only the owning teacher can release this ready package to their class");
       const classExists = await client.query(`select 1 from identity_class where tenant_id=$1 and class_id=$2 and status='active'`, [principal.tenantId, classId]);
-      if (!classExists.rows.length) throw new Error("class not found");
+      if (!classExists.rows.length) throw new ContentRejection("class not found");
       const result = await client.query(
         `insert into content_package_class_release(release_id,tenant_id,package_id,class_id,published_by_user_id)
          values ($1,$2,$3,$4,$5)
@@ -1106,9 +1111,9 @@ export class CandidateRepository {
   async withdrawPackage(principal: Principal, packageId: string, classId: string): Promise<Json> {
     return withPrincipal(this.pool, principal, async (client) => {
       const allowed = await client.query<{ allowed: boolean }>(`select mathpilot_content_can_publish_package($1,$2,$3,$4,$5) as allowed`, [principal.tenantId, principal.userId, principal.roles, packageId, classId]);
-      if (!allowed.rows[0]?.allowed) throw new Error("only the owning teacher can withdraw this package release");
+      if (!allowed.rows[0]?.allowed) throw new ContentRejection("only the owning teacher can withdraw this package release");
       const result = await client.query(`update content_package_class_release set withdrawn_at=now() where tenant_id=$1 and package_id=$2 and class_id=$3 returning release_id,package_id,class_id,published_at,withdrawn_at`, [principal.tenantId, packageId, classId]);
-      if (!result.rows[0]) throw new Error("package release not found");
+      if (!result.rows[0]) throw new ContentRejection("package release not found");
       return result.rows[0] as Json;
     });
   }
@@ -1121,8 +1126,8 @@ export class CandidateRepository {
             and status='pending_review'`,
         [principal.tenantId, candidateSetId, principal.userId],
       );
-      if (!visible.rows.length) throw new Error("candidate not found or finalized");
-      if (!input.commentText.trim() || input.commentText.length > 10000) throw new Error("comment_text must contain 1..10000 characters");
+      if (!visible.rows.length) throw new ContentRejection("candidate not found or finalized");
+      if (!input.commentText.trim() || input.commentText.length > 10000) throw new ContentRejection("comment_text must contain 1..10000 characters");
       const relation = await client.query<{ entity_kind: EntityKind }>(
         `select e.entity_kind
            from content_candidate_set_item i
@@ -1131,12 +1136,12 @@ export class CandidateRepository {
           where i.tenant_id=$1 and i.candidate_set_id=$2 and i.revision_id=$3`,
         [principal.tenantId, candidateSetId, input.revisionId],
       );
-      if (!relation.rows.length) throw new Error("revision is not part of this candidate");
-      if (input.fieldName && !REVIEW_FIELDS[relation.rows[0]!.entity_kind].has(input.fieldName)) throw new Error("field_name is not reviewable for this entity kind");
-      if (input.revisionItemId && !input.fieldName) throw new Error("revision item annotations require field_name");
+      if (!relation.rows.length) throw new ContentRejection("revision is not part of this candidate");
+      if (input.fieldName && !REVIEW_FIELDS[relation.rows[0]!.entity_kind].has(input.fieldName)) throw new ContentRejection("field_name is not reviewable for this entity kind");
+      if (input.revisionItemId && !input.fieldName) throw new ContentRejection("revision item annotations require field_name");
       if (input.revisionItemId) {
         const item = await client.query(`select 1 from content_revision_item where tenant_id=$1 and item_id=$2 and revision_id=$3`, [principal.tenantId, input.revisionItemId, input.revisionId]);
-        if (!item.rows.length) throw new Error("revision_item does not belong to revision");
+        if (!item.rows.length) throw new ContentRejection("revision_item does not belong to revision");
       }
       const id = newId("ann");
       await client.query(
@@ -1161,7 +1166,7 @@ export class CandidateRepository {
         returning a.annotation_id,a.state,a.withdrawn_at`,
         [principal.tenantId, annotationId, candidateSetId, principal.userId],
       );
-      if (!result.rows[0]) throw new Error("active annotation not found");
+      if (!result.rows[0]) throw new ContentRejection("active annotation not found");
       return result.rows[0] as Json;
     });
   }
@@ -1173,15 +1178,15 @@ export class CandidateRepository {
         [principal.tenantId, candidateSetId],
       );
       const row = candidate.rows[0];
-      if (!row) throw new Error("candidate not found");
-      if (row.owner_teacher_user_id !== principal.userId) throw new Error("candidate is not owned by this teacher");
-      if (row.status !== "pending_review") throw new Error("candidate is already finalized");
+      if (!row) throw new ContentRejection("candidate not found");
+      if (row.owner_teacher_user_id !== principal.userId) throw new ContentRejection("candidate is not owned by this teacher");
+      if (row.status !== "pending_review") throw new ContentRejection("candidate is already finalized");
       const active = await client.query<{ n: number }>(
         `select count(*)::int as n from content_review_annotation where tenant_id=$1 and candidate_set_id=$2 and state in ('draft','submitted')`,
         [principal.tenantId, candidateSetId],
       );
-      if (decision === "approved" && Number(active.rows[0]?.n ?? 0) > 0) throw new Error("withdraw or resolve active annotations before approval");
-      if (decision === "changes_requested" && Number(active.rows[0]?.n ?? 0) === 0) throw new Error("add at least one annotation before requesting changes");
+      if (decision === "approved" && Number(active.rows[0]?.n ?? 0) > 0) throw new ContentRejection("withdraw or resolve active annotations before approval");
+      if (decision === "changes_requested" && Number(active.rows[0]?.n ?? 0) === 0) throw new ContentRejection("add at least one annotation before requesting changes");
       await client.query(
         `insert into content_review_decision(decision_id,tenant_id,candidate_set_id,decision,decided_by_user_id)
          values ($1,$2,$3,$4,$5)`,
@@ -1339,9 +1344,9 @@ export class CandidateRepository {
 
 async function createReadyPackage(client: pg.PoolClient, principal: Principal, candidateSetId: string): Promise<string> {
   const candidate = await client.query<{ owner_teacher_user_id: string; phase: Phase; input_candidate_set_id: string | null }>(`select owner_teacher_user_id,phase,input_candidate_set_id from content_candidate_set where tenant_id=$1 and candidate_set_id=$2`, [principal.tenantId, candidateSetId]);
-  if (candidate.rows[0]?.phase !== "er" || candidate.rows[0].owner_teacher_user_id !== principal.userId) throw new Error("only the ER owner can create a package");
+  if (candidate.rows[0]?.phase !== "er" || candidate.rows[0].owner_teacher_user_id !== principal.userId) throw new ContentRejection("only the ER owner can create a package");
   const ktqCandidateSetId = candidate.rows[0].input_candidate_set_id;
-  if (!ktqCandidateSetId) throw new Error("ER candidate has no approved KTQ input");
+  if (!ktqCandidateSetId) throw new ContentRejection("ER candidate has no approved KTQ input");
   // PostgreSQL does not allow FOR UPDATE on an aggregate.  Serialize the
   // version allocation explicitly, then read the aggregate under that lock.
   await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [`package-version:${principal.tenantId}:${principal.userId}`]);
@@ -1357,7 +1362,7 @@ async function createReadyPackage(client: pg.PoolClient, principal: Principal, c
      ) package_revisions order by phase_order,item_order`,
     [principal.tenantId, ktqCandidateSetId, candidateSetId],
   );
-  if (!revisions.rows.length) throw new Error("KTQ/ER candidates have no revisions");
+  if (!revisions.rows.length) throw new ContentRejection("KTQ/ER candidates have no revisions");
   await client.query(
     `insert into content_package(package_id,tenant_id,origin,owner_teacher_user_id,title,version_no,status,approved_er_candidate_set_id)
      values ($1,$2,'teacher',$3,$4,$5,'ready',$6)`,

@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { fetchCurrentAccount } from "@/lib/current-account";
 
 export const AUTH_DRAFT_KEY = "mathpilot:pending-auth-draft";
 
@@ -50,11 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const authUser = session.data.user;
     const controller = new AbortController();
     setProfileLoading(true);
-    void fetch("/api/me", { credentials: "include", signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("无法读取当前账户");
-        return response.json() as Promise<{ uid: string; tenant_id: string; roles: string[]; name: string; email: string }>;
-      })
+    void fetchCurrentAccount(controller.signal)
       .then((profile) => setPrincipal({
         uid: profile.uid,
         tenantId: profile.tenant_id,

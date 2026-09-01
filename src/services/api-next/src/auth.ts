@@ -3,7 +3,7 @@ import { fromNodeHeaders } from "better-auth/node";
 import type { IncomingHttpHeaders } from "node:http";
 import pg from "pg";
 import { newId, withTenant } from "./lib.ts";
-import { apiNextSecurityConfig } from "./security-config.ts";
+import { apiNextSecurityConfig, betterAuthRateLimitConfig, BETTER_AUTH_TRUSTED_IP_HEADERS } from "./security-config.ts";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot";
 const AUTH_BASE_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:5174";
@@ -11,7 +11,6 @@ const SECURITY_CONFIG = apiNextSecurityConfig();
 const AUTH_SECRET = SECURITY_CONFIG.betterAuthSecret;
 const DEFAULT_TENANT = SECURITY_CONFIG.defaultTenantId;
 const trustedOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? AUTH_BASE_URL).split(",").map((value) => value.trim()).filter(Boolean);
-const ipAddressHeaders = (process.env.BETTER_AUTH_IP_ADDRESS_HEADERS ?? "x-real-ip").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
 
 export const auth = betterAuth({
   database: new pg.Pool({ connectionString: DATABASE_URL, max: 5 }),
@@ -19,6 +18,7 @@ export const auth = betterAuth({
   secret: AUTH_SECRET,
   trustedOrigins,
   emailAndPassword: { enabled: true, minPasswordLength: 8, maxPasswordLength: 128 },
+  rateLimit: betterAuthRateLimitConfig(SECURITY_CONFIG.environment),
   user: {
     changeEmail: { enabled: true, updateEmailWithoutVerification: true },
     additionalFields: {
@@ -33,7 +33,7 @@ export const auth = betterAuth({
   advanced: {
     cookiePrefix: "mathpilot",
     useSecureCookies: (process.env.BETTER_AUTH_SECURE_COOKIES ?? (process.env.NODE_ENV === "production" ? "true" : "false")) === "true",
-    ipAddress: { ipAddressHeaders },
+    ipAddress: { ipAddressHeaders: [...BETTER_AUTH_TRUSTED_IP_HEADERS] },
   },
 });
 

@@ -69,11 +69,3 @@ export interface ForegroundReceipt {
   foreground_epoch_id: string;
   thread_version: number;
 }
-
-export interface ProblemDetails {
-  title?: string;
-  status?: number;
-  code?: string;
-  current_version?: number;
-  error?: string;
-}

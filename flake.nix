@@ -33,6 +33,7 @@
               nodejs_22
               pnpm
               postgresql_16
+              nginx
               # 契约 schema 校验（packages/contracts 测试依赖 jsonschema）
               python312Packages.jsonschema
             ];

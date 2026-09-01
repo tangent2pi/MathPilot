@@ -7,6 +7,7 @@ import {
 } from "@mathpilot/content-integrity";
 import type { SealedContent } from "@mathpilot/content-integrity/node";
 import { publishStorageObject } from "@mathpilot/content-integrity/publication";
+import { publicProblemMessage,readProblemDetails } from "@mathpilot/contracts";
 import { configuredInternalService } from "@mathpilot/internal-service";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -67,6 +68,16 @@ export const candidateRegistrationDisposition = (
   }
   return { claimed, replayed: !registration.created };
 };
+
+export async function candidateRegistrationResponseBody(response: Response): Promise<Record<string,unknown>> {
+  if (!response.ok) {
+    const problem = await readProblemDetails(response);
+    throw new Error(
+      `content candidate registration failed (${response.status}): ${problem ? publicProblemMessage(problem) : "request rejected"}`,
+    );
+  }
+  return await response.json() as Record<string,unknown>;
+}
 
 async function removeUnclaimed(objectId: string, principal: HostPrincipal): Promise<void> {
   await configuredInternalService("pi-chat-runtime").request(
@@ -237,12 +248,7 @@ export default async (pi: ExtensionAPI) => {
                 timeoutMs: 30_000,
               },
             );
-            const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-            if (!response.ok) {
-              throw new Error(
-                `content candidate registration failed (${response.status}): ${String(body.detail ?? body.error ?? "unknown error")}`,
-              );
-            }
+            const body = await candidateRegistrationResponseBody(response);
             const disposition = candidateRegistrationDisposition(body, audits, resultSha256);
             claimed = disposition.claimed;
             const candidate = body.candidate && typeof body.candidate === "object" && !Array.isArray(body.candidate)

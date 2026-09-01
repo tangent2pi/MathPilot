@@ -1,3 +1,5 @@
+import type { BetterAuthOptions } from "better-auth";
+
 export type MathPilotEnvironment = "development" | "test" | "production";
 
 export interface ApiNextSecurityConfig {
@@ -7,6 +9,8 @@ export interface ApiNextSecurityConfig {
   defaultTenantId: string;
 }
 
+export type BetterAuthRateLimitConfig = NonNullable<BetterAuthOptions["rateLimit"]>;
+
 type EnvironmentSource = Readonly<Record<string, string | undefined>>;
 
 const DEV_AUTH_SECRET = "mathpilot-dev-secret-change-me-at-least-32-characters";
@@ -15,6 +19,11 @@ const KNOWN_DEVELOPMENT_SECRETS = new Set([DEV_AUTH_SECRET, DEV_EVIDENCE_SECRET]
 const MIN_SECRET_BYTES = 32;
 const DEVELOPMENT_DEFAULT_TENANT = "tnt_dev00001";
 const tenantIdPattern = /^tnt_[A-Za-z0-9]{8,}$/;
+
+// The only public topology is Nginx `$remote_addr` -> X-Real-IP. Accepting a
+// configurable client header here would let deployment drift bypass auth rate
+// limiting; any future load-balancer topology needs a separate trust design.
+export const BETTER_AUTH_TRUSTED_IP_HEADERS = Object.freeze(["x-real-ip"] as const);
 
 function environmentOf(source: EnvironmentSource): MathPilotEnvironment {
   const value = source.MATHPILOT_ENVIRONMENT?.trim() || "production";
@@ -60,4 +69,17 @@ let runtimeConfig: ApiNextSecurityConfig | undefined;
 export function apiNextSecurityConfig(): ApiNextSecurityConfig {
   runtimeConfig ??= loadApiNextSecurityConfig();
   return runtimeConfig;
+}
+
+// Authentication abuse is owned by Better Auth's endpoint-aware limiter. The
+// deployment is intentionally single-replica today, so its official in-memory
+// store has process-wide semantics; a multi-replica deployment must move this
+// store to the shared database before scaling out.
+export function betterAuthRateLimitConfig(environment: MathPilotEnvironment): BetterAuthRateLimitConfig {
+  return Object.freeze({
+    enabled: environment === "production",
+    window: 10,
+    max: 100,
+    storage: "memory",
+  });
 }

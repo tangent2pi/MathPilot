@@ -15,7 +15,7 @@ import {
   serviceIssuer,
   validateInternalDeploymentConfiguration,
 } from "../src/index.ts";
-import { internalServiceContext, internalServiceGuard } from "../src/fastify.ts";
+import { internalServiceContext, internalServiceGuard, isProblemDetails } from "../src/fastify.ts";
 import {
   internalServiceTestEnvironment,
   testKeyForEdge,
@@ -246,6 +246,9 @@ test("Fastify guard maps every assertion failure once and ignores forged princip
   const rejected = await app.inject({ method: "POST", url: "/internal/check", payload: body });
   assert.equal(rejected.statusCode, 401);
   assert.match(rejected.headers["content-type"] ?? "", /^application\/problem\+json/);
+  assert.equal(rejected.headers["cache-control"], "no-store");
+  assert.equal(rejected.headers["www-authenticate"], "Bearer");
+  assert.equal(isProblemDetails(rejected.json()), true);
   assert.equal(rejected.json().code, "internal_service_authentication_failed");
   await app.close();
 });

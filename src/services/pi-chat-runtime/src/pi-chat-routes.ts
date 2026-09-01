@@ -1,8 +1,8 @@
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { InternalActor, InternalServiceRuntime } from "@mathpilot/internal-service";
-import { internalServiceContext, internalServiceGuard } from "@mathpilot/internal-service/fastify";
-import type { FastifyInstance } from "fastify";
+import { internalServiceContext, internalServiceGuard, sendProblem } from "@mathpilot/internal-service/fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { PiClient } from "@assistant-ui/react-pi";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiThreadStore, type PiPrincipal, type PiThreadRecord } from "./pi-thread-store.ts";
@@ -44,6 +44,9 @@ const pathIsWithin = (root: string, candidate: string): boolean => {
   const relative = path.relative(root, candidate);
   return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 };
+
+const reject = (reply: FastifyReply, status: number, code: string, title: string) =>
+  sendProblem(reply, { status, code, title });
 
 export const containedLocalEntryExists = async (
   allowedRoot: string,
@@ -200,19 +203,6 @@ export function registerPiChatRoutes(
   const activePrincipalByThread = new Map<string, string>();
   const contentGuard = internalServiceGuard(internalService, ["content-to-pi"]);
 
-  app.setErrorHandler((error, request, reply) => {
-    request.log.error({ err: error }, "Pi request failed");
-    const candidateStatus = typeof error === "object" && error !== null && "statusCode" in error
-      ? (error as { statusCode?: unknown }).statusCode
-      : undefined;
-    const statusCode = typeof candidateStatus === "number" && candidateStatus >= 400 && candidateStatus < 500
-      ? candidateStatus
-      : 500;
-    return reply.code(statusCode).send({
-      error: statusCode === 500 ? "Pi request failed" : "invalid Pi request",
-    });
-  });
-
   app.addHook("onClose", async () => {
     activePrincipalByThread.clear();
     erHandoffLocks.clear();
@@ -222,13 +212,13 @@ export function registerPiChatRoutes(
 
   app.post("/internal/er-start", { preHandler: contentGuard }, async (request, reply) => {
     const actor = internalServiceContext(request).actor;
-    if (!actor.roles.includes("teacher")) return reply.code(403).send({ error: "teacher principal required" });
+    if (!actor.roles.includes("teacher")) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
     const principal = piPrincipal(actor);
     const body = (request.body ?? {}) as { command_id?: unknown; candidate_set_id?: unknown; target_thread_id?: unknown };
     const commandId = typeof body.command_id === "string" ? body.command_id : "";
     const candidateSetId = typeof body.candidate_set_id === "string" ? body.candidate_set_id : "";
     const targetThreadId = typeof body.target_thread_id === "string" ? body.target_thread_id : "";
-    if (!commandId || !candidateSetId || !targetThreadId) return reply.code(422).send({ error: "command_id, candidate_set_id and target_thread_id are required" });
+    if (!commandId || !candidateSetId || !targetThreadId) return reject(reply, 422, "invalid_er_handoff", "ER handoff fields are invalid");
     const key = `${principal.tenantId}\u0000${commandId}`;
     let operation = erHandoffLocks.get(key);
     if (!operation) {
@@ -316,13 +306,13 @@ export function registerPiChatRoutes(
       };
     } catch (error) {
       request.log.error({ err: error, commandId, targetThreadId }, "ER handoff failed");
-      return reply.code(502).send({ error: "ER handoff failed" });
+      return reject(reply, 502, "er_handoff_failed", "ER handoff failed");
     }
   });
 
   app.post("/internal/review-feedback", { preHandler: contentGuard }, async (request, reply) => {
     const actor = internalServiceContext(request).actor;
-    if (!actor.roles.includes("teacher")) return reply.code(403).send({ error: "teacher principal required" });
+    if (!actor.roles.includes("teacher")) return reject(reply, 403, "teacher_principal_required", "Teacher principal required");
     const principal = piPrincipal(actor);
     const body = (request.body ?? {}) as {
       command_id?: unknown;
@@ -337,7 +327,7 @@ export function registerPiChatRoutes(
     const phase = body.phase === "ktq" || body.phase === "er" ? body.phase : undefined;
     const rawAnnotations = Array.isArray(body.annotations) ? body.annotations : [];
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(commandId) || !candidateSetId || !targetThreadId || !phase || rawAnnotations.length === 0 || rawAnnotations.length > 500) {
-      return reply.code(422).send({ error: "valid command, candidate, thread, phase and annotations are required" });
+      return reject(reply, 422, "invalid_review_feedback", "Review feedback fields are invalid");
     }
     const annotations = rawAnnotations.map((value) => {
       if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -350,7 +340,7 @@ export function registerPiChatRoutes(
         comment_text: item.comment_text,
       };
     });
-    if (annotations.some((value) => !value)) return reply.code(422).send({ error: "invalid review annotation" });
+    if (annotations.some((value) => !value)) return reject(reply, 422, "invalid_review_annotation", "Review annotation is invalid");
 
     const key = `${principal.tenantId}\u0000${commandId}`;
     let operation = reviewFeedbackLocks.get(key);
@@ -424,7 +414,7 @@ export function registerPiChatRoutes(
       };
     } catch (error) {
       request.log.error({ err: error, commandId, targetThreadId }, "review feedback dispatch failed");
-      return reply.code(502).send({ error: "review feedback dispatch failed" });
+      return reject(reply, 502, "review_feedback_dispatch_failed", "Review feedback dispatch failed");
     }
   });
 }

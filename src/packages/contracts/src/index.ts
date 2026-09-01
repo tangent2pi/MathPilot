@@ -3,6 +3,7 @@
  * JSON Schema 位于 ../schemas（唯一契约源）；本文件导出 Provider TS 接口。
  */
 export * from "./errors.js";
+export * from "./http-problem.js";
 export {
   MATH_DERIVATION_ARTIFACT_SCHEMA,
   MATH_DERIVATION_ARTIFACT_SCHEMA_URI,

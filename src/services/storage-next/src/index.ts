@@ -8,7 +8,7 @@ import {
   startStorageGarbageCollectionRuntime,
   type StorageGarbageCollectionRuntime,
 } from "./storage-temporal.ts";
-import { registerStorageRoutes, type RunWithPrincipal } from "./storage-routes.ts";
+import { registerStorageRoutes, storageProblemFromError, type RunWithPrincipal } from "./storage-routes.ts";
 
 // Identity configuration is validated before any database, object-store, or
 // listener is created. Production therefore fails at startup, not on the first
@@ -94,6 +94,7 @@ const app = await startFastifyService({
   name: "storage-next",
   port: Number(process.env.PORT ?? 3017),
   bodyLimit: 2 * 1024 * 1024,
+  mapError: storageProblemFromError,
   async register(server) {
     // Install the owner before starting Temporal or registering routes so a
     // register/listen failure follows the same idempotent shutdown path.

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
-import { loadApiNextSecurityConfig } from "../src/security-config.ts";
+import {
+  BETTER_AUTH_TRUSTED_IP_HEADERS,
+  betterAuthRateLimitConfig,
+  loadApiNextSecurityConfig,
+} from "../src/security-config.ts";
 
 const authSecret = "a".repeat(32);
 const evidenceSecret = "e".repeat(32);
@@ -76,6 +80,18 @@ test("production accepts explicit independent secrets", () => {
     evidenceSecret,
     defaultTenantId: "tnt_primary01",
   });
+});
+
+test("Better Auth owns endpoint abuse limiting and production enables its official limiter", () => {
+  assert.deepEqual(betterAuthRateLimitConfig("production"), {
+    enabled: true,
+    window: 10,
+    max: 100,
+    storage: "memory",
+  });
+  assert.equal(betterAuthRateLimitConfig("development").enabled, false);
+  assert.equal(betterAuthRateLimitConfig("test").enabled, false);
+  assert.deepEqual(BETTER_AUTH_TRUSTED_IP_HEADERS, ["x-real-ip"]);
 });
 
 test("evidence handles use only the configured evidence key and reject tampering", async () => {

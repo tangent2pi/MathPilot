@@ -10,19 +10,37 @@ import {
   type InternalServiceId,
 } from "@mathpilot/internal-service";
 import { internalServiceTestEnvironment } from "@mathpilot/internal-service/testing";
+import { installProblemDetails } from "@mathpilot/internal-service/fastify";
 import {
   registerStorageRoutes,
+  storageProblemFromError,
   type RunWithPrincipal,
   type StorageObjectOperations,
   type StorageQueryClient,
 } from "../src/storage-routes.ts";
 import type { Principal } from "../src/lib.ts";
 import { ContentIntegrityError } from "@mathpilot/content-integrity/node";
+import { S3ServiceException } from "@aws-sdk/client-s3";
 
 const signedActor = Object.freeze({
   tenantId: "tnt_signed",
   userId: "usr_signed",
   roles: ["teacher"] as const,
+});
+
+test("storage error mapping distinguishes structured S3 not-found from database messages", () => {
+  const database = storageProblemFromError(new Error("relation objects does not exist / secret"));
+  assert.equal(database.status, 500);
+  assert.equal(database.code, "storage_operation_failed");
+  assert.doesNotMatch(database.title, /relation|secret|exist/);
+
+  const missing = storageProblemFromError(new S3ServiceException({
+    name: "NoSuchKey",
+    $fault: "client",
+    $metadata: { httpStatusCode: 404 },
+  }));
+  assert.equal(missing.status, 404);
+  assert.equal(missing.code, "object_bytes_not_found");
 });
 
 const publicInitBody = Object.freeze({
@@ -87,6 +105,7 @@ function createHarness(
   };
   const identity = createInternalServiceRuntime("storage-next", internalServiceTestEnvironment());
   const app = Fastify();
+  installProblemDetails(app, storageProblemFromError);
   registerStorageRoutes(app, { identity, objects, runWithPrincipal });
   return { app, actors, queries };
 }
@@ -185,7 +204,7 @@ test("route edge policy admits writers and gives each host reader a purpose-boun
     payload: completeBody,
   });
   assert.equal(complete.statusCode, 404);
-  assert.equal(complete.json().error, "object not found");
+  assert.equal(complete.json().title, "object not found");
 
   const readPath = "/internal/objects/resolve";
   const readBody = { object_refs: ["storage-object:obj_test0001"], download_intent: "attachment" };
@@ -197,7 +216,7 @@ test("route edge policy admits writers and gives each host reader a purpose-boun
     payload: readBody,
   });
   assert.equal(read.statusCode, 404);
-  assert.equal(read.json().error, "one or more objects were not found");
+  assert.equal(read.json().title, "one or more objects were not found");
 
   const piReadToken = await assertion("pi-chat-runtime", "pi-to-storage", readPath, readBody);
   const piRead = await harness.app.inject({
@@ -207,7 +226,7 @@ test("route edge policy admits writers and gives each host reader a purpose-boun
     payload: readBody,
   });
   assert.equal(piRead.statusCode, 404);
-  assert.equal(piRead.json().error, "one or more objects were not found");
+  assert.equal(piRead.json().title, "one or more objects were not found");
   const resolveQueries = harness.queries.filter((query) => query.text.includes("object_id=any"));
   assert.deepEqual(resolveQueries.at(-1)?.values?.[1], ["source", "thread"]);
   assert.equal(harness.actors.length, 4);

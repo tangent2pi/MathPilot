@@ -4,13 +4,36 @@ import type {
   InternalEdgeId,
   InternalServiceRuntime,
 } from "@mathpilot/internal-service";
+import { isProblemDetails, sendProblem } from "@mathpilot/internal-service/fastify";
 
-const forwardedResponseHeaders = [
+const successfulResponseHeaders = [
   "content-type",
   "content-disposition",
   "cache-control",
-  "x-content-type-options",
+  "etag",
+  "last-modified",
 ] as const;
+
+function forwardProblemSemantics(response: Response, reply: FastifyReply): void {
+  reply.type("application/problem+json").header("cache-control", "no-store");
+  const retryAfter = response.headers.get("retry-after");
+  // Internal services use delay-seconds. HTTP-date support is deliberately not
+  // promised until a consumer requires it and a standards parser owns it.
+  if (response.status === 429 && retryAfter && /^[0-9]{1,10}$/.test(retryAfter)) {
+    reply.header("retry-after", retryAfter);
+  }
+  const challenge = response.headers.get("www-authenticate");
+  if (response.status === 401 && challenge) reply.header("www-authenticate", challenge);
+}
+
+function isProblemBody(bytes: Buffer, status: number): boolean {
+  try {
+    const value: unknown = JSON.parse(bytes.toString("utf8"));
+    return isProblemDetails(value) && value.status === status;
+  } catch {
+    return false;
+  }
+}
 
 const relay = async (
   runtime: InternalServiceRuntime,
@@ -36,12 +59,34 @@ const relay = async (
       signal: cancellation.signal,
       timeoutMs: 30_000,
     });
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const responseType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (response.status >= 400) {
+      if (responseType !== "application/problem+json" || !isProblemBody(bytes, response.status)) {
+        request.log.error({ upstreamStatus: response.status, edge }, "internal service returned a non-conforming error");
+        return sendProblem(reply, {
+          status: 502,
+          code: "invalid_upstream_response",
+          title: "Internal service returned an invalid response",
+        });
+      }
+      reply.code(response.status);
+      forwardProblemSemantics(response, reply);
+      return reply.send(bytes);
+    }
     reply.code(response.status);
-    for (const name of forwardedResponseHeaders) {
+    for (const name of successfulResponseHeaders) {
       const value = response.headers.get(name);
       if (value) reply.header(name, value);
     }
-    return reply.send(Buffer.from(await response.arrayBuffer()));
+    return reply.send(bytes);
+  } catch (error) {
+    request.log.error({ err: error, edge }, "internal service request failed");
+    return sendProblem(reply, {
+      status: 502,
+      code: "internal_service_unavailable",
+      title: "Internal service is unavailable",
+    });
   } finally {
     request.raw.removeListener("aborted", abort);
     reply.raw.removeListener("close", close);

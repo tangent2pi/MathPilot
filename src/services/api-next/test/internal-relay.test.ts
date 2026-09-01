@@ -65,7 +65,9 @@ for (const scenario of scenarios) {
         response.statusCode = 207;
         response.setHeader("content-type", "application/json");
         response.setHeader("cache-control", "private, no-store");
-        response.setHeader("x-content-type-options", "nosniff");
+        response.setHeader("x-content-type-options", "upstream-must-not-own-this");
+        response.setHeader("etag", '"relay-v1"');
+        response.setHeader("last-modified", "Tue, 01 Sep 2026 00:00:00 GMT");
         response.end(JSON.stringify({ actor: context.actor, body }));
       })().catch((error) => {
         serverFailure = error;
@@ -94,7 +96,9 @@ for (const scenario of scenarios) {
       if (serverFailure) throw serverFailure;
       assert.equal(response.statusCode, 207);
       assert.equal(response.headers["cache-control"], "private, no-store");
-      assert.equal(response.headers["x-content-type-options"], "nosniff");
+      assert.equal(response.headers["x-content-type-options"], undefined);
+      assert.equal(response.headers.etag, '"relay-v1"');
+      assert.equal(response.headers["last-modified"], "Tue, 01 Sep 2026 00:00:00 GMT");
       assert.equal(observedPath, scenario.internalPath);
       assert.deepEqual(response.json(), { actor, body: payload });
     } finally {
@@ -104,3 +108,49 @@ for (const scenario of scenarios) {
     }
   });
 }
+
+test("relay preserves conforming Problems and replaces non-conforming upstream errors", async () => {
+  const conforming = JSON.stringify({
+    type: "urn:mathpilot:problem:candidate-rate-limited",
+    title: "Candidate rate limited",
+    status: 429,
+    code: "candidate_rate_limited",
+  });
+  const server = createServer((request, response) => {
+    if (request.url === "/conforming") {
+      response.writeHead(429, {
+        "content-type": "application/problem+json; charset=utf-8",
+        "cache-control": "public, max-age=3600",
+        "content-disposition": "attachment; filename=secret.json",
+        "retry-after": "23",
+      });
+      response.end(conforming);
+      return;
+    }
+    response.writeHead(500, { "content-type": "application/json" });
+    response.end('{"error":"secret SQL token /srv/content.ts"}');
+  });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const address = server.address(); assert.ok(address && typeof address === "object");
+  const runtime = createInternalServiceRuntime("api-next", internalServiceTestEnvironment({
+    MATHPILOT_INTERNAL_CONTENT_URL: `http://127.0.0.1:${address.port}`,
+  }));
+  const app = Fastify();
+  app.get("/api/content/*", (request, reply) => relayContent(runtime, actor, request, reply));
+  try {
+    const accepted = await app.inject("/api/content/conforming");
+    assert.equal(accepted.statusCode, 429);
+    assert.equal(accepted.body, conforming);
+    assert.match(accepted.headers["content-type"] ?? "", /^application\/problem\+json/);
+    assert.equal(accepted.headers["cache-control"], "no-store");
+    assert.equal(accepted.headers["retry-after"], "23");
+    assert.equal(accepted.headers["content-disposition"], undefined);
+
+    const rejected = await app.inject("/api/content/non-conforming");
+    assert.equal(rejected.statusCode, 502);
+    assert.equal(rejected.json().code, "invalid_upstream_response");
+    assert.doesNotMatch(rejected.body, /secret|SQL|token|content\.ts/);
+  } finally {
+    await app.close(); server.close(); await once(server, "close");
+  }
+});

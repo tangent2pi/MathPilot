@@ -670,9 +670,9 @@ export function commandErrorFromUnknown(error: unknown): LearningCommandError | 
   if (pgError.code === "23514" || pgError.code === "22P02") return new LearningCommandError(422, "invalid_command", "命令不符合当前资源约束");
   if (pgError.code === "P0001") {
     const message = pgError.message ?? "领域命令未被接纳";
-    if (message.includes("version conflict")) return new LearningCommandError(409, "version_conflict", message);
-    if (message.includes("idempotency")) return new LearningCommandError(409, "idempotency_conflict", message);
-    return new LearningCommandError(409, "domain_conflict", message);
+    if (message.includes("version conflict")) return new LearningCommandError(409, "version_conflict", "资源版本已变化，请刷新后重试");
+    if (message.includes("idempotency")) return new LearningCommandError(409, "idempotency_conflict", "幂等键已用于另一项命令");
+    return new LearningCommandError(409, "domain_conflict", "命令与当前领域状态冲突");
   }
   return undefined;
 }

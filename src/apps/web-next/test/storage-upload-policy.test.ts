@@ -3,8 +3,10 @@ import { File } from "node:buffer";
 import test from "node:test";
 import { CONTENT_POLICIES } from "@mathpilot/content-integrity";
 import type Uppy from "@uppy/core";
-import { storageObjectResolveBody } from "../src/hooks/use-storage-object-url.ts";
+import { resolveStorageObjectUrl, storageObjectResolveBody } from "../src/hooks/use-storage-object-url.ts";
+import { HttpProblemError } from "../src/lib/http-problem.ts";
 import {
+  deleteStorageObject,
   runUppyObjectUpload,
   storageUploadDeclaration,
   storageUploadFileTypes,
@@ -55,6 +57,65 @@ test("the Web resolver carries explicit render intent and rejects malformed refe
     download_intent: "inline",
   });
   assert.equal(storageObjectResolveBody("https://example.test/file", "attachment"), undefined);
+});
+
+test("the Storage resolver uses the shared Problem decoder without leaking malformed errors", async () => {
+  const body = storageObjectResolveBody("storage-object:obj_image001", "inline")!;
+  await assert.rejects(
+    resolveStorageObjectUrl(body, async () => new Response(JSON.stringify({
+      type: "urn:mathpilot:problem:object-not-found",
+      title: "Object not found",
+      status: 404,
+      code: "object_not_found",
+    }), { status: 404, headers: { "content-type": "application/problem+json" } })),
+    (error: unknown) => error instanceof HttpProblemError && error.code === "object_not_found",
+  );
+  await assert.rejects(
+    resolveStorageObjectUrl(body, async () => new Response('{"error":"secret storage path"}', {
+      status: 502,
+      headers: { "content-type": "application/json" },
+    })),
+    (error: unknown) => error instanceof HttpProblemError && !/secret|path/.test(error.message),
+  );
+});
+
+test("Storage deletion accepts idempotent absence and rejects errors through the shared Problem decoder", async () => {
+  for (const status of [404,410]) {
+    const absent = new Response("already gone",{ status });
+    await deleteStorageObject("obj_already_gone",{
+      fetcher:async () => absent,
+    });
+    assert.equal(absent.bodyUsed,true);
+  }
+
+  await assert.rejects(
+    deleteStorageObject("obj_cleanup01",{
+      fetcher:async () => new Response(JSON.stringify({
+        type:"urn:mathpilot:problem:storage-operation-failed",
+        title:"Storage operation failed",
+        status:500,
+        code:"storage_operation_failed",
+        detail:"secret storage path /srv/private",
+      }),{ status:500,headers:{ "content-type":"application/problem+json; charset=utf-8" } }),
+    }),
+    (error: unknown) => error instanceof HttpProblemError
+      && error.status===500
+      && error.code==="storage_operation_failed"
+      && error.message==="Storage operation failed"
+      && !/secret|path|private|srv/.test(error.message),
+  );
+
+  await assert.rejects(
+    deleteStorageObject("obj_cleanup02",{
+      fetcher:async () => new Response('{"error":"secret storage path /srv/private"}',{
+        status:502,
+        headers:{ "content-type":"application/json" },
+      }),
+    }),
+    (error: unknown) => error instanceof HttpProblemError
+      && error.status===502
+      && !/secret|path|private|srv/.test(error.message),
+  );
 });
 
 test("an abort racing listener installation cannot enqueue a later Uppy upload", async () => {

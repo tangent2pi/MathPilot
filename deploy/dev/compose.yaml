@@ -342,6 +342,9 @@ services:
     environment:
       # Keep the browser CSP in sync with the exact endpoint used for signed URLs.
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      # Coarse public-ingress capacity backstop; this is not a business quota.
+      MATHPILOT_API_RATE: ${MATHPILOT_API_RATE:-30r/s}
+      MATHPILOT_API_BURST: ${MATHPILOT_API_BURST:-60}
     depends_on:
       - api
     ports:
@@ -365,7 +368,6 @@ services:
       LEARNING_EVIDENCE_SECRET: ${LEARNING_EVIDENCE_SECRET:-mathpilot-dev-evidence-secret-change-me-at-least-32-characters}
       BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       BETTER_AUTH_SECURE_COOKIES: ${BETTER_AUTH_SECURE_COOKIES:-false}
-      BETTER_AUTH_IP_ADDRESS_HEADERS: ${BETTER_AUTH_IP_ADDRESS_HEADERS:-x-real-ip}
       BETTER_AUTH_STUDENT_EMAIL: ${BETTER_AUTH_STUDENT_EMAIL:-student@mathpilot.local}
       BETTER_AUTH_STUDENT_PASSWORD: ${BETTER_AUTH_STUDENT_PASSWORD:-MathPilotStudent123!}
       BETTER_AUTH_TEACHER_EMAIL: ${BETTER_AUTH_TEACHER_EMAIL:-teacher@mathpilot.local}

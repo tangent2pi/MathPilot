@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
+import { S3ServiceException } from "@aws-sdk/client-s3";
 import {
   canonicalObjectReference,
   contentPolicy,
@@ -14,7 +15,7 @@ import {
 } from "@mathpilot/content-integrity";
 import { ContentIntegrityError, sealContent, type SealedContent } from "@mathpilot/content-integrity/node";
 import type { InternalServiceRuntime } from "@mathpilot/internal-service";
-import { internalServiceContext, internalServiceGuard } from "@mathpilot/internal-service/fastify";
+import { internalServiceContext, internalServiceGuard, type ProblemInput } from "@mathpilot/internal-service/fastify";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { BucketName, DataPlaneAudience, ObjectStore } from "./object-store.ts";
 import { newId, type Principal } from "./lib.ts";
@@ -207,7 +208,7 @@ const requestAbortSignal = (
   };
 };
 
-function mapError(error: unknown): StorageRouteError {
+function mapStorageError(error: unknown): StorageRouteError {
   if (error instanceof StorageRouteError) return error;
   if (error instanceof ContentIntegrityError) {
     return error.disposition === "terminal"
@@ -215,20 +216,23 @@ function mapError(error: unknown): StorageRouteError {
       : new StorageRouteError(500, error.code, "content verification is temporarily unavailable");
   }
   if (error instanceof Error && error.name === "AbortError") return new StorageRouteError(408, "verification_cancelled", "object verification was cancelled");
-  if (error instanceof Error && /not found|does not exist|NoSuchKey/i.test(error.message)) {
+  if (error instanceof S3ServiceException && error.$metadata.httpStatusCode === 404) {
     return new StorageRouteError(404, "object_bytes_not_found", "uploaded object bytes were not found");
   }
   return new StorageRouteError(500, "storage_operation_failed", "storage operation failed");
 }
 
+export function storageProblemFromError(error: unknown): ProblemInput {
+  const mapped = mapStorageError(error);
+  return {
+    status: mapped.statusCode,
+    code: mapped.code,
+    title: mapped.statusCode >= 500 ? "Storage operation failed" : mapped.message,
+  };
+}
+
 export function registerStorageRoutes(server: FastifyInstance, dependencies: StorageRouteDependencies): void {
   const { identity, objects, runWithPrincipal } = dependencies;
-
-  server.setErrorHandler((error, request, reply) => {
-    const mapped = mapError(error);
-    request.log.error({ err: error, code: mapped.code }, "storage-next request failed");
-    return reply.code(mapped.statusCode).send({ error: mapped.message, code: mapped.code });
-  });
 
   server.post("/internal/objects/init", { preHandler: internalServiceGuard(identity, WRITE_EDGES) }, async (request, reply) => {
     const { principal, audience } = contextOf(request);
@@ -396,7 +400,7 @@ export function registerStorageRoutes(server: FastifyInstance, dependencies: Sto
       request.log.info({ objectId,durationMs:Date.now()-startedAt,byteSize:sealed.stored.byteSize },"object verification completed");
       return descriptor(finalized);
     } catch (error) {
-      const mapped = mapError(error);
+      const mapped = mapStorageError(error);
       const terminal = error instanceof ContentIntegrityError
         ? error.disposition === "terminal"
         : acquired.row.verification_attempts>=3;
