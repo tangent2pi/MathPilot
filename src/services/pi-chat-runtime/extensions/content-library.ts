@@ -1,9 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { configuredInternalService } from "@mathpilot/internal-service";
 import { Type } from "typebox";
 import { readHostPrincipal } from "./lib/host-principal.ts";
 
-const CONTENT_URL = (process.env.CONTENT_NEXT_URL ?? process.env.CONTENT_LIBRARY_URL ?? "http://content-next:3016").replace(/\/$/, "");
-const CONTENT_SECRET = process.env.CONTENT_NEXT_SECRET ?? process.env.CONTENT_LIBRARY_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
 const MAX_LIMIT = 50;
 
 const entityKind = Type.Union([
@@ -22,21 +21,18 @@ type LibraryResponse = { items?: unknown[]; entity?: unknown; error?: unknown };
 const requestLibrary = async (
   cwd: string,
   route: string,
-  init?: RequestInit,
+  signal?: AbortSignal,
 ): Promise<LibraryResponse> => {
   const principal = await readHostPrincipal(cwd);
-  const response = await fetch(`${CONTENT_URL}${route}`, {
-    ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-      accept: "application/json",
-      "x-tenant-id": principal.tenantId,
-      "x-user-id": principal.userId,
-      "x-user-roles": principal.roles.join(","),
-      ...(CONTENT_SECRET ? { "x-mathpilot-runtime-secret": CONTENT_SECRET } : {}),
+  const response = await configuredInternalService("pi-chat-runtime").request(
+    "pi-to-content",
+    principal,
+    route,
+    {
+      ...(signal ? { signal } : {}),
+      timeoutMs: 15_000,
     },
-    signal: init?.signal ?? AbortSignal.timeout(15_000),
-  });
+  );
   const body = await response.json().catch(() => ({})) as LibraryResponse;
   if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `content library request failed (${response.status})`);
   return body;
@@ -64,7 +60,7 @@ export default function contentLibraryExtension(pi: ExtensionAPI): void {
       if (params.query?.trim()) search.set("query", params.query.trim());
       if (params.cursor) search.set("cursor", params.cursor);
       search.set("limit", String(Math.min(params.limit ?? 20, MAX_LIMIT)));
-      const result = await requestLibrary(context.cwd, `/agent/library/search?${search.toString()}`, signal ? { signal } : undefined);
+      const result = await requestLibrary(context.cwd, `/agent/library/search?${search.toString()}`, signal);
       return {
         content: [{ type: "text", text: JSON.stringify(result) }],
         details: result,
@@ -94,7 +90,7 @@ export default function contentLibraryExtension(pi: ExtensionAPI): void {
       const result = await requestLibrary(
         context.cwd,
         `/agent/library/get?${params.entity_ref ? "entity_ref" : "package_ref"}=${encodeURIComponent(reference)}`,
-        signal ? { signal } : undefined,
+        signal,
       );
       return {
         content: [{ type: "text", text: JSON.stringify(result) }],

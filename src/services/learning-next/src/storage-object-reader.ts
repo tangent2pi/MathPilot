@@ -1,34 +1,19 @@
 import { createHash } from "node:crypto";
+import type { InternalServiceRuntime } from "@mathpilot/internal-service";
 import type { WorkspaceObjectReader } from "./runtime-types.ts";
 
 const objectIdPattern = /^obj_[A-Za-z0-9]{8,}$/;
 
 export class StorageNextObjectReader implements WorkspaceObjectReader {
-  private readonly baseUrl: string;
-
-  constructor(baseUrl: string, private readonly secret: string) {
-    this.baseUrl = baseUrl.replace(/\/$/, "");
-  }
+  constructor(private readonly internalService: InternalServiceRuntime) {}
 
   async read(input: Parameters<WorkspaceObjectReader["read"]>[0]): Promise<Buffer> {
-    if (!this.baseUrl || this.secret.length < 32) {
-      throw new Error("storage-next object reading is not configured");
-    }
     if (!objectIdPattern.test(input.object.objectId)) throw new Error("invalid WorkspaceProjection object ID");
-    const response = await fetch(
-      `${this.baseUrl}/internal/objects/${encodeURIComponent(input.object.objectId)}/presign-get`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-mathpilot-runtime-secret": this.secret,
-          "x-tenant-id": input.tenantId,
-          "x-user-id": input.accountUserId,
-          "x-user-roles": input.roles.join(","),
-        },
-        body: JSON.stringify({ audience: "runtime" }),
-        signal: input.signal,
-      },
+    const response = await this.internalService.request(
+      "learning-to-storage",
+      { tenantId: input.tenantId, userId: input.accountUserId, roles: input.roles },
+      `/internal/objects/${encodeURIComponent(input.object.objectId)}/presign-get`,
+      { method: "POST", json: { audience: "runtime" }, signal: input.signal },
     );
     if (!response.ok) throw new Error(`storage-next rejected an authorized object read (${response.status})`);
     const metadata = await response.json() as Record<string, unknown>;

@@ -4,6 +4,7 @@ export interface ApiNextSecurityConfig {
   environment: MathPilotEnvironment;
   betterAuthSecret: string;
   evidenceSecret: string;
+  defaultTenantId: string;
 }
 
 type EnvironmentSource = Readonly<Record<string, string | undefined>>;
@@ -12,6 +13,8 @@ const DEV_AUTH_SECRET = "mathpilot-dev-secret-change-me-at-least-32-characters";
 const DEV_EVIDENCE_SECRET = "mathpilot-dev-evidence-secret-change-me-at-least-32-characters";
 const KNOWN_DEVELOPMENT_SECRETS = new Set([DEV_AUTH_SECRET, DEV_EVIDENCE_SECRET]);
 const MIN_SECRET_BYTES = 32;
+const DEVELOPMENT_DEFAULT_TENANT = "tnt_dev00001";
+const tenantIdPattern = /^tnt_[A-Za-z0-9]{8,}$/;
 
 function environmentOf(source: EnvironmentSource): MathPilotEnvironment {
   const value = source.MATHPILOT_ENVIRONMENT?.trim() || "production";
@@ -45,7 +48,11 @@ export function loadApiNextSecurityConfig(source: EnvironmentSource = process.en
   if (betterAuthSecret === evidenceSecret) {
     throw new Error("LEARNING_EVIDENCE_SECRET must be independent from BETTER_AUTH_SECRET");
   }
-  return Object.freeze({ environment, betterAuthSecret, evidenceSecret });
+  const defaultTenantId = source.DEFAULT_TENANT_ID?.trim()
+    || (environment === "development" ? DEVELOPMENT_DEFAULT_TENANT : "");
+  if (!defaultTenantId) throw new Error("DEFAULT_TENANT_ID is required outside the explicit development profile");
+  if (!tenantIdPattern.test(defaultTenantId)) throw new Error("DEFAULT_TENANT_ID must be a valid tenant ID");
+  return Object.freeze({ environment, betterAuthSecret, evidenceSecret, defaultTenantId });
 }
 
 let runtimeConfig: ApiNextSecurityConfig | undefined;

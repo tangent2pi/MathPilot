@@ -10,6 +10,7 @@
     "migrate:official": "node --import tsx src/cli/migrate-official-content.ts"
   },
   "dependencies": {
+    "@mathpilot/internal-service": "workspace:*",
     "fastify": "^5.2.0",
     "pg": "^8.13.1",
     "tsx": "4.20.6"

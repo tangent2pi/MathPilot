@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 export interface Principal {
   tenantId: string;
   userId: string;
-  roles: string[];
+  roles: readonly string[];
 }
 
 export interface ServiceOptions {
@@ -53,23 +53,6 @@ export async function withPrincipal<T>(
 
 export function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
-}
-
-export function trustedRuntime(request: { headers: Record<string, unknown> }): boolean {
-  const expected = process.env.CONTENT_NEXT_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
-  const actual = request.headers["x-mathpilot-runtime-secret"];
-  return expected.length >= 32 && actual === expected;
-}
-
-export function principalFromHeaders(request: { headers: Record<string, unknown> }): Principal | null {
-  const tenant = request.headers["x-tenant-id"];
-  const user = request.headers["x-user-id"];
-  const rawRoles = request.headers["x-user-roles"];
-  if (typeof tenant !== "string" || !tenant || typeof user !== "string" || !user) return null;
-  const roles = typeof rawRoles === "string"
-    ? rawRoles.split(",").map((role) => role.trim()).filter((role) => role === "teacher" || role === "student")
-    : [];
-  return { tenantId: tenant, userId: user, roles };
 }
 
 export function isTeacher(principal: Principal): boolean {

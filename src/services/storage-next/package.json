@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "start": "node --import tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
+    "@mathpilot/internal-service": "workspace:*",
     "fastify": "^5.2.0",
     "minio": "^8.0.7",
     "pg": "^8.13.1",

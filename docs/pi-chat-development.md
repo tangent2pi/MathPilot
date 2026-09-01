@@ -11,18 +11,22 @@
       └─ api-next :3101
           ├─ Better Auth Cookie → 用户、角色、租户、师生范围
           ├─ 主库 mathpilot → 身份与账户事实
-          └─ 受信网关头 → pi-chat-runtime :3105
-              ├─ assistant-ui 官方 PiThreadSupervisor / PiClient
-              ├─ agentDir/extensions → sandbox、附件、respond、内容库、Core/Search/OCR
-              ├─ 独立库 mathpilot_pi → 用户线程归属、ACL、卡片事件、附件登记
-              ├─ PI_CHAT_RUNTIME_ROOT → Pi JSONL、线程工作区
-              ├─ content-next → K/T/Q/E/R、候选复核、包与 ER 命令
-              └─ storage-next → 私有 MinIO 对象登记与预签名 PUT/GET
+          ├─ api-to-content → content-next
+          └─ api-to-storage → storage-next
+
+content-next ──content-to-pi──▶ pi-chat-runtime :3105
+             ◀──pi-to-content──┤
+storage-next ◀──pi-to-storage──┘
 ```
 
-- 浏览器不持有模型密钥、MinIO 凭据、网关密钥或内部 runtime 地址。
-- Better Auth Cookie 只由 `api-next` 解释。`pi-chat-runtime` 只接受携带共享
-  `PI_GATEWAY_SECRET` 和网关已验证主体头的请求。
+- 浏览器不持有模型密钥、MinIO 凭据、内部 edge keyring 或 runtime 地址。
+- Better Auth Cookie 只由 `api-next` 解释。所有服务间请求由
+  `@mathpilot/internal-service` 签发 60 秒、绑定 edge/主体/method/path/规范 JSON 摘要的断言；
+  接收端只从验证后的 service context 读取主体，不接受主体头。
+- 六条生产 edge 各有独立、可轮换 keyring。共同 owner 统一加载、production fail-fast、
+  JOSE codec、Fastify 401、replay、超时/取消和观测；领域服务只声明 edge 并调用薄 adapter。
+- Pi 不持有 MinIO 管理凭据。对象控制面只经 `pi-to-storage`，实际上传/下载只使用
+  Storage 返回的短时效预签名 URL；已退役的 Pi archive/MinIO fallback 不兼容也不恢复。
 - `mathpilot` 仍是身份、租户、角色、师生关系和既有学习数据的事实源。
 - `mathpilot_pi` 是新建最小库，不复制身份表、学生可见 ID 或消息正文；线程只保留
   `owner_user_id`，卡片事件记录 `actor_user_id`。
@@ -31,7 +35,7 @@
   通过原始表写入扩大权限。需要共享线程时再补 owner 控制的领域路由。ACL 中的
   `read/write/admin` 是单线程访问级别，不是新增产品角色；线程删除始终只允许 owner。
 - KTQ/ER 是普通对话，不在 Pi 表中增加 `thread_type`、`parent_thread_id` 或
-  `workflow_id`。宿主通过工作区外的主体文件把当前网关主体交给内容工具，模型不能
+  `workflow_id`。宿主通过工作区外的主体文件把已验证的 service context 交给内容工具，模型不能
   自行填写租户、班级、角色或 SQL。
 
 ## 当前功能范围
@@ -39,7 +43,6 @@
 - assistant-ui 官方 Thread、ThreadList、附件与 Pi 线程运行时。
 - Better Auth 登录、注册、Cookie Session、退出及账户资料。
 - 普通文件经浏览器预签名直传/直下，Pi 只按稳定 `object_id` 物化工作副本；图片保留视觉消息表示并同时登记对象。
-- `present_question_card` 与 `present_learning_artifact` 的 assistant-ui Tool UI。
 - 题卡事件写入 `pi_card_events`，只记录交互审计，不在此处判答。
 - `present_teaching_ui` 当前不展示。
 - `content_library_search` 与 `content_library_get` 是内容 Skill 的唯一检索工具；前者只
@@ -76,36 +79,50 @@ runtime 每个事务仍注入 `mathpilot.tenant_id`、`mathpilot.user_id` 和角
 
 ## 启动开发进程
 
-三端必须使用相同且至少 32 字符的 `PI_GATEWAY_SECRET`。
+本地必须显式使用 `MATHPILOT_ENVIRONMENT=development` 和
+`MATHPILOT_INTERNAL_REPLAY_MODE=memory-single-replica`。development 可省略 keyring，统一 owner
+会为六条边选择仓库公开且彼此独立的开发值；production 没有这个默认值，必须使用
+[`deploy/dev/.env.example`](../deploy/dev/.env.example) 所列六个独立 keyring。调用方仍必须声明
+自己的最终目标 URL。
 
 ```sh
 DATABASE_URL=postgresql://127.0.0.1:<port>/mathpilot \
+MATHPILOT_ENVIRONMENT=development \
+MATHPILOT_INTERNAL_REPLAY_MODE=memory-single-replica \
+MATHPILOT_INTERNAL_CONTENT_URL=http://127.0.0.1:3016 \
+MATHPILOT_INTERNAL_STORAGE_URL=http://127.0.0.1:3017 \
 BETTER_AUTH_URL=http://localhost:5174 \
 BETTER_AUTH_TRUSTED_ORIGINS=http://localhost:5174 \
-PI_CHAT_RUNTIME_URL=http://127.0.0.1:3105 \
-PI_GATEWAY_SECRET=<shared-development-secret> \
   nix develop -c pnpm --filter @mathpilot/api-next start
 ```
 
 ```sh
+MATHPILOT_ENVIRONMENT=development \
+MATHPILOT_INTERNAL_REPLAY_MODE=memory-single-replica \
+MATHPILOT_INTERNAL_CONTENT_URL=http://127.0.0.1:3016 \
+MATHPILOT_INTERNAL_STORAGE_URL=http://127.0.0.1:3017 \
 PI_DATABASE_URL=postgresql://127.0.0.1:<port>/mathpilot_pi \
-PI_GATEWAY_SECRET=<shared-development-secret> \
 PI_CHAT_RUNTIME_ROOT=<runtime-root> \
 PI_CHAT_WORKSPACE_ROOT=<runtime-root>/sessions \
 MODEL_API_BASE=https://api.deepseek.com \
 MODEL_API_KEY=<key> \
 MODEL_ID_MAIN=deepseek-v4-flash-vision-exp \
 MODEL_ID_AUX=deepseek-v4-flash-vision-exp \
-CONTENT_NEXT_URL=http://127.0.0.1:3016 \
-CONTENT_NEXT_SECRET=<shared-development-secret> \
-STORAGE_NEXT_URL=http://127.0.0.1:3017 \
-STORAGE_NEXT_SECRET=<shared-development-secret> \
 SERPER_API_KEY=<optional-search-key> \
 PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN=<optional-ocr-key> \
   nix develop -c pnpm --filter @mathpilot/pi-chat-runtime start
 ```
 
-MinIO 管理凭据只注入 `storage-next`。本地设置
+```sh
+MATHPILOT_ENVIRONMENT=development \
+MATHPILOT_INTERNAL_REPLAY_MODE=memory-single-replica \
+MATHPILOT_INTERNAL_PI_URL=http://127.0.0.1:3105 \
+DATABASE_URL=postgresql://127.0.0.1:<port>/mathpilot \
+  nix develop -c pnpm --filter @mathpilot/content-next start
+```
+
+`storage-next` 只需自身三条接收 edge 的 keyring；development 会使用公开默认值，不需要任何
+出站 internal URL。MinIO 管理凭据只注入 `storage-next`。本地设置
 `MINIO_PUBLIC_ENDPOINT=http://localhost:9000`、`MINIO_CORS_ALLOWED_ORIGINS=http://localhost:5174`；
 生产当前设置为 `https://mathpilot.tangentpi.com` 及实际 Web origin。预签名 URL 不入库。
 

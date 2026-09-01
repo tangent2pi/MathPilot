@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { configuredInternalService } from "@mathpilot/internal-service";
 import { Type } from "typebox";
 import { listBoundAttachments } from "./attachments/manifest.ts";
 import { readHostPrincipal } from "./lib/host-principal.ts";
@@ -54,30 +55,22 @@ async function storeCandidateAuditFile(
   cwd: string,
   relativeFile: string,
   principal: NonNullable<HostPrincipal>,
+  signal?: AbortSignal,
 ): Promise<{ objectId: string; sha256: string; versionId: string }> {
   const bytes = await readFile(path.resolve(cwd, relativeFile));
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const endpoint = (process.env.STORAGE_NEXT_URL ?? "http://storage-next:3017").replace(/\/$/, "");
-  const secret = process.env.STORAGE_NEXT_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
-  if (secret.length < 32) throw new Error("storage-next runtime secret is not configured");
-  const headers = {
-    "content-type": "application/json",
-    "x-mathpilot-runtime-secret": secret,
-    "x-tenant-id": principal.tenantId,
-    "x-user-id": principal.userId,
-    "x-user-roles": principal.roles.join(","),
-    "x-mathpilot-storage-audience": "runtime",
-  };
-  const initialized = await fetch(`${endpoint}/internal/objects/init`, {
+  const internalService = configuredInternalService("pi-chat-runtime");
+  const initialized = await internalService.request("pi-to-storage", principal, "/internal/objects/init", {
     method: "POST",
-    headers,
-    body: JSON.stringify({
+    json: {
       purpose: "candidate",
       mime_type: "application/json",
       byte_size: bytes.length,
       original_name: path.basename(relativeFile),
-    }),
-    signal: AbortSignal.timeout(30_000),
+      audience: "runtime",
+    },
+    ...(signal ? { signal } : {}),
+    timeoutMs: 30_000,
   });
   const initBody = await initialized.json().catch(() => ({})) as { object_id?: unknown; upload_url?: unknown };
   if (!initialized.ok || typeof initBody.object_id !== "string" || typeof initBody.upload_url !== "string") throw new Error(`candidate audit object init failed (${initialized.status})`);
@@ -85,15 +78,22 @@ async function storeCandidateAuditFile(
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: bytes,
-    signal: AbortSignal.timeout(5 * 60_000),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(5 * 60_000)])
+      : AbortSignal.timeout(5 * 60_000),
   });
   if (!uploaded.ok) throw new Error(`candidate audit object upload failed (${uploaded.status})`);
-  const completed = await fetch(`${endpoint}/internal/objects/${encodeURIComponent(initBody.object_id)}/complete`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ sha256 }),
-    signal: AbortSignal.timeout(5 * 60_000),
-  });
+  const completed = await internalService.request(
+    "pi-to-storage",
+    principal,
+    `/internal/objects/${encodeURIComponent(initBody.object_id)}/complete`,
+    {
+      method: "POST",
+      json: { sha256 },
+      ...(signal ? { signal } : {}),
+      timeoutMs: 5 * 60_000,
+    },
+  );
   const completeBody = await completed.json().catch(() => ({})) as { sha256?: unknown; version_id?: unknown };
   if (!completed.ok || completeBody.sha256 !== sha256 || typeof completeBody.version_id !== "string" || !completeBody.version_id) throw new Error(`candidate audit object verification failed (${completed.status})`);
   return { objectId: initBody.object_id, sha256, versionId: completeBody.version_id };
@@ -129,37 +129,38 @@ export default async (pi: ExtensionAPI) => {
         const frozen = validated.kind === "er"
           ? JSON.parse(await readFile(path.join(context.cwd, "input", "frozen", "ktq.json"), "utf8").catch(() => "{}")) as Record<string, unknown>
           : {};
-        const endpoint = (process.env.CONTENT_NEXT_URL ?? process.env.CONTENT_LIBRARY_URL ?? "http://content-next:3016").replace(/\/$/, "");
-        const secret = process.env.CONTENT_NEXT_SECRET ?? process.env.PI_GATEWAY_SECRET ?? "";
-        if (secret.length < 32) throw new Error("content-next runtime secret is not configured");
         const [resultAudit, receiptAudit] = await Promise.all([
-          storeCandidateAuditFile(context.cwd, validated.resultFile, principal),
-          storeCandidateAuditFile(context.cwd, validated.validationFile, principal),
+          storeCandidateAuditFile(context.cwd, validated.resultFile, principal, _signal),
+          storeCandidateAuditFile(context.cwd, validated.validationFile, principal, _signal),
         ]);
         if (resultAudit.sha256 !== validated.sha256) throw new Error("stored result hash does not match validated result");
-        const response = await fetch(`${endpoint}/internal/candidates/register`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-mathpilot-runtime-secret": secret,
-            "x-tenant-id": principal.tenantId,
-            "x-user-id": principal.userId,
-            "x-user-roles": principal.roles.join(","),
+        const candidateBody = {
+          phase: validated.kind,
+          thread_id: threadManifest.thread_id,
+          tool_call_id: _toolCallId,
+          result_sha256: validated.sha256,
+          result_object_id: resultAudit.objectId,
+          receipt_object_id: receiptAudit.objectId,
+          source_objects: sourceObjects,
+          result,
+          ...(typeof frozen.candidate_set_id === "string"
+            ? { input_candidate_set_id: frozen.candidate_set_id }
+            : {}),
+          ...(typeof result.supersedes_candidate_set_id === "string"
+            ? { supersedes_candidate_set_id: result.supersedes_candidate_set_id }
+            : {}),
+        };
+        const response = await configuredInternalService("pi-chat-runtime").request(
+          "pi-to-content",
+          principal,
+          "/internal/candidates/register",
+          {
+            method: "POST",
+            json: candidateBody,
+            ...(_signal ? { signal: _signal } : {}),
+            timeoutMs: 30_000,
           },
-          body: JSON.stringify({
-            phase: validated.kind,
-            thread_id: threadManifest.thread_id,
-            tool_call_id: _toolCallId,
-            result_sha256: validated.sha256,
-            result_object_id: resultAudit.objectId,
-            receipt_object_id: receiptAudit.objectId,
-            source_objects: sourceObjects,
-            result,
-            input_candidate_set_id: typeof frozen.candidate_set_id === "string" ? frozen.candidate_set_id : undefined,
-            supersedes_candidate_set_id: typeof result.supersedes_candidate_set_id === "string" ? result.supersedes_candidate_set_id : undefined,
-          }),
-          ...(_signal ? { signal: _signal } : {}),
-        });
+        );
         const body = await response.json().catch(() => ({})) as Record<string, unknown>;
         if (!response.ok) throw new Error(`content candidate registration failed (${response.status}): ${String(body.detail ?? body.error ?? "unknown error")}`);
         const candidate = body.candidate && typeof body.candidate === "object" && !Array.isArray(body.candidate)

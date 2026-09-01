@@ -13,6 +13,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { MATH_DERIVATION_ARTIFACT_SCHEMA } from "@mathpilot/contracts";
+import type { InternalServiceRuntime } from "@mathpilot/internal-service";
 import { Type } from "typebox";
 import { parseSelectionDecision } from "./selection-core.ts";
 import { parseAnnotationChangeSet, parseLightAtomProposal, parseRemOutput } from "./dream-core.ts";
@@ -405,7 +406,9 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
   }
 }
 
-export async function createPiSdkTaskExecutorFromEnvironment(): Promise<PiSdkTaskExecutor> {
+export async function createPiSdkTaskExecutorFromEnvironment(
+  internalService: InternalServiceRuntime,
+): Promise<PiSdkTaskExecutor> {
   const runtimeRoot = process.env.LEARNING_NEXT_RUNTIME_ROOT ?? "/var/lib/mathpilot/learning-next";
   const skillsRoot = process.env.LEARNING_NEXT_SKILLS_ROOT
     ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../skills");
@@ -445,9 +448,6 @@ export async function createPiSdkTaskExecutorFromEnvironment(): Promise<PiSdkTas
   const auxiliaryModel = modelRuntime.getModel(PROVIDER, auxiliaryModelId);
   if (!mainModel) throw new Error(`configured main model ${PROVIDER}/${mainModelId} was not loaded`);
   if (!auxiliaryModel) throw new Error(`configured auxiliary model ${PROVIDER}/${auxiliaryModelId} was not loaded`);
-  const workspaceObjectReader = new StorageNextObjectReader(
-    process.env.STORAGE_NEXT_URL ?? "",
-    process.env.STORAGE_NEXT_SECRET ?? "",
-  );
+  const workspaceObjectReader = new StorageNextObjectReader(internalService);
   return new PiSdkTaskExecutor({ modelRuntime, mainModel, auxiliaryModel, runtimeRoot, skillsRoot, workspaceObjectReader });
 }

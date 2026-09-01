@@ -1,0 +1,28 @@
+{
+  "name": "@mathpilot/internal-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MathPilot internal service topology, production configuration, signed assertions, clients, and Fastify guards",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fastify": "./src/fastify.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "preflight:deployment": "node src/preflight.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "canonicalize": "4.0.0",
+    "jose": "6.2.10",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "fastify": "^5.2.0",
+    "tsx": "4.20.6",
+    "typescript": "^5.6.0"
+  }
+}

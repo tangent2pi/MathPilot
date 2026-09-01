@@ -107,7 +107,7 @@ services:
       args: { SERVICE_NAME: content-next }
     environment:
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
-      DEFAULT_TENANT_ID: ${DEV_TENANT_ID:-tnt_dev00001}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:?DEFAULT_TENANT_ID is required}
       DEFAULT_TEACHER_USER_ID: ${DEFAULT_TEACHER_USER_ID:-usr_teacher01}
       MATHPILOT_REPO_ROOT: /app
     command: ["corepack", "pnpm", "--filter", "@mathpilot/content-next", "run", "migrate:official", "--", "--execute", "--report=/tmp/official-content-import-report.json"]
@@ -157,24 +157,49 @@ services:
       - psql "host=postgres user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}" -v ON_ERROR_STOP=1 -q -f /fixtures.sql
     restart: "no"
 
+  # Validate the complete edge key topology once before any service can become
+  # reachable. Individual services then fail fast on their own thin edge set.
+  internal-identity-preflight:
+    build:
+      context: ../..
+      dockerfile: src/services/Dockerfile
+      args: { SERVICE_NAME: internal-service }
+    command: ["corepack", "pnpm", "--filter", "@mathpilot/internal-service", "preflight:deployment"]
+    environment:
+      MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
+      MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
+      MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING:?API to Content keyring is required}"
+      MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING:?API to Storage keyring is required}"
+      MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING:?Content to Pi keyring is required}"
+      MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING:?Pi to Content keyring is required}"
+      MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING:?Pi to Storage keyring is required}"
+      MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING:?Learning to Storage keyring is required}"
+    network_mode: none
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: "no"
+
   learning-next:
     init: true
     build:
       context: ../..
       dockerfile: src/services/learning-next/Dockerfile
     environment:
+      MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
+      MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
+      MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING:?Learning to Storage keyring is required}"
+      MATHPILOT_INTERNAL_STORAGE_URL: http://storage-next:3017
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
       TEMPORAL_TASK_QUEUE: mathpilot_learning_next
-      LEARNING_NEXT_TENANT_IDS: ${DEV_TENANT_ID:-tnt_dev00001}
+      LEARNING_NEXT_TENANT_IDS: ${LEARNING_NEXT_TENANT_IDS:-${DEFAULT_TENANT_ID:?DEFAULT_TENANT_ID is required}}
       LEARNING_NEXT_RUNTIME_ROOT: /var/lib/mathpilot/learning-next
       MODEL_API_BASE: ${PI_MODEL_API_BASE:-${MODEL_API_BASE:?MODEL_API_BASE is required}}
       MODEL_API_KEY: ${PI_MODEL_API_KEY:-${MODEL_API_KEY:?MODEL_API_KEY is required}}
       MODEL_ID_MAIN: ${PI_MODEL_ID_MAIN:-${MODEL_ID_MAIN:?MODEL_ID_MAIN is required}}
       MODEL_ID_AUX: ${PI_MODEL_ID_AUX:-${MODEL_ID_AUX:?MODEL_ID_AUX is required}}
-      STORAGE_NEXT_URL: http://storage-next:3017
-      STORAGE_NEXT_SECRET: ${STORAGE_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}
     volumes:
       - learning_next_runtime:/var/lib/mathpilot/learning-next
     depends_on:
@@ -184,6 +209,8 @@ services:
         condition: service_healthy
       storage-next:
         condition: service_started
+      internal-identity-preflight:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # 内容候选后台 Agent 宿主；浏览器学习对话只走 learning-next/Temporal。
@@ -200,19 +227,20 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETUID, SETGID, SETFCAP]
     environment:
+      MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
+      MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
+      MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING:?Content to Pi keyring is required}"
+      MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING:?Pi to Content keyring is required}"
+      MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING:?Pi to Storage keyring is required}"
+      MATHPILOT_INTERNAL_CONTENT_URL: http://content-next:3016
+      MATHPILOT_INTERNAL_STORAGE_URL: http://storage-next:3017
       PI_DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/mathpilot_pi
-      PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}
       PI_CHAT_RUNTIME_ROOT: /var/lib/mathpilot/pi-chat
       PI_CHAT_WORKSPACE_ROOT: /var/lib/mathpilot/pi-chat/sessions
       MODEL_API_BASE: ${PI_MODEL_API_BASE:-${MODEL_API_BASE:?MODEL_API_BASE is required}}
       MODEL_API_KEY: ${PI_MODEL_API_KEY:-${MODEL_API_KEY:?MODEL_API_KEY is required}}
       MODEL_ID_MAIN: ${PI_MODEL_ID_MAIN:-${MODEL_ID_MAIN:?MODEL_ID_MAIN is required}}
       MODEL_ID_AUX: ${PI_MODEL_ID_AUX:-${MODEL_ID_AUX:?MODEL_ID_AUX is required}}
-      CONTENT_LIBRARY_URL: http://content-next:3016
-      CONTENT_NEXT_URL: http://content-next:3016
-      CONTENT_NEXT_SECRET: ${CONTENT_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}
-      STORAGE_NEXT_URL: http://storage-next:3017
-      STORAGE_NEXT_SECRET: ${STORAGE_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}
       # Core 只读当前线程；Search 仅得搜索凭据；OCR 仅得 OCR 凭据。
       SERPER_API_KEY: ${SERPER_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
@@ -234,6 +262,8 @@ services:
         condition: service_started
       storage-next:
         condition: service_started
+      internal-identity-preflight:
+        condition: service_completed_successfully
 
   # Next content boundary. It owns normalized candidates, reviews, packages,
   # review-feedback delivery and the ER handoff poller.
@@ -243,13 +273,18 @@ services:
       dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: content-next }
     environment:
+      MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
+      MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
+      MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING:?API to Content keyring is required}"
+      MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING:?Content to Pi keyring is required}"
+      MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING:?Pi to Content keyring is required}"
+      MATHPILOT_INTERNAL_PI_URL: http://pi-chat-runtime:3105
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
-      PI_CHAT_RUNTIME_URL: http://pi-chat-runtime:3105
-      PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}
-      CONTENT_NEXT_SECRET: ${CONTENT_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}
       PORT: "3016"
     depends_on:
       official-content-import:
+        condition: service_completed_successfully
+      internal-identity-preflight:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:${CONTENT_NEXT_PORT:-3016}:3016"
@@ -262,9 +297,12 @@ services:
       dockerfile: src/services/Dockerfile
       args: { SERVICE_NAME: storage-next }
     environment:
+      MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
+      MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
+      MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING:?API to Storage keyring is required}"
+      MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING:?Pi to Storage keyring is required}"
+      MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING:?Learning to Storage keyring is required}"
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
-      STORAGE_NEXT_SECRET: ${STORAGE_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}
-      PI_GATEWAY_SECRET: ${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
@@ -276,6 +314,8 @@ services:
         condition: service_completed_successfully
       minio:
         condition: service_started
+      internal-identity-preflight:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:${STORAGE_NEXT_PORT:-3017}:3017"
 
@@ -297,12 +337,14 @@ services:
       dockerfile: src/services/api-next/Dockerfile
     environment:
       MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
+      MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
+      MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING:?API to Content keyring is required}"
+      MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING:?API to Storage keyring is required}"
+      MATHPILOT_INTERNAL_CONTENT_URL: http://content-next:3016
+      MATHPILOT_INTERNAL_STORAGE_URL: http://storage-next:3017
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
-      CONTENT_NEXT_URL: http://content-next:3016
-      CONTENT_NEXT_SECRET: ${CONTENT_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:?DEFAULT_TENANT_ID is required}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8080}
-      STORAGE_NEXT_URL: http://storage-next:3017
-      STORAGE_NEXT_SECRET: ${STORAGE_NEXT_SECRET:-${PI_GATEWAY_SECRET:-${AGENT_DB_MASTER_SECRET}}}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-mathpilot-dev-secret-change-me-at-least-32-characters}
       LEARNING_EVIDENCE_SECRET: ${LEARNING_EVIDENCE_SECRET:-mathpilot-dev-evidence-secret-change-me-at-least-32-characters}
       BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
@@ -320,6 +362,8 @@ services:
         condition: service_started
       storage-next:
         condition: service_started
+      internal-identity-preflight:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:${API_PORT:-3101}:3101"
 

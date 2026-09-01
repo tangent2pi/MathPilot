@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { configureInternalService } from "@mathpilot/internal-service";
 import { Client } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { createActivities } from "./activities.ts";
@@ -10,6 +11,9 @@ import { PostgresSelectionStore } from "./selection-store.ts";
 import { PostgresDreamStore } from "./dream-store.ts";
 import { PostgresForegroundStore } from "./foreground-store.ts";
 import { ensureDreamSchedules } from "./schedules.ts";
+import { loadLearningTenantIds } from "./production-config.ts";
+
+const internalService = configureInternalService("learning-next", process.env);
 
 const required = (name: string): string => {
   const value = process.env[name]?.trim();
@@ -30,11 +34,7 @@ async function main(): Promise<void> {
   const temporalAddress = process.env.TEMPORAL_ADDRESS?.trim() || "127.0.0.1:7233";
   const temporalNamespace = process.env.TEMPORAL_NAMESPACE?.trim() || "default";
   const taskQueue = process.env.TEMPORAL_TASK_QUEUE?.trim() || "mathpilot_learning_next";
-  const tenantIds = (process.env.LEARNING_NEXT_TENANT_IDS || "tnt_dev00001")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (!tenantIds.length) throw new Error("LEARNING_NEXT_TENANT_IDS must contain at least one tenant");
+  const tenantIds = loadLearningTenantIds(internalService.configuration.environment);
 
   const runtimeStore = new PostgresRuntimeStore(databaseUrl);
   const questionStore = new PostgresQuestionStore(databaseUrl);
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   process.once("SIGTERM", stop);
 
   try {
-    const executor = await createPiSdkTaskExecutorFromEnvironment();
+    const executor = await createPiSdkTaskExecutorFromEnvironment(internalService);
     const activities = createActivities({ store: runtimeStore, questionStore, selectionStore, dreamStore, foregroundStore, executor });
     worker = await Worker.create({
       connection,

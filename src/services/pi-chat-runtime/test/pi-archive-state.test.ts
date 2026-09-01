@@ -4,10 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  commitArchiveTransition,
-  commitUnarchiveTransition,
   containedLocalEntryExists,
-  restoreArchivedThread,
+  localThreadAvailable,
 } from "../src/pi-chat-routes.ts";
 import type { PiPrincipal, PiThreadRecord } from "../src/pi-thread-store.ts";
 
@@ -26,73 +24,6 @@ const record = (archived: boolean, minioKey?: string): PiThreadRecord => ({
   createdAt: "2026-09-01T00:00:00.000Z",
   ...(minioKey ? { minioKey } : {}),
   ...(archived ? { archivedAt: "2026-09-01T00:00:01.000Z" } : {}),
-});
-
-test("snapshot failure leaves Pi and the durable archive pointer untouched", async () => {
-  const events: string[] = [];
-  await assert.rejects(commitArchiveTransition({
-    principal,
-    threadId: "thread-test",
-    pi: {
-      async archiveThread() { events.push("pi.archive"); },
-      async unarchiveThread() { events.push("pi.unarchive"); },
-    },
-    store: {
-      async commitArchiveState() {
-        events.push("store.commit");
-        return record(true);
-      },
-    },
-    async createSnapshot() {
-      events.push("snapshot");
-      throw new Error("snapshot rejected");
-    },
-  }), /snapshot rejected/);
-  assert.deepEqual(events, ["snapshot"]);
-});
-
-test("archive publishes one snapshot pointer last and compensates a DB failure", async () => {
-  const events: string[] = [];
-  const key = "pi-threads/thread-test/snapshot-test";
-  await assert.rejects(commitArchiveTransition({
-    principal,
-    threadId: "thread-test",
-    pi: {
-      async archiveThread() { events.push("pi.archive"); },
-      async unarchiveThread() { events.push("pi.unarchive"); },
-    },
-    store: {
-      async commitArchiveState(_principal, _threadId, archived, minioKey) {
-        events.push(`store.commit:${archived}:${minioKey}`);
-        throw new Error("database unavailable");
-      },
-    },
-    async createSnapshot() {
-      events.push("snapshot");
-      return key;
-    },
-  }), /database unavailable/);
-  assert.deepEqual(events, ["snapshot", "pi.archive", `store.commit:true:${key}`, "pi.unarchive"]);
-});
-
-test("unarchive restores before changing state and compensates a DB failure", async () => {
-  const events: string[] = [];
-  await assert.rejects(commitUnarchiveTransition({
-    principal,
-    threadId: "thread-test",
-    pi: {
-      async archiveThread() { events.push("pi.archive"); },
-      async unarchiveThread() { events.push("pi.unarchive"); },
-    },
-    store: {
-      async commitArchiveState(_principal, _threadId, archived) {
-        events.push(`store.commit:${archived}`);
-        throw new Error("database unavailable");
-      },
-    },
-    async restoreSnapshot() { events.push("restore"); },
-  }), /database unavailable/);
-  assert.deepEqual(events, ["restore", "pi.unarchive", "store.commit:false", "pi.archive"]);
 });
 
 test("existing local archive paths reject symlinks, including broken links", async () => {
@@ -127,7 +58,7 @@ test("existing local archive paths reject symlinks, including broken links", asy
   }
 });
 
-test("a cold empty thread is not rehydrated as an archived Pi record", async () => {
+test("a cold empty live thread is available only while Pi still owns it", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mathpilot-pi-empty-thread-"));
   const sessionsRoot = path.join(root, "sessions");
   const agentSessionsRoot = path.join(root, "agent", "sessions");
@@ -136,42 +67,31 @@ test("a cold empty thread is not rehydrated as an archived Pi record", async () 
     mkdir(agentSessionsRoot, { recursive: true }),
   ]);
   const runtime = { runtimeRoot: root, sessionsRoot, agentSessionsRoot };
-  const archivedRecord = { ...record(true), sessionDir: "sessions/thread-test" };
-  let archiveCalls = 0;
+  const activeRecord = { ...record(false), sessionDir: "sessions/thread-test" };
   try {
-    assert.equal(await restoreArchivedThread(runtime as never, archivedRecord, {
+    assert.equal(await localThreadAvailable(runtime as never, activeRecord, {
       async getThread() { throw new Error("Unknown Pi thread"); },
-      async archiveThread() { archiveCalls += 1; },
     } as never), false);
-    assert.equal(archiveCalls, 0);
 
-    assert.equal(await restoreArchivedThread(runtime as never, archivedRecord, {
-      async getThread() { return { metadata: { id: archivedRecord.threadId }, messages: [] }; },
-      async archiveThread() { archiveCalls += 1; },
+    assert.equal(await localThreadAvailable(runtime as never, activeRecord, {
+      async getThread() { return { metadata: { id: activeRecord.threadId }, messages: [] }; },
     } as never), true);
-    assert.equal(archiveCalls, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("an active thread never hydrates from its retained archived snapshot", async () => {
+test("retired archive metadata fails closed instead of restoring through MinIO", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mathpilot-pi-active-thread-"));
   const sessionsRoot = path.join(root, "sessions");
   const agentSessionsRoot = path.join(root, "agent", "sessions");
   await Promise.all([mkdir(sessionsRoot, { recursive: true }), mkdir(agentSessionsRoot, { recursive: true })]);
-  let downloads = 0;
   try {
-    assert.equal(await restoreArchivedThread(
+    assert.equal(await localThreadAvailable(
       { runtimeRoot: root, sessionsRoot, agentSessionsRoot } as never,
-      { ...record(false, "pi-threads/thread-test/old-snapshot"), sessionDir: "sessions/thread-test" },
+      { ...record(true, "pi-threads/thread-test/old-snapshot"), sessionDir: "sessions/thread-test" },
       { async getThread() { throw new Error("Unknown Pi thread"); } } as never,
-      {
-        async downloadDirectory() { downloads += 1; },
-        async downloadFile() { downloads += 1; },
-      } as never,
     ), false);
-    assert.equal(downloads, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

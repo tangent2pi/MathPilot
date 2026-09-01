@@ -1,15 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { configureInternalService } from "@mathpilot/internal-service";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { auth, authenticate, bootstrapAuthUsers, requireRole, AuthError, type Principal } from "./auth.ts";
+import { relayContent, relayStorage } from "./internal-relay.ts";
 import { createPool, startService, withTenant } from "./lib.ts";
 import { registerLearningHttp } from "./learning-http.ts";
 
+const internalService = configureInternalService("api-next", process.env);
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
-const contentNextUrl = (process.env.CONTENT_NEXT_URL ?? "http://127.0.0.1:3016").replace(/\/$/, "");
-const contentNextSecret = process.env.CONTENT_NEXT_SECRET ?? "";
-const storageNextUrl = (process.env.STORAGE_NEXT_URL ?? "http://127.0.0.1:3017").replace(/\/$/, "");
-const storageNextSecret = process.env.STORAGE_NEXT_SECRET ?? "";
 const classCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function newClassCode(length = 8): string {
@@ -26,50 +25,6 @@ async function principalOf(request: FastifyRequest, reply: FastifyReply): Promis
     if (error instanceof AuthError) { reply.code(error.status).send({ error: error.message }); return null; }
     throw error;
   }
-}
-
-async function relayContent(principal: Principal, request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> {
-  if (contentNextSecret.length < 32) return reply.code(503).send({ error: "content-next is not configured" });
-  const suffix = request.url.replace(/^\/api\/content(?=\/|$)/, "") || "/";
-  const response = await fetch(`${contentNextUrl}${suffix}`, {
-    method: request.method,
-    headers: {
-      ...(request.headers["content-type"] ? { "content-type": String(request.headers["content-type"]) } : {}),
-      "x-tenant-id": principal.tenantId,
-      "x-user-id": principal.userId,
-      "x-user-roles": principal.roles.join(","),
-      "x-mathpilot-runtime-secret": contentNextSecret,
-    },
-    ...(request.body !== undefined && !["GET", "HEAD"].includes(request.method) ? { body: JSON.stringify(request.body) } : {}),
-    signal: AbortSignal.timeout(30_000),
-  });
-  reply.code(response.status);
-  for (const name of ["content-type", "content-disposition", "cache-control", "x-content-type-options"]) {
-    const value = response.headers.get(name); if (value) reply.header(name, value);
-  }
-  return reply.send(Buffer.from(await response.arrayBuffer()));
-}
-
-async function relayStorage(principal: Principal, request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> {
-  if (storageNextSecret.length < 32) return reply.code(503).send({ error: "storage-next is not configured" });
-  const suffix = request.url.replace(/^\/api\/storage(?=\/|$)/, "") || "/";
-  const response = await fetch(`${storageNextUrl}/internal${suffix}`, {
-    method: request.method,
-    headers: {
-      ...(request.headers["content-type"] ? { "content-type": String(request.headers["content-type"]) } : {}),
-      "x-tenant-id": principal.tenantId,
-      "x-user-id": principal.userId,
-      "x-user-roles": principal.roles.join(","),
-      "x-mathpilot-runtime-secret": storageNextSecret,
-    },
-    ...(request.body !== undefined && !["GET", "HEAD"].includes(request.method) ? { body: JSON.stringify(request.body) } : {}),
-    signal: AbortSignal.timeout(30_000),
-  });
-  reply.code(response.status);
-  for (const name of ["content-type", "content-disposition", "cache-control", "x-content-type-options"]) {
-    const value = response.headers.get(name); if (value) reply.header(name, value);
-  }
-  return reply.send(Buffer.from(await response.arrayBuffer()));
 }
 
 await bootstrapAuthUsers();
@@ -103,14 +58,14 @@ await startService({
       return { uid: principal.uid, user_id: principal.userId, tenant_id: principal.tenantId, roles: principal.roles, via: "better_auth", name: principal.name, email: principal.email };
     });
 
-    // The browser talks to the same-origin API.  Only api-next turns the
-    // authenticated session into the trusted principal headers understood by
+    // The browser talks to the same-origin API. Only api-next turns the
+    // authenticated session into a short-lived, request-bound assertion for
     // the isolated content-next service.
     app.route({
       method: ["GET", "POST", "PATCH", "DELETE"], url: "/api/content/*",
       async handler(request, reply) {
         const principal = await principalOf(request, reply); if (!principal) return;
-        return relayContent(principal, request, reply);
+        return relayContent(internalService, principal, request, reply);
       },
     });
 
@@ -120,7 +75,7 @@ await startService({
       method: ["GET", "POST", "PATCH", "DELETE"], url: "/api/storage/*",
       async handler(request, reply) {
         const principal = await principalOf(request, reply); if (!principal) return;
-        return relayStorage(principal, request, reply);
+        return relayStorage(internalService, principal, request, reply);
       },
     });
 

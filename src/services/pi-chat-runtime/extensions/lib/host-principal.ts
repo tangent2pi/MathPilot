@@ -5,7 +5,7 @@ import path from "node:path";
 export interface HostPrincipal {
   tenantId: string;
   userId: string;
-  roles: string[];
+  roles: readonly ("student" | "teacher")[];
   issuedAt: string;
 }
 
@@ -32,10 +32,16 @@ export async function readHostPrincipal(cwd: string): Promise<HostPrincipal> {
   if (
     typeof value.tenantId !== "string" || !value.tenantId
     || typeof value.userId !== "string" || !value.userId
-    || !Array.isArray(value.roles) || value.roles.some((role) => typeof role !== "string")
+    || !Array.isArray(value.roles) || value.roles.length < 1
+    || value.roles.some((role) => role !== "student" && role !== "teacher")
     || typeof value.issuedAt !== "string"
   ) throw new Error("host principal is invalid");
-  return { tenantId: value.tenantId, userId: value.userId, roles: value.roles, issuedAt: value.issuedAt };
+  return {
+    tenantId: value.tenantId,
+    userId: value.userId,
+    roles: [...new Set(value.roles)].sort() as ("student" | "teacher")[],
+    issuedAt: value.issuedAt,
+  };
 }
 
 export async function clearHostPrincipal(cwd: string): Promise<void> {

@@ -249,35 +249,6 @@ export class PiThreadStore {
     return result.rows[0] ? mapAttachment(result.rows[0]) : undefined;
   }
 
-  async commitArchiveState(
-    principal: PiPrincipal,
-    threadId: string,
-    archived: boolean,
-    minioKey?: string,
-  ): Promise<PiThreadRecord> {
-    if (minioKey !== undefined && (!minioKey || minioKey.includes("\\") || minioKey.startsWith("/"))) {
-      throw new Error("Pi archive object prefix is invalid");
-    }
-    const result = await this.scopedQuery<Row>(principal,
-      `update pi_threads t
-          set archived_at=case when $2 then now() else null end,
-              minio_key=case when $2 then $3::text else t.minio_key end
-        where t.thread_id=$1 and t.tenant_id=$4 and (
-          t.owner_user_id=$5
-          or exists (
-            select 1 from pi_thread_acl a
-             where a.thread_id=t.thread_id and a.tenant_id=t.tenant_id and a.user_id=$5
-               and a.access in ('write','admin')
-          )
-        )
-        returning t.*`,
-      [threadId, archived, minioKey ?? null, principal.tenantId, principal.userId],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Pi archive state update was not authorized");
-    return mapRow(row);
-  }
-
   async remove(principal: PiPrincipal, threadId: string): Promise<boolean> {
     const allowed = await this.deletable(principal, threadId);
     if (!allowed) return false;

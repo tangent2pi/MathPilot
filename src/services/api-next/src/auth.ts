@@ -7,8 +7,9 @@ import { apiNextSecurityConfig } from "./security-config.ts";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot";
 const AUTH_BASE_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:5174";
-const AUTH_SECRET = apiNextSecurityConfig().betterAuthSecret;
-const DEV_TENANT = process.env.DEV_TENANT_ID ?? "tnt_dev00001";
+const SECURITY_CONFIG = apiNextSecurityConfig();
+const AUTH_SECRET = SECURITY_CONFIG.betterAuthSecret;
+const DEFAULT_TENANT = SECURITY_CONFIG.defaultTenantId;
 const trustedOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? AUTH_BASE_URL).split(",").map((value) => value.trim()).filter(Boolean);
 const ipAddressHeaders = (process.env.BETTER_AUTH_IP_ADDRESS_HEADERS ?? "x-real-ip").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
 
@@ -49,7 +50,7 @@ export interface Principal {
   userId: string;
   uid: string;
   tenantId: string;
-  roles: string[];
+  roles: ("student" | "teacher")[];
   authUserId: string;
   name: string;
   email: string;
@@ -75,12 +76,12 @@ export async function authenticate(pool: pg.Pool, headers: IncomingHttpHeaders):
   const account = (await pool.query<{ uid: string }>(`select uid::text from "user" where id=$1`, [authUser.id])).rows[0];
   if (!account?.uid) throw new AuthError(401, "account UID is unavailable");
   const requestedRoles = rolesFor(authUser.role);
-  const domain = await withTenant(pool, DEV_TENANT, async (client) => (await client.query<{ user_id: string; tenant_id: string }>(
+  const domain = await withTenant(pool, DEFAULT_TENANT, async (client) => (await client.query<{ user_id: string; tenant_id: string }>(
     `insert into identity_user (user_id, tenant_id, oidc_sub, display_name, roles)
      values ($1,$2,$3,$4,$5)
      on conflict (oidc_sub) do update set display_name=excluded.display_name
      returning user_id,tenant_id`,
-    [newId("usr"), DEV_TENANT, authUser.id, authUser.name || authUser.email, requestedRoles],
+    [newId("usr"), DEFAULT_TENANT, authUser.id, authUser.name || authUser.email, requestedRoles],
   )).rows[0]);
   if (!domain) throw new AuthError(401, "account domain mapping is unavailable");
   // The normalized role relation is the next domain fact source.  The auth
@@ -108,14 +109,14 @@ export async function authenticate(pool: pg.Pool, headers: IncomingHttpHeaders):
     );
     return result.rows.map((row) => row.role);
   });
-  const normalizedRoles = roles.length ? roles : ["student"];
+  const normalizedRoles: ("student" | "teacher")[] = roles.length ? roles : ["student"];
   return {
     userId: domain.user_id, uid: account.uid, tenantId: domain.tenant_id, roles: normalizedRoles,
     authUserId: authUser.id, name: authUser.name || authUser.email, email: authUser.email,
   };
 }
 
-export function requireRole(principal: Principal, role: string): void {
+export function requireRole(principal: Principal, role: "student" | "teacher"): void {
   if (!principal.roles.includes(role)) throw new AuthError(403, `requires role: ${role}`);
 }
 
@@ -132,12 +133,12 @@ export async function bootstrapAuthUsers(): Promise<void> {
       const userId = existing.rows[0]?.id ?? (await auth.api.signUpEmail({ body: { email: user.email, password: user.password, name: user.name } })).user.id;
       await pool.query(`update "user" set role=$2 where id=$1`, [userId, user.role]);
       const fixtureId = user.role.startsWith("teacher") ? "usr_teacher01" : "usr_student01";
-      await withTenant(pool, DEV_TENANT, async (client) => {
+      await withTenant(pool, DEFAULT_TENANT, async (client) => {
         await client.query(`update identity_user set oidc_sub=$1,display_name=$2,roles=$3 where user_id=$4`, [userId, user.name, user.role.split(","), fixtureId]);
         await client.query(
           `insert into identity_user_role(tenant_id,user_id,role,assigned_by_user_id)
            values($1,$2,$3,null) on conflict (user_id,role) do nothing`,
-          [DEV_TENANT, fixtureId, user.role === "teacher" ? "teacher" : "student"],
+          [DEFAULT_TENANT, fixtureId, user.role === "teacher" ? "teacher" : "student"],
         );
       });
     }

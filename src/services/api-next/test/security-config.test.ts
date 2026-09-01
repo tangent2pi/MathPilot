@@ -12,6 +12,7 @@ test("explicit development is the only profile that receives distinct developmen
   assert.ok(Buffer.byteLength(config.betterAuthSecret) >= 32);
   assert.ok(Buffer.byteLength(config.evidenceSecret) >= 32);
   assert.notEqual(config.betterAuthSecret, config.evidenceSecret);
+  assert.equal(config.defaultTenantId, "tnt_dev00001");
 });
 
 test("non-development profiles fail fast for missing, short, shared, or development-default secrets", () => {
@@ -50,6 +51,17 @@ test("non-development profiles fail fast for missing, short, shared, or developm
     BETTER_AUTH_SECRET: authSecret,
     LEARNING_EVIDENCE_SECRET: evidenceSecret,
   }), /MATHPILOT_ENVIRONMENT/);
+  assert.throws(() => loadApiNextSecurityConfig({
+    MATHPILOT_ENVIRONMENT: "production",
+    BETTER_AUTH_SECRET: authSecret,
+    LEARNING_EVIDENCE_SECRET: evidenceSecret,
+  }), /DEFAULT_TENANT_ID is required/);
+  assert.throws(() => loadApiNextSecurityConfig({
+    MATHPILOT_ENVIRONMENT: "production",
+    BETTER_AUTH_SECRET: authSecret,
+    LEARNING_EVIDENCE_SECRET: evidenceSecret,
+    DEFAULT_TENANT_ID: "not-a-tenant",
+  }), /valid tenant ID/);
 });
 
 test("production accepts explicit independent secrets", () => {
@@ -57,10 +69,12 @@ test("production accepts explicit independent secrets", () => {
     MATHPILOT_ENVIRONMENT: "production",
     BETTER_AUTH_SECRET: authSecret,
     LEARNING_EVIDENCE_SECRET: evidenceSecret,
+    DEFAULT_TENANT_ID: "tnt_primary01",
   }), {
     environment: "production",
     betterAuthSecret: authSecret,
     evidenceSecret,
+    defaultTenantId: "tnt_primary01",
   });
 });
 
@@ -69,10 +83,12 @@ test("evidence handles use only the configured evidence key and reject tampering
     environment: process.env.MATHPILOT_ENVIRONMENT,
     auth: process.env.BETTER_AUTH_SECRET,
     evidence: process.env.LEARNING_EVIDENCE_SECRET,
+    tenant: process.env.DEFAULT_TENANT_ID,
   };
   process.env.MATHPILOT_ENVIRONMENT = "test";
   process.env.BETTER_AUTH_SECRET = authSecret;
   process.env.LEARNING_EVIDENCE_SECRET = evidenceSecret;
+  process.env.DEFAULT_TENANT_ID = "tnt_primary01";
   try {
     const { evidenceHandle, parseEvidenceHandle } = await import("../src/learning-read/cursor.ts");
     const reference = { kind: "judgment" as const, id: "jdg_security01", studentId: "stu_security01" };
@@ -90,5 +106,7 @@ test("evidence handles use only the configured evidence key and reject tampering
     else process.env.BETTER_AUTH_SECRET = previous.auth;
     if (previous.evidence === undefined) delete process.env.LEARNING_EVIDENCE_SECRET;
     else process.env.LEARNING_EVIDENCE_SECRET = previous.evidence;
+    if (previous.tenant === undefined) delete process.env.DEFAULT_TENANT_ID;
+    else process.env.DEFAULT_TENANT_ID = previous.tenant;
   }
 });
