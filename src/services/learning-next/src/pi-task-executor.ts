@@ -18,7 +18,13 @@ import { Type } from "typebox";
 import { parseSelectionDecision } from "./selection-core.ts";
 import { parseAnnotationChangeSet, parseLightAtomProposal, parseRemOutput } from "./dream-core.ts";
 import { parseBoundedLearningAction, parseForegroundTeachingOutput } from "./foreground-core.ts";
-import type { PiExecutorRequest, PiExecutorResult, PiTaskExecutor, WorkspaceObjectReader } from "./runtime-types.ts";
+import {
+  MAXIMUM_WORKSPACE_PROJECTION_BYTES,
+  type PiExecutorRequest,
+  type PiExecutorResult,
+  type PiTaskExecutor,
+  type WorkspaceObjectReader,
+} from "./runtime-types.ts";
 import { StorageNextObjectReader } from "./storage-object-reader.ts";
 
 const PROVIDER = "mathpilot-deepseek";
@@ -59,7 +65,9 @@ const projectionTarget = (root: string, relativePath: string): string => {
 const materializeProjection = async (
   root: string,
   projection: NonNullable<PiExecutorRequest["workspaceProjection"]>,
-  readObject?: (object: NonNullable<PiExecutorRequest["workspaceProjection"]>["objects"][number]) => Promise<Buffer>,
+  materializeObjects?: (objects: readonly {
+    object: NonNullable<PiExecutorRequest["workspaceProjection"]>["objects"][number]; destination:string;
+  }[]) => Promise<void>,
 ): Promise<Map<string, string>> => {
   await mkdir(root, { recursive: true, mode: 0o700 });
   const seen = new Set<string>();
@@ -71,7 +79,7 @@ const materializeProjection = async (
     if (seen.has(target)) throw new Error(`duplicate WorkspaceProjection path: ${file.path}`);
     seen.add(target);
     totalBytes += Buffer.byteLength(file.content, "utf8");
-    if (totalBytes > 64 * 1024 * 1024) throw new Error("WorkspaceProjection exceeds 64 MiB");
+    if (totalBytes > MAXIMUM_WORKSPACE_PROJECTION_BYTES) throw new Error("WorkspaceProjection exceeds 64 MiB");
     const parent = path.dirname(target);
     await mkdir(parent, { recursive: true, mode: 0o700 });
     for (let current = parent; isWithin(root, current); current = path.dirname(current)) {
@@ -81,26 +89,28 @@ const materializeProjection = async (
     await writeFile(target, file.content, { encoding: "utf8", mode: 0o400, flag: "wx" });
     await chmod(target, 0o400);
   }
+  const objectTargets: Array<{ object:(typeof projection.objects)[number];destination:string }> = [];
   for (const object of projection.objects) {
     const target = projectionTarget(root, object.path);
     if (seen.has(target)) throw new Error(`duplicate WorkspaceProjection path: ${object.path}`);
     seen.add(target);
-    totalBytes += object.byteSize;
-    if (totalBytes > 64 * 1024 * 1024) throw new Error("WorkspaceProjection exceeds 64 MiB");
-    if (!readObject) throw new Error("WorkspaceProjection object reader is unavailable");
+    totalBytes += object.descriptor.byte_size;
+    if (totalBytes > MAXIMUM_WORKSPACE_PROJECTION_BYTES) throw new Error("WorkspaceProjection exceeds 64 MiB");
     const parent = path.dirname(target);
     await mkdir(parent, { recursive: true, mode: 0o700 });
     for (let current = parent; isWithin(root, current); current = path.dirname(current)) {
       directories.add(current);
       if (current === root) break;
     }
-    const content = await readObject(object);
-    if (content.byteLength !== object.byteSize) throw new Error("WorkspaceProjection object size mismatch");
-    await writeFile(target, content, { mode: 0o400, flag: "wx" });
-    await chmod(target, 0o400);
-    if (["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"].includes(object.mimeType)) {
-      imageMimeByPath.set(target, object.mimeType);
+    objectTargets.push({ object,destination:target });
+    if (["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"].includes(object.descriptor.mime_type)) {
+      imageMimeByPath.set(target, object.descriptor.mime_type);
     }
+  }
+  if (objectTargets.length) {
+    if (!materializeObjects) throw new Error("WorkspaceProjection object reader is unavailable");
+    await materializeObjects(objectTargets);
+    await Promise.all(objectTargets.map(({ destination }) => chmod(destination,0o400)));
   }
   for (const directory of [...directories].sort((left, right) => right.length - left.length)) {
     await chmod(directory, 0o500);
@@ -177,25 +187,26 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
 
     const workspace = path.join(this.options.runtimeRoot, "attempts", request.agentAttemptId);
     await rm(workspace, { recursive: true, force: true });
-    await mkdir(workspace, { recursive: true, mode: 0o700 });
-    const projectionRoot = path.join(workspace, "workspace");
-    const imageMimeByPath = request.workspaceProjection
-      ? await materializeProjection(projectionRoot, request.workspaceProjection, (object) => {
-        if (!this.options.workspaceObjectReader) throw new Error("WorkspaceProjection object reader is unavailable");
-        return this.options.workspaceObjectReader.read({
-          tenantId: request.tenantId,
-          accountUserId: request.workspaceProjection!.accountUserId,
-          roles: request.workspaceProjection!.roles,
-          object,
-          signal: request.signal,
-        });
-      })
-      : new Map<string, string>();
-    const agentCwd = request.workspaceProjection ? projectionRoot : workspace;
-    const taskSkill = await readFile(path.join(this.options.skillsRoot, skillName(request.taskSpec.skill_ref), "SKILL.md"), "utf8");
-    let structuredOutput: unknown;
+    try {
+      await mkdir(workspace, { recursive: true, mode: 0o700 });
+      const projectionRoot = path.join(workspace, "workspace");
+      const imageMimeByPath = request.workspaceProjection
+        ? await materializeProjection(projectionRoot, request.workspaceProjection, (objects) => {
+          if (!this.options.workspaceObjectReader) throw new Error("WorkspaceProjection object reader is unavailable");
+          return this.options.workspaceObjectReader.materialize({
+            tenantId: request.tenantId,
+            accountUserId: request.workspaceProjection!.accountUserId,
+            roles: request.workspaceProjection!.roles,
+            objects,
+            signal: request.signal,
+          });
+        })
+        : new Map<string, string>();
+      const agentCwd = request.workspaceProjection ? projectionRoot : workspace;
+      const taskSkill = await readFile(path.join(this.options.skillsRoot, skillName(request.taskSpec.skill_ref), "SKILL.md"), "utf8");
+      let structuredOutput: unknown;
 
-    const respond = defineTool({
+      const respond = defineTool({
       name: "respond",
       label: "Respond",
       description: `Submit exactly one structured result matching ${request.taskSpec.output_schema}.`,
@@ -251,8 +262,8 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
           terminate: true,
         };
       },
-    });
-    const catalog = defineTool({
+      });
+      const catalog = defineTool({
       name: "question_catalog",
       label: "Question catalog",
       description: "Search the current authorization-filtered normalized Next question catalog. Results never include answers or private analysis.",
@@ -275,8 +286,8 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
           },
         };
       },
-    });
-    const learningAction = defineTool({
+      });
+      const learningAction = defineTool({
       name: "learning_action",
       label: "Learning action",
       description: "Request one bounded, host-validated learning action in the current Thread and foreground epoch. Authorization identities are supplied only by the host.",
@@ -308,12 +319,12 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
           details: result,
         };
       },
-    });
-    const tools: ToolDefinition<any, any, any>[] = [respond];
-    if (request.taskSpec.allowed_capability_tools.includes("question_catalog")) tools.push(catalog);
-    if (request.taskSpec.allowed_capability_tools.includes("learning_action")) tools.push(learningAction);
-    if (request.taskSpec.allowed_capability_tools.includes("read")) {
-      tools.push(createReadToolDefinition(projectionRoot, {
+      });
+      const tools: ToolDefinition<any, any, any>[] = [respond];
+      if (request.taskSpec.allowed_capability_tools.includes("question_catalog")) tools.push(catalog);
+      if (request.taskSpec.allowed_capability_tools.includes("learning_action")) tools.push(learningAction);
+      if (request.taskSpec.allowed_capability_tools.includes("read")) {
+        tools.push(createReadToolDefinition(projectionRoot, {
         autoResizeImages: true,
         operations: {
           async access(absolutePath) {
@@ -326,10 +337,10 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
             return imageMimeByPath.get(await resolveProjectionPath(projectionRoot, absolutePath)) ?? null;
           },
         },
-      }));
-    }
-    if (request.taskSpec.allowed_capability_tools.includes("grep")) {
-      tools.push(createGrepToolDefinition(projectionRoot, {
+        }));
+      }
+      if (request.taskSpec.allowed_capability_tools.includes("grep")) {
+        tools.push(createGrepToolDefinition(projectionRoot, {
         operations: {
           async isDirectory(absolutePath) {
             return (await stat(await resolveProjectionPath(projectionRoot, absolutePath))).isDirectory();
@@ -338,12 +349,12 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
             return readFile(await resolveProjectionPath(projectionRoot, absolutePath), "utf8");
           },
         },
-      }));
-    }
-    const model = request.taskSpec.model_policy.model_family === "fast"
-      ? this.options.auxiliaryModel
-      : this.options.mainModel;
-    const resourceLoader = new DefaultResourceLoader({
+        }));
+      }
+      const model = request.taskSpec.model_policy.model_family === "fast"
+        ? this.options.auxiliaryModel
+        : this.options.mainModel;
+      const resourceLoader = new DefaultResourceLoader({
       cwd: agentCwd,
       agentDir: path.join(this.options.runtimeRoot, "agent"),
       noExtensions: true,
@@ -366,9 +377,9 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         "\nVersioned task Skill:\n",
         taskSkill,
       ].join("\n"),
-    });
-    await resourceLoader.reload();
-    const { session } = await createAgentSession({
+      });
+      await resourceLoader.reload();
+      const { session } = await createAgentSession({
       cwd: agentCwd,
       agentDir: path.join(this.options.runtimeRoot, "agent"),
       modelRuntime: this.options.modelRuntime,
@@ -379,29 +390,32 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       customTools: tools,
       resourceLoader,
       sessionManager: SessionManager.inMemory(agentCwd),
-    });
-    const unsubscribe = session.subscribe(() => request.heartbeat({ stage: "pi", attemptId: request.agentAttemptId }));
-    const onAbort = () => void session.abort();
-    request.signal.addEventListener("abort", onAbort, { once: true });
-    try {
-      await session.prompt([
-        `Frozen input reference: ${request.inputRef}`,
-        "Frozen input bundle:",
-        JSON.stringify(request.inputBundle),
-        `Return a value matching ${request.taskSpec.output_schema} through respond.`,
-      ].join("\n"));
-      if (structuredOutput === undefined) throw new Error("Pi AgentAttempt ended without a structured respond result");
-      const usage = usageFromMessages(session.messages);
-      return {
-        output: structuredOutput,
-        resolvedModelId: model.id,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-      };
+      });
+      const unsubscribe = session.subscribe(() => request.heartbeat({ stage: "pi", attemptId: request.agentAttemptId }));
+      const onAbort = () => void session.abort();
+      request.signal.addEventListener("abort", onAbort, { once: true });
+      try {
+        await session.prompt([
+          `Frozen input reference: ${request.inputRef}`,
+          "Frozen input bundle:",
+          JSON.stringify(request.inputBundle),
+          `Return a value matching ${request.taskSpec.output_schema} through respond.`,
+        ].join("\n"));
+        if (structuredOutput === undefined) throw new Error("Pi AgentAttempt ended without a structured respond result");
+        const usage = usageFromMessages(session.messages);
+        return {
+          output: structuredOutput,
+          resolvedModelId: model.id,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        };
+      } finally {
+        request.signal.removeEventListener("abort", onAbort);
+        unsubscribe();
+        session.dispose();
+      }
     } finally {
-      request.signal.removeEventListener("abort", onAbort);
-      unsubscribe();
-      session.dispose();
+      await rm(workspace, { recursive: true, force: true });
     }
   }
 }

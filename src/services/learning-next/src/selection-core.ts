@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { canonicalJson } from "@mathpilot/content-integrity/node";
 
 export const SELECTOR_INPUT_SCHEMA = "https://schemas.mathpilot.dev/science-v3/selector-input/v1";
 export const SELECTION_DECISION_SCHEMA = "https://schemas.mathpilot.dev/science-v3/selection-decision/v1";
@@ -241,16 +241,8 @@ export function parseHardSelectionConstraints(value: unknown): HardSelectionCons
   };
 }
 
-const sortJson = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(sortJson);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, item]) => [key, sortJson(item)]));
-};
-
 export function sha256Json(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(sortJson(value))).digest("hex");
+  return canonicalJson(value).sha256;
 }
 
 interface CatalogCursor {

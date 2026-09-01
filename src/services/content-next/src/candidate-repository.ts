@@ -1,5 +1,10 @@
 import type pg from "pg";
 import {
+  immutableObjectDescriptorSchema,
+  type ImmutableObjectDescriptor,
+} from "@mathpilot/content-integrity";
+import { canonicalJson } from "@mathpilot/content-integrity/node";
+import {
   finiteNumber,
   jsonObject,
   newId,
@@ -13,7 +18,24 @@ type Json = Record<string, unknown>;
 type Phase = "ktq" | "er";
 type EntityKind = "knowledge" | "question_type" | "question" | "error_cause" | "diagnosis_rule";
 type SourceObjectInput = { workspacePath: string; objectId: string; versionId: string; sha256: string };
-type VerifiedSourceObject = SourceObjectInput & { mimeType: string };
+type VerifiedSourceObject = SourceObjectInput & { mimeType: string; descriptor: ImmutableObjectDescriptor };
+
+interface ClaimedDescriptorRow {
+  object_id: unknown;
+  version_id: unknown;
+  sha256: unknown;
+  byte_size: unknown;
+  mime_type: unknown;
+  original_name: unknown;
+  source_version_id: unknown;
+  source_sha256: unknown;
+  source_byte_size: unknown;
+  source_mime_type: unknown;
+}
+
+interface ClaimedSourceRow extends ClaimedDescriptorRow {
+  workspace_path: string;
+}
 
 export interface CandidateInput {
   phase: Phase;
@@ -40,6 +62,13 @@ export interface CandidateSummary {
   item_count: number;
   created_at: string;
   decided_at: string | null;
+}
+
+export interface CandidateRegistration extends CandidateSummary {
+  created: boolean;
+  result_object_id: string;
+  receipt_object_id: string;
+  result_sha256: string;
 }
 
 interface RevisionRef {
@@ -92,6 +121,102 @@ const normalizeWorkspaceReference = (value: string): string => {
   const normalized = value.replaceAll("\\", "/").replace(/^\.\//, "");
   return normalized.startsWith("input/") ? normalized : `input/${normalized}`;
 };
+
+function positiveSafeInteger(value: unknown, fieldName: string): number {
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string" && /^[1-9][0-9]*$/.test(value)
+      ? Number(value)
+      : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`claimed candidate audit object has invalid ${fieldName}`);
+  }
+  return parsed;
+}
+
+function claimedDescriptor(row: ClaimedDescriptorRow): ImmutableObjectDescriptor {
+  const objectId = typeof row.object_id === "string" ? row.object_id : "";
+  const parsed = immutableObjectDescriptorSchema.safeParse({
+    object_id: objectId,
+    object_ref: `storage-object:${objectId}`,
+    version_id: row.version_id,
+    sha256: row.sha256,
+    byte_size: positiveSafeInteger(row.byte_size, "byte_size"),
+    mime_type: row.mime_type,
+    original_name: row.original_name,
+    source: {
+      version_id: row.source_version_id,
+      sha256: row.source_sha256,
+      byte_size: positiveSafeInteger(row.source_byte_size, "source_byte_size"),
+      mime_type: row.source_mime_type,
+    },
+    expires_at: null,
+  });
+  if (!parsed.success) throw new Error("claimed candidate audit object returned an incomplete immutable descriptor");
+  return parsed.data;
+}
+
+function normalizeCandidateSourceObjects(inputs: readonly SourceObjectInput[]): SourceObjectInput[] {
+  if (inputs.length < 1 || inputs.length > 64) throw new Error("candidate registration requires 1 to 64 source objects");
+  const normalized = inputs.map((sourceObject) => ({
+    ...sourceObject,
+    workspacePath: normalizeWorkspaceReference(sourceObject.workspacePath),
+  }));
+  const paths = new Set<string>();
+  for (const sourceObject of normalized) {
+    if (!/^input\/original\/[^/\\\u0000]+$/.test(sourceObject.workspacePath)
+      || paths.has(sourceObject.workspacePath)) {
+      throw new Error("candidate source workspace path is invalid or duplicated");
+    }
+    paths.add(sourceObject.workspacePath);
+  }
+  const objectIds = [...new Set(normalized.map((value) => value.objectId))];
+  if (objectIds.length!==normalized.length) throw new Error("candidate source object is duplicated");
+  return normalized;
+}
+
+async function bindCandidateSourceObjects(
+  client: pg.PoolClient,
+  principal: Principal,
+  candidateSetId: string,
+  normalized: readonly SourceObjectInput[],
+): Promise<ReadonlyMap<string, VerifiedSourceObject>> {
+  const bound = await client.query<ClaimedSourceRow>(
+    `select requested.workspace_path,descriptor.*
+       from unnest($3::text[],$4::text[],$5::text[],$6::text[])
+         requested(workspace_path,object_id,version_id,sha256)
+       cross join lateral mathpilot_content_bind_candidate_source_object(
+         $1,$2,$7,requested.workspace_path,requested.object_id,requested.version_id,requested.sha256
+       ) descriptor`,
+    [
+      principal.tenantId,
+      principal.userId,
+      normalized.map((value) => value.workspacePath),
+      normalized.map((value) => value.objectId),
+      normalized.map((value) => value.versionId),
+      normalized.map((value) => value.sha256),
+      candidateSetId,
+    ],
+  );
+  const descriptors = new Map<string,{ workspacePath: string; descriptor: ImmutableObjectDescriptor }>();
+  for (const row of bound.rows) {
+    const descriptor = claimedDescriptor(row);
+    if (descriptors.has(descriptor.object_id)) throw new Error("candidate source binding returned duplicate objects");
+    descriptors.set(descriptor.object_id,{ workspacePath:row.workspace_path,descriptor });
+  }
+  if (descriptors.size!==normalized.length) throw new Error("candidate source binding returned an incomplete object set");
+  const verified = new Map<string,VerifiedSourceObject>();
+  for (const sourceObject of normalized) {
+    const boundSource=descriptors.get(sourceObject.objectId);
+    const descriptor=boundSource?.descriptor;
+    if (!descriptor || boundSource.workspacePath!==sourceObject.workspacePath
+      || descriptor.version_id!==sourceObject.versionId || descriptor.sha256!==sourceObject.sha256) {
+      throw new Error("candidate source object version or hash does not match storage");
+    }
+    verified.set(sourceObject.workspacePath,{ ...sourceObject,mimeType:descriptor.mime_type,descriptor });
+  }
+  return verified;
+}
 
 function requireId(value: unknown, kind: EntityKind): string {
   const id = stringValue(value);
@@ -408,12 +533,15 @@ async function addKtqQuestion(
   for (const [position, imageRef] of imageRefs.entries()) {
     const imageObject = sourceObjects.get(normalizeWorkspaceReference(imageRef));
     if (!imageObject) throw new Error(`question image is not backed by a verified object: ${imageRef}`);
+    if (!imageObject.mimeType.startsWith("image/")) {
+      throw new Error(`question image is backed by a non-image object: ${imageRef}`);
+    }
     const itemId = await addItem(client, principal, questionRef.revisionId, "question_asset", position);
     await client.query(
       `insert into content_question_asset_revision
          (item_id,tenant_id,storage_object_id,asset_role,source_locator,mime_type,content_sha256)
        values ($1,$2,$3,'image',$4,$5,$6)`,
-      [itemId, principal.tenantId, imageObject?.objectId ?? null, imageRef, imageObject?.mimeType ?? "application/octet-stream", imageObject?.sha256 ?? null],
+      [itemId, principal.tenantId, imageObject.objectId, imageObject.workspacePath, imageObject.mimeType, imageObject.sha256],
     );
   }
   await attachCandidateRefs(client, principal, candidateSetId, refs);
@@ -509,64 +637,68 @@ async function addErEntities(
 export class CandidateRepository {
   constructor(private readonly pool: pg.Pool) {}
 
-  async register(principal: Principal, input: CandidateInput): Promise<CandidateSummary> {
+  async register(principal: Principal, input: CandidateInput): Promise<CandidateRegistration> {
     if (!/^[0-9a-f]{64}$/.test(input.resultSha256)) throw new Error("result_sha256 must be 64 lowercase hex characters");
     if (!input.threadId || !input.toolCallId) throw new Error("thread_id and tool_call_id are required");
+    if (input.resultObjectId === input.receiptObjectId) throw new Error("result and receipt must use distinct audit objects");
+    if (canonicalJson(input.result,4*1024*1024).sha256!==input.resultSha256) {
+      throw new Error("result body does not match the canonical result object hash");
+    }
+    const normalizedSources=normalizeCandidateSourceObjects(input.sourceObjects);
     return withPrincipal(this.pool, principal, async (client) => {
       await assertTeacher(client, principal);
-      const duplicate = await client.query<CandidateSummary>(
+      await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [`${principal.tenantId}:${input.threadId}:${input.phase}`]);
+      const duplicate = await client.query<CandidateSummary & {
+        result_object_id:string; receipt_object_id:string; result_sha256:string;
+        input_candidate_set_id:string|null; supersedes_candidate_set_id:string|null;
+      }>(
         `select candidate_set_id,phase,owner_teacher_user_id,thread_id,sequence_no,status,created_at,decided_at,
+                result_object_id,receipt_object_id,result_sha256,input_candidate_set_id,supersedes_candidate_set_id,
                 (select count(*)::int from content_candidate_set_item i where i.candidate_set_id=s.candidate_set_id) as item_count
            from content_candidate_set s
           where tenant_id=$1 and thread_id=$2 and phase=$3 and respond_tool_call_id=$4`,
         [principal.tenantId, input.threadId, input.phase, input.toolCallId],
       );
-      if (duplicate.rows[0]) return this.mapSummary(duplicate.rows[0]);
-      await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [`${principal.tenantId}:${input.threadId}:${input.phase}`]);
-      if (input.resultObjectId === input.receiptObjectId) throw new Error("result and receipt must use distinct audit objects");
-      const auditObjects = await client.query<{
-        object_id: string;
-        purpose: string;
-        state: string;
-        sha256: string | null;
-        version_id: string | null;
-        mime_type: string;
-      }>(
-        `select object_id,purpose,state,sha256,version_id,mime_type
-           from storage_object
-          where tenant_id=$1 and owner_user_id=$2 and object_id=any($3::text[])`,
-        [principal.tenantId, principal.userId, [input.resultObjectId, input.receiptObjectId]],
-      );
-      if (auditObjects.rows.length !== 2 || auditObjects.rows.some((row) => row.purpose !== "candidate" || row.state !== "ready" || !row.version_id || row.mime_type !== "application/json")) {
-        throw new Error("candidate audit objects are missing, unverified or not owned by this teacher");
+      if (duplicate.rows[0]) {
+        const existing=duplicate.rows[0];
+        const frozenSources=await client.query<{
+          workspace_path:string; object_id:string; version_id:string; sha256:string;
+        }>(
+          `select workspace_path,object_id,version_id,sha256
+             from content_candidate_source_object
+            where tenant_id=$1 and candidate_set_id=$2
+            order by workspace_path`,
+          [principal.tenantId,existing.candidate_set_id],
+        );
+        const requestedSources=[...normalizedSources]
+          .sort((left,right)=>left.workspacePath.localeCompare(right.workspacePath));
+        const sameSources=frozenSources.rows.length===requestedSources.length
+          && frozenSources.rows.every((source,index)=>{
+            const requested=requestedSources[index];
+            return requested!==undefined
+              && source.workspace_path===requested.workspacePath
+              && source.object_id===requested.objectId
+              && source.version_id===requested.versionId
+              && source.sha256===requested.sha256;
+          });
+        if (existing.result_sha256!==input.resultSha256
+          || existing.input_candidate_set_id!==(input.inputCandidateSetId??null)
+          || existing.supersedes_candidate_set_id!==(input.supersedesCandidateSetId??null)
+          || !sameSources) {
+          throw new Error("respond tool call is already bound to different candidate content");
+        }
+        return {
+          ...this.mapSummary(existing),created:false,
+          result_object_id:existing.result_object_id,
+          receipt_object_id:existing.receipt_object_id,
+          result_sha256:existing.result_sha256,
+        };
       }
-      const resultAudit = auditObjects.rows.find((row) => row.object_id === input.resultObjectId);
-      if (!resultAudit || resultAudit.sha256 !== input.resultSha256) throw new Error("candidate result object hash does not match result_sha256");
-      if (input.sourceObjects.length > 64) throw new Error("too many candidate source objects");
-      const sourceObjectIds = [...new Set(input.sourceObjects.map((sourceObject) => sourceObject.objectId))];
-      const sourceRows = sourceObjectIds.length
-        ? await client.query<{ object_id: string; state: string; sha256: string | null; version_id: string | null; mime_type: string }>(
-          `select object_id,state,sha256,version_id,mime_type
-             from storage_object
-            where tenant_id=$1 and owner_user_id=$2 and object_id=any($3::text[])`,
-          [principal.tenantId, principal.userId, sourceObjectIds],
-        )
-        : { rows: [] as Array<{ object_id: string; state: string; sha256: string | null; version_id: string | null; mime_type: string }> };
-      if (sourceRows.rows.length !== sourceObjectIds.length) throw new Error("candidate source object is missing or not owned by this teacher");
-      const sourceRowsById = new Map(sourceRows.rows.map((row) => [row.object_id, row]));
-      const verifiedSources = new Map<string, VerifiedSourceObject>();
-      for (const sourceObject of input.sourceObjects) {
-        const workspacePath = normalizeWorkspaceReference(sourceObject.workspacePath);
-        if (!/^input\/original\/[^/\\\u0000]+$/.test(workspacePath) || verifiedSources.has(workspacePath)) throw new Error("candidate source workspace path is invalid or duplicated");
-        const row = sourceRowsById.get(sourceObject.objectId);
-        if (!row || row.state !== "ready" || row.version_id !== sourceObject.versionId || row.sha256 !== sourceObject.sha256) throw new Error("candidate source object version or hash does not match storage");
-        verifiedSources.set(workspacePath, { ...sourceObject, workspacePath, mimeType: row.mime_type });
-      }
+      const candidateSetId = newId("cset");
       const sequence = await client.query<{ sequence_no: number }>(
         `select coalesce(max(sequence_no),0)+1 as sequence_no from content_candidate_set where tenant_id=$1 and thread_id=$2 and phase=$3`,
         [principal.tenantId, input.threadId, input.phase],
       );
-      const candidateSetId = newId("cset");
       await client.query(
         `insert into content_candidate_set
           (candidate_set_id,tenant_id,phase,owner_teacher_user_id,thread_id,sequence_no,input_candidate_set_id,
@@ -576,6 +708,7 @@ export class CandidateRepository {
           input.inputCandidateSetId ?? null, input.supersedesCandidateSetId ?? null, input.resultObjectId ?? null,
           input.receiptObjectId ?? null, input.resultSha256, input.toolCallId],
       );
+      const verifiedSources = await bindCandidateSourceObjects(client,principal,candidateSetId,normalizedSources);
       if (input.phase === "ktq") {
         const questions = Array.isArray(input.result.questions) ? input.result.questions : [];
         if (!questions.length) throw new Error("KTQ result has no questions");
@@ -633,7 +766,12 @@ export class CandidateRepository {
         [candidateSetId],
       );
       if (!result.rows[0]) throw new Error("candidate registration returned no row");
-      return this.mapSummary(result.rows[0]);
+      return {
+        ...this.mapSummary(result.rows[0]),created:true,
+        result_object_id:input.resultObjectId,
+        receipt_object_id:input.receiptObjectId,
+        result_sha256:input.resultSha256,
+      };
     });
   }
 
@@ -677,11 +815,13 @@ export class CandidateRepository {
       );
       const provenance = await client.query(
         `select p.provenance_id,p.revision_id,p.revision_item_id,p.field_name,p.source_locator,
-                p.source_object_id,o.version_id as source_version_id,o.sha256 as source_sha256,
+                p.source_object_id,source.version_id as source_version_id,source.sha256 as source_sha256,
                 p.derivation_type,p.provenance_status,p.review_decision,p.created_at
            from content_field_provenance p
            join content_candidate_set_item i on i.revision_id=p.revision_id and i.tenant_id=p.tenant_id
-           left join storage_object o on o.object_id=p.source_object_id and o.tenant_id=p.tenant_id
+           left join content_candidate_source_object source
+             on source.tenant_id=p.tenant_id and source.candidate_set_id=i.candidate_set_id
+            and source.object_id=p.source_object_id
           where p.tenant_id=$1 and i.candidate_set_id=$2
           order by p.revision_id,p.field_name,p.created_at`,
         [principal.tenantId, candidateSetId],
@@ -732,6 +872,14 @@ export class CandidateRepository {
           order by e.entity_id,r.revision_no desc`,
         [principal.tenantId, candidateSetId],
       );
+      const sources = await client.query<ClaimedDescriptorRow & { workspace_path: string }>(
+        `select workspace_path,object_id,version_id,sha256,byte_size,mime_type,original_name,
+                source_version_id,source_sha256,source_byte_size,source_mime_type
+           from content_candidate_source_object
+          where tenant_id=$1 and candidate_set_id=$2
+          order by workspace_path`,
+        [principal.tenantId, candidateSetId],
+      );
       const resultQuestions: Json[] = [];
       for (const row of questions.rows as Array<Record<string, unknown>>) {
         const targets = await client.query(
@@ -775,7 +923,15 @@ export class CandidateRepository {
           measurement_targets: targets.rows,
         });
       }
-      return { schema: "mathpilot.ktq-result/v1", candidate_set_id: candidateSetId, questions: resultQuestions };
+      return {
+        schema: "mathpilot.ktq-result/v1",
+        candidate_set_id: candidateSetId,
+        questions: resultQuestions,
+        source_objects: sources.rows.map((source) => ({
+          workspace_path: source.workspace_path,
+          descriptor: claimedDescriptor(source),
+        })),
+      };
     });
   }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import test from "node:test";
 import pg from "pg";
+import { encodeArtifact } from "../src/artifact-integrity.ts";
 import { PostgresSelectionStore } from "../src/selection-store.ts";
 
 const databaseUrl = process.env.SELECTION_STORE_TEST_DATABASE_URL;
@@ -39,7 +39,7 @@ integration("Selector searches only safe normalized candidates and atomically op
       evidence_refs: [page.page_ref],
       decision_summary: "该题具有正式 rubric 与面积测量目标。",
     };
-    const payload = JSON.stringify(decision);
+    const artifact = encodeArtifact(decision);
     const client = await pool.connect();
     try {
       await client.query("begin");
@@ -49,7 +49,7 @@ integration("Selector searches only safe normalized candidates and atomically op
            artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
          ) values('art_selectoutput1','tnt_selecttest1','op_selecttest01','structured_output',
            'https://schemas.mathpilot.dev/science-v3/selection-decision/v1',$1::jsonb,$2)`,
-        [payload,createHash("sha256").update(payload).digest("hex")],
+        [artifact.json,artifact.sha256],
       );
       await client.query(
         `update science_v3_agent_attempt

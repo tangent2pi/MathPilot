@@ -10,7 +10,6 @@ begin
   end if;
 end $$;
 grant usage on schema public to mathpilot_app;
-grant select, insert, update, delete on all tables in schema public to mathpilot_app;
 
 insert into identity_tenant(tenant_id, name)
 values ('tnt_dev00001', 'Dev Tenant') on conflict (tenant_id) do nothing;

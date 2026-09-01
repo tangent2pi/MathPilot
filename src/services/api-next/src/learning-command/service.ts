@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { storageObjectReferenceSchema } from "@mathpilot/content-integrity";
+import { canonicalJson } from "@mathpilot/content-integrity/node";
 import type { CanonicalMessagePart, DomainUIPart } from "@mathpilot/contracts";
 import type pg from "pg";
 import type { Principal } from "../auth.ts";
@@ -12,7 +14,6 @@ const questionSessionPattern = /^qsn_[A-Za-z0-9]{8,}$/;
 const judgmentPattern = /^jdg_[A-Za-z0-9]{8,}$/;
 const annotationPattern = /^ann_[A-Za-z0-9]{8,}$/;
 const operationPattern = /^op_[A-Za-z0-9]{8,}$/;
-const opaqueRefPattern = /^[a-z][a-z0-9+.-]*:[^\s]+$/;
 
 export class LearningCommandError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly currentVersion?: number) {
@@ -51,12 +52,15 @@ const requestedAt = (body: Record<string, unknown>): string => {
   return new Date(value).toISOString();
 };
 
-const sha256 = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const commandDigest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const deterministicId = (prefix: string, ...values: string[]): string =>
   `${prefix}_${createHash("sha256").update(values.join("\0")).digest("hex").slice(0, 24)}`;
 
 interface UserMessagePartText { type: "text"; text: string }
-interface UserMessagePartAttachment { type: "attachment"; attachment_ref: string; name: string; mime_type: string }
+interface UserMessagePartAttachment {
+  type: "attachment"; attachment_ref: string; name: string; mime_type: string;
+  version_id: string; sha256: string; byte_size: number;
+}
 type UserMessagePart = UserMessagePartText | UserMessagePartAttachment;
 
 function parseMessageParts(value: unknown): UserMessagePart[] {
@@ -73,13 +77,20 @@ function parseMessageParts(value: unknown): UserMessagePart[] {
       return { type: "text", text: raw.text };
     }
     if (raw.type === "attachment") {
-      if (typeof raw.attachment_ref !== "string" || !opaqueRefPattern.test(raw.attachment_ref)
+      if (typeof raw.attachment_ref !== "string" || !storageObjectReferenceSchema.safeParse(raw.attachment_ref).success
         || typeof raw.name !== "string" || !raw.name || raw.name.length > 240
         || typeof raw.mime_type !== "string" || raw.mime_type.length < 3 || raw.mime_type.length > 160
-        || Object.keys(raw).some((key) => !["type", "attachment_ref", "name", "mime_type"].includes(key))) {
+        || typeof raw.version_id !== "string" || !raw.version_id || raw.version_id.length > 1024
+        || typeof raw.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(raw.sha256)
+        || typeof raw.byte_size !== "number" || !Number.isSafeInteger(raw.byte_size)
+        || raw.byte_size < 1 || raw.byte_size > 48*1024*1024
+        || Object.keys(raw).some((key) => !["type", "attachment_ref", "name", "mime_type", "version_id", "sha256", "byte_size"].includes(key))) {
         throw new LearningCommandError(422, "invalid_attachment", "附件引用无效");
       }
-      return { type: "attachment", attachment_ref: raw.attachment_ref, name: raw.name, mime_type: raw.mime_type };
+      return {
+        type:"attachment",attachment_ref:raw.attachment_ref,name:raw.name,mime_type:raw.mime_type,
+        version_id:raw.version_id,sha256:raw.sha256,byte_size:raw.byte_size,
+      };
     }
     throw new LearningCommandError(422, "invalid_message", "只支持文本和已上传附件");
   });
@@ -171,7 +182,7 @@ export class LearningCommandService {
     const submittedAt = requestedAt(body);
     const parts = parseMessageParts(body.parts);
     const command = { schema_version: 3, command_type: "send_message", idempotency_key: key, expected_version: version, requested_at: submittedAt, conversation_thread_id: threadId, parts };
-    const commandSha256 = sha256(command);
+    const commandSha256 = commandDigest(command);
     return withPrincipal(this.pool, principal, async (client) => {
       const thread = await assertThreadAccess(client, principal, threadId, true);
       if (thread.threadStatus !== "active") throw new LearningCommandError(409, "thread_archived", "对话已归档");
@@ -195,17 +206,6 @@ export class LearningCommandService {
       }
       if (thread.threadVersion !== version) {
         throw new LearningCommandError(409, "version_conflict", `当前对话版本为 ${thread.threadVersion}`, thread.threadVersion);
-      }
-      for (const part of parts) {
-        if (part.type !== "attachment") continue;
-        const match = /^storage-object:(obj_[A-Za-z0-9]{8,})$/.exec(part.attachment_ref);
-        if (!match) throw new LearningCommandError(422, "invalid_attachment", "附件不是已登记的存储对象");
-        const object = (await client.query<{ mime_type: string; original_name: string | null }>(
-          `select mime_type,original_name from storage_object
-            where tenant_id=$1 and object_id=$2 and owner_user_id=$3 and state='ready' and purpose='thread'`,
-          [principal.tenantId, match[1], principal.userId],
-        )).rows[0];
-        if (!object || object.mime_type !== part.mime_type) throw new LearningCommandError(422, "attachment_unavailable", `附件 ${part.name} 尚未准备完成`);
       }
       await client.query(
         `select 1 from science_v3_conversation_thread
@@ -236,6 +236,7 @@ export class LearningCommandService {
         message_parts: parts,
         history_is_untrusted_data: true,
       };
+      const inputArtifact=canonicalJson(input);
       const result = (await client.query<{
         foreground_request_id: string; operation_id: string; canonical_message_id: string;
         foreground_epoch_id: string; thread_version: string; created: boolean;
@@ -245,7 +246,7 @@ export class LearningCommandService {
         )`,
         [principal.tenantId, principal.userId, requestId, operationId, eventId, artifactId,
           messageId, epochId, threadId, key, commandSha256, version,
-          JSON.stringify(parts), JSON.stringify(input), sha256(input), submittedAt],
+          JSON.stringify(parts), inputArtifact.json, inputArtifact.sha256, submittedAt],
       )).rows[0]!;
       let threadVersion = Number(result.thread_version);
       const titleText = firstText(parts);
@@ -366,6 +367,7 @@ export class LearningCommandService {
         reason,
         requested_at: at,
       };
+      const inputArtifact=canonicalJson(payload);
       const result = (await client.query<{
         command_operation_id: string; accepted_cut_request_id: string | null; session_version: string;
         result_status: string; rejection_code: string | null;
@@ -375,7 +377,7 @@ export class LearningCommandService {
         )`,
         [principal.tenantId, principal.userId, operationId, key, cutId, eventId, artifactId,
           session.conversation_thread_id, questionSessionId, version, reason, null,
-          JSON.stringify(payload), sha256(payload), at],
+          inputArtifact.json, inputArtifact.sha256, at],
       )).rows[0]!;
       if (result.result_status === "rejected") throw new LearningCommandError(409, result.rejection_code ?? "cut_rejected", "当前题目状态已变化", Number(result.session_version));
       return {

@@ -6,33 +6,51 @@ import {
   type CompleteAttachment,
   type PendingAttachment,
 } from "@assistant-ui/react";
+import { CONTENT_POLICIES, type ImmutableObjectDescriptor, type UploadPurpose } from "@mathpilot/content-integrity";
+import { deleteStorageObject, mathpilotObjectMetadata, uploadStorageObject } from "./storage-upload";
 
 /**
  * Science v3 的附件只持有 Storage Object 引用。完成上传后，稳定引用会
  * 留在 CompleteAttachment 内；消息提交失败时 assistant-ui 可把同一个附件
  * 恢复到 composer，不会出现上传成功却被旧 Pi 注册步骤吞掉的情况。
  */
-const apiFetch = (url: string, options: RequestInit): Promise<Response> =>
-  fetch(url, { ...options, headers: { "content-type": "application/json" } });
+const newAttachmentId = (): string => globalThis.crypto.randomUUID();
 
-const newAttachmentId = (): string => {
-  // The Pi attachment manifest and its database row use UUIDs. Modern
-  // browsers expose crypto.randomUUID; the small fallback keeps local test
-  // environments deterministic without reverting to a short UI-only id.
-  if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
-  const bytes = new Uint8Array(16);
-  if (typeof globalThis.crypto?.getRandomValues === "function") globalThis.crypto.getRandomValues(bytes);
-  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+type AttachmentStorage = {
+  upload: (
+    file: File,
+    purpose: UploadPurpose,
+    options?: { signal?: AbortSignal; onProgress?: (progress: number) => void },
+  ) => Promise<ImmutableObjectDescriptor>;
+  remove: (objectId: string) => Promise<void>;
+};
+
+type InFlightUpload = {
+  kind: "in-flight";
+  file: File;
+  controller: AbortController;
+  promise: Promise<ImmutableObjectDescriptor>;
+};
+
+type CompletedUpload = {
+  kind: "complete";
+  file: File;
+  descriptor: ImmutableObjectDescriptor;
+};
+
+type UploadState = InFlightUpload | CompletedUpload;
+
+const defaultStorage: AttachmentStorage = {
+  upload: uploadStorageObject,
+  remove: deleteStorageObject,
 };
 
 export class UnifiedAttachmentAdapter implements AttachmentAdapter {
-  // assistant-ui 以 "*" 表示不给原生 file input 设 accept。
-  // "*/*" 会被原样写入 input.accept，在部分浏览器中会过滤掉所有文件。
-  accept = "*";
+  private readonly uploads = new Map<string, UploadState>();
+
+  constructor(private readonly storage: AttachmentStorage = defaultStorage) {}
+
+  accept = CONTENT_POLICIES.thread.allowedMimeTypes.join(",");
   async add(state: { file: File }): Promise<PendingAttachment> {
     const isImage = state.file.type.startsWith("image/");
     return {
@@ -45,49 +63,76 @@ export class UnifiedAttachmentAdapter implements AttachmentAdapter {
     } as PendingAttachment;
   }
 
-  async remove(_attachment: Attachment): Promise<void> {}
+  async remove(attachment: Attachment): Promise<void> {
+    const upload = this.uploads.get(attachment.id);
+    if (upload?.kind === "in-flight") {
+      upload.controller.abort();
+      const descriptor = await upload.promise.catch(() => undefined);
+      if (descriptor) {
+        await this.storage.remove(descriptor.object_id);
+        if (this.uploads.get(attachment.id)?.kind === "complete") {
+          this.uploads.delete(attachment.id);
+        }
+      }
+      return;
+    }
+    if (upload?.kind === "complete") {
+      await this.storage.remove(upload.descriptor.object_id);
+      if (this.uploads.get(attachment.id) === upload) this.uploads.delete(attachment.id);
+      return;
+    }
+    const file = attachment.content?.find((part) => part.type === "file");
+    const descriptor = file?.type === "file"
+      ? mathpilotObjectMetadata(file.providerMetadata?.mathpilot)
+      : undefined;
+    if (descriptor) await this.storage.remove(descriptor.object_id);
+  }
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
-    const file = attachment.file;
-    const objectId = await this.uploadObject(file);
+    const descriptor = await this.upload(attachment);
     return {
       ...attachment,
       status: { type: "complete" },
       content: [{
         type: "file",
-        data: `storage-object:${objectId}`,
-        mimeType: file.type || "application/octet-stream",
-        filename: file.name,
+        data: descriptor.object_ref,
+        mimeType: descriptor.mime_type,
+        filename: descriptor.original_name,
         sourceType: "id",
+        providerMetadata: { mathpilot: descriptor },
       }],
     } as CompleteAttachment;
   }
 
-  private async uploadObject(file: File): Promise<string> {
-    const init = await apiFetch("/api/storage/objects/init", {
-      method: "POST",
-      body: JSON.stringify({
-        purpose: "thread",
-        original_name: file.name,
-        mime_type: file.type || "application/octet-stream",
-        byte_size: file.size,
-      }),
-    });
-    if (!init.ok) throw new Error(`storage initialization failed: ${init.status}`);
-    const descriptor = await init.json() as { object_id?: unknown; upload_url?: unknown };
-    if (typeof descriptor.object_id !== "string" || typeof descriptor.upload_url !== "string") throw new Error("storage returned an invalid upload descriptor");
-    const put = await fetch(descriptor.upload_url, {
-      method: "PUT",
-      headers: { "content-type": file.type || "application/octet-stream" },
-      body: file,
-    });
-    if (!put.ok) throw new Error(`direct object upload failed: ${put.status}`);
-    const complete = await apiFetch(`/api/storage/objects/${encodeURIComponent(descriptor.object_id)}/complete`, {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    if (!complete.ok) throw new Error(`storage verification failed: ${complete.status}`);
-    return descriptor.object_id;
+  /** A command receipt transfers lifecycle ownership to the canonical message. */
+  markCommitted(attachments: readonly CompleteAttachment[]): void {
+    for (const attachment of attachments) {
+      if (this.uploads.get(attachment.id)?.kind === "complete") this.uploads.delete(attachment.id);
+    }
   }
 
+  private async upload(attachment: PendingAttachment): Promise<ImmutableObjectDescriptor> {
+    const existing = this.uploads.get(attachment.id);
+    if (existing) {
+      if (existing.file !== attachment.file) throw new Error("附件标识已用于其他文件");
+      return existing.kind === "complete" ? existing.descriptor : existing.promise;
+    }
+
+    const controller = new AbortController();
+    let inFlight: InFlightUpload;
+    const promise = this.storage.upload(attachment.file, "thread", { signal: controller.signal })
+      .then((descriptor) => {
+        if (this.uploads.get(attachment.id) === inFlight) {
+          this.uploads.set(attachment.id, { kind: "complete", file: attachment.file, descriptor });
+        }
+        return descriptor;
+      })
+      .catch((error: unknown) => {
+        if (this.uploads.get(attachment.id) === inFlight) this.uploads.delete(attachment.id);
+        throw error;
+      });
+    inFlight = { kind: "in-flight", file: attachment.file, controller, promise };
+    this.uploads.set(attachment.id, inFlight);
+    return promise;
+  }
 }

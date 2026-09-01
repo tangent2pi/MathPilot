@@ -22,8 +22,6 @@ alter role mathpilot_agent_tnt_dev00001_usr_student02 password :'student02_passw
 alter role mathpilot_agent_tnt_dev00001_usr_student03 password :'student03_password';
 
 grant usage on schema public to mathpilot_app;
-grant select, insert, update, delete on all tables in schema public to mathpilot_app;
-grant usage, select, update on all sequences in schema public to mathpilot_app;
 grant execute on function mathpilot_pending_content_pipelines() to mathpilot_app;
 grant execute on function mathpilot_provision_agent_identity(text,text,text,text) to mathpilot_app;
 grant execute on function mathpilot_content_entity_visible(text,text,text[],text,text,boolean) to mathpilot_app;
@@ -32,6 +30,43 @@ grant execute on function mathpilot_content_candidate_visible(text,text,text[],t
 grant execute on function mathpilot_content_can_publish_package(text,text,text[],text,text) to mathpilot_app;
 grant execute on function mathpilot_pending_er_start_commands() to mathpilot_app;
 grant execute on function mathpilot_pending_review_feedback_commands() to mathpilot_app;
+
+-- Runtime grants are owned by migrations. Reassert the storage boundary for
+-- databases previously bootstrapped with the retired blanket application
+-- grant, without restoring broad access for newly added tables.
+revoke all on storage_object,storage_object_claim from mathpilot_app;
+revoke execute on function mathpilot_storage_begin_deletions(text,integer) from mathpilot_app;
+revoke execute on function mathpilot_storage_finish_deletion(text,text) from mathpilot_app;
+revoke execute on function mathpilot_storage_retry_deletion(text,text,text) from mathpilot_app;
+revoke all on content_candidate_source_object,content_candidate_source_seal from mathpilot_app;
+revoke update,delete on content_candidate_set from mathpilot_app;
+grant update(status,decided_at) on content_candidate_set to mathpilot_app;
+revoke update,delete on content_field_provenance from mathpilot_app;
+grant update(review_decision) on content_field_provenance to mathpilot_app;
+revoke update,delete on content_source from mathpilot_app;
+revoke insert,update,delete on content_source_page from mathpilot_app;
+revoke insert,update,delete on content_package from mathpilot_app;
+revoke all on science_v3_message_attachment,identity_user_avatar from mathpilot_app;
+grant select on science_v3_message_attachment,identity_user_avatar to mathpilot_app;
+grant select on content_candidate_source_object to mathpilot_app;
+grant insert(package_id,tenant_id,origin,owner_teacher_user_id,title,version_no,status,
+             manifest_sha256,approved_er_candidate_set_id,created_at)
+  on content_package to mathpilot_app;
+grant update(status) on content_package to mathpilot_app;
+revoke execute on function mathpilot_storage_claim_owned_object(text,text,text,text,text,text) from mathpilot_app;
+revoke execute on function mathpilot_storage_release_owned_claim(text,text,text,text,text) from mathpilot_app;
+revoke execute on function mathpilot_content_claim_candidate_audit_object(text,text,text,text,text) from mathpilot_app;
+grant execute on function mathpilot_content_bind_candidate_source_object(text,text,text,text,text,text,text) to mathpilot_app;
+grant usage on schema public to mathpilot_storage;
+grant select on infra_schema_migration,science_v3_message_attachment to mathpilot_storage;
+grant select,insert,update on storage_object to mathpilot_storage;
+revoke all on storage_object_claim from mathpilot_storage;
+grant execute on function mathpilot_science_v3_current_actor_students(text,boolean) to mathpilot_storage;
+grant execute on function mathpilot_science_v3_current_actor_thread(text,text,boolean) to mathpilot_storage;
+grant execute on function mathpilot_storage_begin_deletions(text,integer) to mathpilot_storage;
+grant execute on function mathpilot_storage_finish_deletion(text,text) to mathpilot_storage;
+grant execute on function mathpilot_storage_retry_deletion(text,text,text) to mathpilot_storage;
+grant execute on function mathpilot_storage_request_owned_deletion(text,text,text,text[]) to mathpilot_storage;
 
 insert into identity_tenant(tenant_id, name)
 values ('tnt_dev00001', 'Dev Tenant')

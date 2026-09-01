@@ -73,7 +73,10 @@ export interface TeachingArtifactReferencePart {
 
 export type CanonicalMessagePart =
   | { type: "text"; text: string }
-  | { type: "attachment"; attachment_ref: string; name: string; mime_type: string }
+  | {
+      type: "attachment"; attachment_ref: string; name: string; mime_type: string;
+      version_id: string; sha256: string; byte_size: number;
+    }
   | { type: "domain_ui"; part: DomainUIPart }
   | TeachingArtifactReferencePart;
 

@@ -3,11 +3,12 @@
  * The runtime owns Bubblewrap argument construction; this extension only
  * supplies the MathPilot policy and a scrubbed child environment.
  */
-import { spawn, type ChildProcess } from "node:child_process";
-import { createRequire } from "node:module";
+import type { ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import { CONTENT_POLICIES } from "@mathpilot/content-integrity";
+import { identifyImageBytes } from "@mathpilot/content-integrity/node";
 import {
   createBashTool,
   createEditTool,
@@ -19,54 +20,28 @@ import {
   type ReadOperations,
   type WriteOperations,
 } from "@earendil-works/pi-coding-agent";
+import { mathPilotSandboxConfig, safeSandboxEnvironment, spawnOfficialSandbox } from "../src/sandbox-runtime.ts";
 
 const skillsRoot = () => process.env.PI_CHAT_SANDBOX_SKILLS_ROOT
   ?? (process.env.PI_CODING_AGENT_DIR
     ? path.join(process.env.PI_CODING_AGENT_DIR, "skills")
     : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../skills"));
-const SANDBOX_RUNTIME_VENDOR = path.join(
-  path.dirname(createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime/package.json")),
-  "vendor",
-);
-const SYSTEM_READ_PATHS = ["/usr", "/bin", "/lib", "/lib64", "/etc"];
+const MAXIMUM_READ_BYTES = CONTENT_POLICIES.thread.maximumSourceBytes;
+const MAXIMUM_TEXT_OUTPUT_BYTES = 1024 * 1024;
+const MAXIMUM_ERROR_BYTES = 64 * 1024;
+const FILE_OPERATION_TIMEOUT_MS = 30_000;
 
-export const sandboxToolConfig = (cwd: string): SandboxRuntimeConfig => ({
+export const sandboxToolConfig = (cwd: string): SandboxRuntimeConfig => mathPilotSandboxConfig({
   // The outer development container cannot run SRT's optional nested seccomp
   // helper. Host Unix sockets remain absent behind the private network
   // namespace and deny-root filesystem policy.
-  network: {
-    allowedDomains: [],
-    deniedDomains: [],
-    strictAllowlist: true,
-    allowAllUnixSockets: true,
-  },
-  filesystem: {
-    // SRT implements this as deny-root then allow-back. This prevents a tool
-    // from discovering /app, /opt, /var/lib siblings, or host credentials.
-    denyRead: ["/", "/sys", path.join(cwd, ".agent")],
-    allowRead: [
-      path.join(cwd, "AGENTS.md"),
-      path.join(cwd, "input"),
-      path.join(cwd, "task"),
-      skillsRoot(),
-      SANDBOX_RUNTIME_VENDOR,
-      ...SYSTEM_READ_PATHS,
-    ],
-    allowWrite: [path.join(cwd, "output"), path.join(cwd, "tmp")],
-    denyWrite: [path.join(cwd, "input"), path.join(cwd, ".agent")],
-  },
-  enableWeakerNestedSandbox: false,
+  workspace:cwd,
+  allowedDomains:[],
+  allowRead:[path.join(cwd,"AGENTS.md"),path.join(cwd,"input"),path.join(cwd,"task"),skillsRoot()],
+  allowWrite:[path.join(cwd,"output"),path.join(cwd,"tmp")],
 });
 
-const safeChildEnv = (cwd: string): NodeJS.ProcessEnv => ({
-  HOME: path.join(cwd, "tmp"),
-  TMPDIR: path.join(cwd, "tmp"),
-  PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-  LANG: "C.UTF-8",
-  LC_ALL: "C.UTF-8",
-});
-
-const spawnOfficialSandbox = async (
+const spawnSandboxTool = async (
   command: string,
   cwd: string,
   options: {
@@ -75,50 +50,124 @@ const spawnOfficialSandbox = async (
     stdio: ["ignore" | "pipe", "ignore" | "pipe", "pipe"];
   },
 ): Promise<ChildProcess> => {
-  const descriptor = await SandboxManager.wrapWithSandboxArgv(
-    command,
-    "/bin/bash",
-    sandboxToolConfig(cwd),
-    options.signal,
-    cwd,
-  );
-  // Strong Linux mode handles uid 0 explicitly: SRT creates a user namespace
-  // and drops all capabilities before executing the command.
-  return spawn(descriptor.argv[0]!, descriptor.argv.slice(1), {
-    cwd,
-    detached: options.detached,
-    stdio: options.stdio,
-    env: safeChildEnv(cwd),
+  return spawnOfficialSandbox({
+    command,cwd,config:sandboxToolConfig(cwd),signal:options.signal,detached:options.detached,stdio:options.stdio,
+    env:safeSandboxEnvironment({
+      home:path.join(cwd,"tmp"),path:"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    }),
   });
 };
 
 const shellArg = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
-const runSandboxed = (command: string, cwd: string, signal?: AbortSignal): Promise<string> =>
-  new Promise((resolve, reject) => {
-    void spawnOfficialSandbox(command, cwd, { signal, stdio: ["pipe", "pipe", "pipe"] })
-      .then((child) => {
-        let stdout = "";
-        let stderr = "";
-        const onAbort = () => child.kill("SIGKILL");
-        signal?.addEventListener("abort", onAbort, { once: true });
-        child.stdout!.on("data", (data) => (stdout += data));
-        child.stderr!.on("data", (data) => (stderr += data));
-        child.on("error", reject);
-        child.on("close", (code) => {
-          SandboxManager.cleanupAfterCommand();
-          signal?.removeEventListener("abort", onAbort);
-          if (signal?.aborted) reject(new Error("aborted"));
-          else if (code === 0) resolve(stdout);
-          else reject(new Error(`sandbox command failed (${code}): ${stderr || stdout}`));
-        });
-      })
-      .catch(reject);
+export const collectBoundedBytes = async (
+  source: AsyncIterable<Uint8Array>,
+  maximumBytes: number,
+): Promise<Buffer> => {
+  const chunks: Buffer[] = [];
+  let byteSize = 0;
+  for await (const value of source) {
+    const chunk = Buffer.from(value);
+    byteSize += chunk.byteLength;
+    if (byteSize > maximumBytes) {
+      throw new Error(`sandbox output exceeds ${maximumBytes} bytes`);
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, byteSize);
+};
+
+const runSandboxedBytes = async (
+  command: string,
+  cwd: string,
+  maximumBytes: number,
+  options: {
+    signal?: AbortSignal | undefined;
+    stdin?: string | Uint8Array | undefined;
+  } = {},
+): Promise<Buffer> => {
+  const child = await spawnSandboxTool(command, cwd, {
+    signal: options.signal,
+    stdio: ["pipe", "pipe", "pipe"],
   });
+  const onAbort = () => child.kill("SIGKILL");
+  options.signal?.addEventListener("abort", onAbort, { once: true });
+  if (options.signal?.aborted) onAbort();
+  const exited = new Promise<number>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => resolve(code ?? 0));
+  });
+  try {
+    const stdoutPromise = collectBoundedBytes(child.stdout!, maximumBytes).catch((error) => {
+      child.kill("SIGKILL");
+      throw error;
+    });
+    const stderrPromise = collectBoundedBytes(child.stderr!, MAXIMUM_ERROR_BYTES).catch((error) => {
+      child.kill("SIGKILL");
+      throw error;
+    });
+    const stdinPromise = new Promise<void>((resolve, reject) => {
+      const stdin = child.stdin!;
+      const failed = (error: Error) => {
+        stdin.removeListener("error", failed);
+        child.kill("SIGKILL");
+        reject(error);
+      };
+      const completed = () => {
+        stdin.removeListener("error", failed);
+        resolve();
+      };
+      stdin.once("error", failed);
+      if (options.stdin === undefined) stdin.end(completed);
+      else stdin.end(options.stdin, completed);
+    });
+    const [stdout, stderr, code] = await Promise.all([stdoutPromise, stderrPromise, stdinPromise, exited])
+      .then(([stdout, stderr, , code]) => [stdout, stderr, code] as const);
+    if (options.signal?.aborted) {
+      throw options.signal.reason instanceof Error ? options.signal.reason : new Error("aborted");
+    }
+    if (code !== 0) {
+      const detail = (stderr.byteLength > 0 ? stderr : stdout).toString("utf8");
+      throw new Error(`sandbox command failed (${code}): ${detail}`);
+    }
+    return stdout;
+  } catch (error) {
+    child.kill("SIGKILL");
+    await exited.catch(() => undefined);
+    throw error;
+  } finally {
+    options.signal?.removeEventListener("abort", onAbort);
+    SandboxManager.cleanupAfterCommand();
+  }
+};
+
+const runSandboxedText = async (command: string, cwd: string, signal?: AbortSignal): Promise<string> =>
+  new TextDecoder("utf-8", { fatal: true }).decode(
+    await runSandboxedBytes(command, cwd, MAXIMUM_TEXT_OUTPUT_BYTES, { signal }),
+  );
+
+const fileOperationSignal = (signal?: AbortSignal): AbortSignal => signal
+  ? AbortSignal.any([signal, AbortSignal.timeout(FILE_OPERATION_TIMEOUT_MS)])
+  : AbortSignal.timeout(FILE_OPERATION_TIMEOUT_MS);
+
+const readSandboxedBytes = (absolutePath: string, cwd: string, signal?: AbortSignal): Promise<Buffer> =>
+  runSandboxedBytes(
+    `cat -- ${shellArg(absolutePath)}`,
+    cwd,
+    MAXIMUM_READ_BYTES,
+    { signal: fileOperationSignal(signal) },
+  );
+
+export const detectVerifiedImageMimeType = (bytes: Uint8Array): Promise<string | undefined> =>
+  identifyImageBytes(bytes, MAXIMUM_READ_BYTES);
+
+export const detectSandboxedImageMimeType = async (
+  read: () => Promise<Uint8Array>,
+): Promise<string | undefined> => detectVerifiedImageMimeType(await read());
 
 const sandboxedBashOps = (): BashOperations => ({
   async exec(command, execCwd, { onData, signal, timeout }) {
-    const child = await spawnOfficialSandbox(command, execCwd, {
+    const child = await spawnSandboxTool(command, execCwd, {
       detached: true,
       signal,
       stdio: ["ignore", "pipe", "pipe"],
@@ -126,9 +175,19 @@ const sandboxedBashOps = (): BashOperations => ({
     return new Promise((resolve, reject) => {
       let timedOut = false;
       let timer: NodeJS.Timeout | undefined;
+      let finished = false;
       const kill = () => {
         try { process.kill(-child.pid!, "SIGKILL"); } catch { child.kill("SIGKILL"); }
       };
+      const finish = (): boolean => {
+        if (finished) return false;
+        finished = true;
+        SandboxManager.cleanupAfterCommand();
+        if (timer) clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        return true;
+      };
+      const onAbort = () => kill();
       if (timeout !== undefined && timeout > 0) {
         timer = setTimeout(() => {
           timedOut = true;
@@ -137,13 +196,13 @@ const sandboxedBashOps = (): BashOperations => ({
       }
       child.stdout?.on("data", onData);
       child.stderr?.on("data", onData);
-      child.on("error", reject);
-      const onAbort = () => kill();
+      child.once("error", (error) => {
+        if (finish()) reject(error);
+      });
       signal?.addEventListener("abort", onAbort, { once: true });
-      child.on("close", (code) => {
-        SandboxManager.cleanupAfterCommand();
-        if (timer) clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
+      if (signal?.aborted) onAbort();
+      child.once("close", (code) => {
+        if (!finish()) return;
         if (signal?.aborted) reject(new Error("aborted"));
         else if (timedOut) reject(new Error(`timeout:${timeout}`));
         else resolve({ exitCode: code ?? 0 });
@@ -152,52 +211,44 @@ const sandboxedBashOps = (): BashOperations => ({
   },
 });
 
-const sandboxedReadOps = (cwd: string): ReadOperations => ({
+const sandboxedReadOps = (cwd: string, signal?: AbortSignal): ReadOperations => ({
   async readFile(absolutePath) {
-    return Buffer.from(await runSandboxed(`cat -- ${shellArg(absolutePath)}`, cwd), "utf8");
+    return readSandboxedBytes(absolutePath, cwd, signal);
   },
   async access(absolutePath) {
-    await runSandboxed(`test -r ${shellArg(absolutePath)}`, cwd);
+    await runSandboxedText(
+      `test -r ${shellArg(absolutePath)}`,
+      cwd,
+      fileOperationSignal(signal),
+    );
   },
   async detectImageMimeType(absolutePath) {
-    try {
-      const hex = (await runSandboxed(`head -c 16 -- ${shellArg(absolutePath)} | xxd -p`, cwd)).trim();
-      if (hex.startsWith("89504e47")) return "image/png";
-      if (hex.startsWith("ffd8ff")) return "image/jpeg";
-      if (hex.startsWith("52494646")) return "image/webp";
-      return undefined;
-    } catch {
-      return undefined;
-    }
+    return detectSandboxedImageMimeType(() => readSandboxedBytes(absolutePath, cwd, signal));
   },
 });
 
-const sandboxedWriteOps = (cwd: string): WriteOperations => ({
+const sandboxedWriteOps = (cwd: string, signal?: AbortSignal): WriteOperations => ({
   async writeFile(absolutePath, content) {
-    const child = await spawnOfficialSandbox(`cat > ${shellArg(absolutePath)}`, cwd, {
-      stdio: ["pipe", "ignore", "pipe"],
-    });
-    return new Promise((resolve, reject) => {
-      let stderr = "";
-      child.stderr?.on("data", (data) => (stderr += data));
-      child.on("error", reject);
-      child.on("close", (code) => {
-        SandboxManager.cleanupAfterCommand();
-        if (code === 0) resolve();
-        else reject(new Error(`write failed (${code}): ${stderr}`));
-      });
-      child.stdin!.end(content);
-    });
+    await runSandboxedBytes(
+      `cat > ${shellArg(absolutePath)}`,
+      cwd,
+      MAXIMUM_TEXT_OUTPUT_BYTES,
+      { signal: fileOperationSignal(signal), stdin: content },
+    );
   },
   async mkdir(directory) {
-    await runSandboxed(`mkdir -p -- ${shellArg(directory)}`, cwd);
+    await runSandboxedText(
+      `mkdir -p -- ${shellArg(directory)}`,
+      cwd,
+      fileOperationSignal(signal),
+    );
   },
 });
 
-const sandboxedEditOps = (cwd: string): EditOperations => ({
-  readFile: sandboxedReadOps(cwd).readFile,
-  writeFile: sandboxedWriteOps(cwd).writeFile,
-  access: sandboxedReadOps(cwd).access,
+const sandboxedEditOps = (cwd: string, signal?: AbortSignal): EditOperations => ({
+  readFile: sandboxedReadOps(cwd, signal).readFile,
+  writeFile: sandboxedWriteOps(cwd, signal).writeFile,
+  access: sandboxedReadOps(cwd, signal).access,
 });
 
 export default async (pi: ExtensionAPI) => {
@@ -211,16 +262,16 @@ export default async (pi: ExtensionAPI) => {
   pi.registerTool({
     ...createReadTool(process.cwd()),
     execute: (id, params, signal, onUpdate, ctx) =>
-      createReadTool(ctx.cwd, { operations: sandboxedReadOps(ctx.cwd) }).execute(id, params, signal, onUpdate),
+      createReadTool(ctx.cwd, { operations: sandboxedReadOps(ctx.cwd, signal) }).execute(id, params, signal, onUpdate),
   });
   pi.registerTool({
     ...createWriteTool(process.cwd()),
     execute: (id, params, signal, onUpdate, ctx) =>
-      createWriteTool(ctx.cwd, { operations: sandboxedWriteOps(ctx.cwd) }).execute(id, params, signal, onUpdate),
+      createWriteTool(ctx.cwd, { operations: sandboxedWriteOps(ctx.cwd, signal) }).execute(id, params, signal, onUpdate),
   });
   pi.registerTool({
     ...createEditTool(process.cwd()),
     execute: (id, params, signal, onUpdate, ctx) =>
-      createEditTool(ctx.cwd, { operations: sandboxedEditOps(ctx.cwd) }).execute(id, params, signal, onUpdate),
+      createEditTool(ctx.cwd, { operations: sandboxedEditOps(ctx.cwd, signal) }).execute(id, params, signal, onUpdate),
   });
 };

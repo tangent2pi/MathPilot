@@ -66,9 +66,11 @@ insert into science_v3_agent_artifact(
   artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
 ) values
   ('art_selectinput1','tnt_selecttest1','op_selecttest01','input_bundle',
-   'https://schemas.mathpilot.dev/science-v3/selector-input/v1','{}'::jsonb,repeat('0',64)),
+   'https://schemas.mathpilot.dev/science-v3/selector-input/v1','{}'::jsonb,
+   '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a'),
   ('art_selectstale1','tnt_selecttest1','op_selectstale1','input_bundle',
-   'https://schemas.mathpilot.dev/science-v3/selector-input/v1','{}'::jsonb,repeat('1',64)),
+   'https://schemas.mathpilot.dev/science-v3/selector-input/v1','{}'::jsonb,
+   '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a'),
   ('art_selectstaleout1','tnt_selecttest1','op_selectstale1','structured_output',
    'https://schemas.mathpilot.dev/science-v3/selection-decision/v1',
    '{
@@ -79,7 +81,7 @@ insert into science_v3_agent_artifact(
       "scientific_purpose":"practice","target_dimensions":[],"target_error_causes":[],
       "evidence_refs":["catalog-page://cpg_stale0001"],
       "decision_summary":"该结果已经过时。"
-    }'::jsonb,repeat('2',64));
+    }'::jsonb,'aa0c71333120842aad5d1e006c7917c90dcb9f62112afc35e3c4ba1e1cde2bf1');
 insert into infra_outbox(
   event_id,tenant_id,aggregate_type,aggregate_id,event_type,payload,correlation_id,
   causation_id,occurred_at,aggregate_version,payload_ref,operation_id

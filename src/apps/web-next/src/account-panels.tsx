@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { authClient, type AuthPrincipal } from "./auth";
+import { deleteStorageObject, uploadStorageObject } from "./storage-upload";
 
 export type AccountPanel = "settings" | "help";
 type SettingsSection = "profile" | "classes";
@@ -111,13 +112,6 @@ function SettingsPanel({
   );
 }
 
-const encodeFile = (file: File): Promise<string> => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onerror = () => reject(new Error("无法读取图片"));
-  reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-  reader.readAsDataURL(file);
-});
-
 function ProfileSettings({
   principal,
   avatarUrl,
@@ -153,15 +147,19 @@ function ProfileSettings({
     if (!file) return;
     setSaving("avatar");
     setFeedback("");
+    let objectId: string | undefined;
     try {
+      const object = await uploadStorageObject(file,"avatar");
+      objectId=object.object_id;
       const result = await jsonFetch<{ image: string }>("/api/account/avatar", {
         method: "POST",
-        body: JSON.stringify({ mime_type: file.type, image_base64: await encodeFile(file) }),
+        body: JSON.stringify({ object_id:object.object_id }),
       });
       onAvatarChange(result.image);
       setFile(null);
       setFeedback("头像已更新");
     } catch (error) {
+      if (objectId) await deleteStorageObject(objectId).catch(() => undefined);
       setFeedback(error instanceof Error ? error.message : "头像上传失败");
     } finally {
       setSaving(null);

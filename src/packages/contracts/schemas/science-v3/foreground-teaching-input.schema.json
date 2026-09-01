@@ -35,12 +35,15 @@
           },
           {
             "type": "object",
-            "required": ["type", "attachment_ref", "name", "mime_type"],
+            "required": ["type", "attachment_ref", "name", "mime_type", "version_id", "sha256", "byte_size"],
             "properties": {
               "type": { "const": "attachment" },
               "attachment_ref": { "$ref": "https://schemas.mathpilot.dev/science-v3/common/v1#/$defs/OpaqueResourceRef" },
               "name": { "type": "string", "minLength": 1, "maxLength": 240 },
-              "mime_type": { "type": "string", "minLength": 3, "maxLength": 160 }
+              "mime_type": { "type": "string", "minLength": 3, "maxLength": 160 },
+              "version_id": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "byte_size": { "type": "integer", "minimum": 1, "maximum": 50331648 }
             },
             "additionalProperties": false
           }

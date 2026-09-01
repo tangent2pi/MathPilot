@@ -20,11 +20,9 @@ export async function ensureOwnStudent(client: pg.PoolClient, principal: Princip
     [newId("stu"), principal.tenantId, principal.userId],
   );
   const row = (await client.query<{ student_id: string; user_id: string; display_name: string }>(
-    `select student.student_id,student.user_id,identity.display_name
-       from science_v3_student student
-       join identity_user identity on identity.tenant_id=student.tenant_id and identity.user_id=student.user_id
-      where student.tenant_id=$1 and student.user_id=$2`,
-    [principal.tenantId, principal.userId],
+    `select student_id,user_id,display_name
+       from mathpilot_science_v3_current_actor_students($1,true)
+      where user_id=$2 and actor_mode='self'`, [principal.tenantId,principal.userId],
   )).rows[0];
   if (!row) throw new LearningReadError(500, "student_unavailable", "学生学习身份不可用");
   return { studentId: row.student_id, userId: row.user_id, displayName: row.display_name, actorMode: "self" };
@@ -40,20 +38,9 @@ export async function resolveLearningSubject(
     throw new LearningReadError(404, "student_not_found", "学生不存在");
   }
   const row = (await client.query<{ student_id: string; user_id: string; display_name: string }>(
-    `select distinct student.student_id,student.user_id,identity.display_name
-       from science_v3_student student
-       join identity_user identity
-         on identity.tenant_id=student.tenant_id and identity.user_id=student.user_id
-       join identity_class_user learner
-         on learner.tenant_id=student.tenant_id and learner.user_id=student.user_id
-        and learner.class_role='student' and learner.status='active'
-       join identity_class_user teacher
-         on teacher.tenant_id=learner.tenant_id and teacher.class_id=learner.class_id
-        and teacher.user_id=$3 and teacher.class_role='teacher' and teacher.status='active'
-       join identity_class class
-         on class.tenant_id=learner.tenant_id and class.class_id=learner.class_id and class.status='active'
-      where student.tenant_id=$1 and student.student_id=$2`,
-    [principal.tenantId, studentHandle, principal.userId],
+    `select student_id,user_id,display_name
+       from mathpilot_science_v3_current_actor_students($1,false)
+      where student_id=$2 and actor_mode='teacher'`, [principal.tenantId,studentHandle],
   )).rows[0];
   if (!row) throw new LearningReadError(404, "student_not_found", "学生不存在");
   return { studentId: row.student_id, userId: row.user_id, displayName: row.display_name, actorMode: "teacher" };
@@ -66,26 +53,25 @@ export async function assertThreadAccess(
   write = false,
 ): Promise<LearningSubject & { threadVersion: number; threadStatus: string; threadTitle: string }> {
   const row = (await client.query<{
-    student_id: string; user_id: string; display_name: string; version: string; status: string; title: string;
+    student_id: string; user_id: string; display_name: string; actor_mode:"self"|"teacher";
+    thread_version: string; thread_status: string; thread_title: string;
   }>(
-    `select thread.student_id,student.user_id,identity.display_name,thread.version,thread.status,thread.title
-       from science_v3_conversation_thread thread
-       join science_v3_student student
-         on student.tenant_id=thread.tenant_id and student.student_id=thread.student_id
-       join identity_user identity
-         on identity.tenant_id=student.tenant_id and identity.user_id=student.user_id
-      where thread.tenant_id=$1 and thread.conversation_thread_id=$2`,
-    [principal.tenantId, threadId],
+    `select * from mathpilot_science_v3_current_actor_thread($1,$2,$3)`,
+    [principal.tenantId,threadId,write],
   )).rows[0];
-  if (!row) throw new LearningReadError(404, "thread_not_found", "对话不存在");
-  if (row.user_id === principal.userId) {
-    if (write && !principal.roles.includes("student")) throw new LearningReadError(403, "student_role_required", "当前账号不能写入学生对话");
-    return {
-      studentId: row.student_id, userId: row.user_id, displayName: row.display_name,
-      actorMode: "self", threadVersion: Number(row.version), threadStatus: row.status, threadTitle: row.title,
-    };
+  if (!row) {
+    if (write) {
+      const readable=(await client.query<{ actor_mode:"self"|"teacher" }>(
+        `select actor_mode from mathpilot_science_v3_current_actor_thread($1,$2,false)`,
+        [principal.tenantId,threadId],
+      )).rows[0];
+      if (readable?.actor_mode==="teacher") throw new LearningReadError(403,"thread_read_only","教师查看中的学生对话是只读的");
+      if (readable?.actor_mode==="self") throw new LearningReadError(403,"student_role_required","当前账号不能写入学生对话");
+    }
+    throw new LearningReadError(404, "thread_not_found", "对话不存在");
   }
-  const subject = await resolveLearningSubject(client, principal, row.student_id);
-  if (write) throw new LearningReadError(403, "thread_read_only", "教师查看中的学生对话是只读的");
-  return { ...subject, threadVersion: Number(row.version), threadStatus: row.status, threadTitle: row.title };
+  return {
+    studentId:row.student_id,userId:row.user_id,displayName:row.display_name,actorMode:row.actor_mode,
+    threadVersion:Number(row.thread_version),threadStatus:row.thread_status,threadTitle:row.thread_title,
+  };
 }

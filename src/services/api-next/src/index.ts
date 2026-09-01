@@ -1,10 +1,11 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { canonicalObjectReference, storageObjectIdSchema, storageObjectResolveResponseSchema } from "@mathpilot/content-integrity";
 import { configureInternalService } from "@mathpilot/internal-service";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { auth, authenticate, bootstrapAuthUsers, requireRole, AuthError, type Principal } from "./auth.ts";
 import { relayContent, relayStorage } from "./internal-relay.ts";
-import { createPool, startService, withTenant } from "./lib.ts";
+import { createPool, startService, withPrincipal, withTenant } from "./lib.ts";
 import { registerLearningHttp } from "./learning-http.ts";
 
 const internalService = configureInternalService("api-next", process.env);
@@ -71,42 +72,50 @@ await startService({
 
     // Storage management stays behind the authenticated same-origin API. The
     // returned presigned URL is the only value the browser sends to MinIO.
-    app.route({
-      method: ["GET", "POST", "PATCH", "DELETE"], url: "/api/storage/*",
-      async handler(request, reply) {
-        const principal = await principalOf(request, reply); if (!principal) return;
-        return relayStorage(internalService, principal, request, reply);
-      },
-    });
+    const storageRelay = async (request: FastifyRequest, reply: FastifyReply) => {
+      const principal = await principalOf(request,reply); if (!principal) return;
+      return relayStorage(internalService,principal,request,reply);
+    };
+    app.post("/api/storage/objects/init",storageRelay);
+    app.post("/api/storage/objects/:id/complete",storageRelay);
+    app.post("/api/storage/objects/resolve",storageRelay);
+    app.delete("/api/storage/objects/:id",storageRelay);
 
     app.get("/api/account/avatar", async (request, reply) => {
       const principal = await principalOf(request, reply); if (!principal) return;
-      const avatar = (await pool.query<{ mime_type: string; image_bytes: Buffer; updated_at: Date }>(
-        "select mime_type,image_bytes,updated_at from identity_user_avatar where auth_user_id=$1", [principal.authUserId],
-      )).rows[0];
+      const avatar = await withPrincipal(pool,principal,async (client) => (await client.query<{
+        storage_object_id:string; updated_at:Date;
+      }>("select storage_object_id,updated_at from identity_user_avatar where auth_user_id=$1",[principal.authUserId])).rows[0]);
       if (!avatar) return reply.code(404).send({ error: "avatar not found" });
-      return reply.header("content-type", avatar.mime_type).header("cache-control", "private, max-age=300")
-        .header("last-modified", avatar.updated_at.toUTCString()).send(avatar.image_bytes);
+      const body={ object_refs:[canonicalObjectReference(avatar.storage_object_id)] };
+      const resolved=await internalService.request("api-to-storage",principal,"/internal/objects/resolve",{
+        method:"POST",json:body,timeoutMs:10_000,signal:AbortSignal.timeout(10_000),
+      });
+      if (!resolved.ok) return reply.code(resolved.status===404?404:502).send({ error:"avatar unavailable" });
+      const object=storageObjectResolveResponseSchema.parse(await resolved.json()).objects[0];
+      if (!object) return reply.code(404).send({ error:"avatar not found" });
+      return reply.code(302).header("location",object.download.url)
+        .header("cache-control","private, max-age=240")
+        .header("last-modified",avatar.updated_at.toUTCString()).send();
     });
 
     app.post("/api/account/avatar", async (request, reply) => {
       const principal = await principalOf(request, reply); if (!principal) return;
-      const body = request.body as { image_base64?: unknown; mime_type?: unknown };
-      const mime = typeof body?.mime_type === "string" ? body.mime_type : "";
-      if (!["image/png", "image/jpeg", "image/webp"].includes(mime) || typeof body?.image_base64 !== "string") return reply.code(422).send({ error: "png, jpeg or webp image required" });
-      const bytes = Buffer.from(body.image_base64, "base64");
-      if (!bytes.length || bytes.length > 1_572_864) return reply.code(422).send({ error: "avatar must be at most 1.5 MiB" });
-      await pool.query(
-        `insert into identity_user_avatar(auth_user_id,mime_type,image_bytes) values($1,$2,$3)
-         on conflict(auth_user_id) do update set mime_type=excluded.mime_type,image_bytes=excluded.image_bytes,updated_at=now()`,
-        [principal.authUserId, mime, bytes],
-      );
+      const objectId=storageObjectIdSchema.safeParse((request.body as { object_id?:unknown } | undefined)?.object_id);
+      if (!objectId.success) return reply.code(422).send({ error:"completed avatar object required" });
+      await withPrincipal(pool,principal,(client) => client.query(
+        "select * from mathpilot_identity_set_avatar($1,$2,$3,$4)",
+        [principal.tenantId,principal.userId,principal.authUserId,objectId.data],
+      ));
       return { image: `/api/account/avatar?v=${Date.now()}` };
     });
 
     app.delete("/api/account/avatar", async (request, reply) => {
       const principal = await principalOf(request, reply); if (!principal) return;
-      await pool.query("delete from identity_user_avatar where auth_user_id=$1", [principal.authUserId]);
+      await withPrincipal(pool,principal,(client) => client.query(
+        "select mathpilot_identity_remove_avatar($1,$2,$3)",
+        [principal.tenantId,principal.userId,principal.authUserId],
+      ));
       return reply.code(204).send();
     });
 

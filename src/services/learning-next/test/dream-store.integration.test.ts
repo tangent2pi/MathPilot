@@ -1,15 +1,13 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import test from "node:test";
 import pg from "pg";
+import { encodeArtifact } from "../src/artifact-integrity.ts";
 import { PostgresDreamStore } from "../src/dream-store.ts";
 
 const databaseUrl = process.env.DREAM_STORE_TEST_DATABASE_URL;
 const TENANT = "tnt_flowtest01";
 const STUDENT = "stu_flowtest01";
 const TEACHER = "usr_flowteacher01";
-
-const sha = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 interface RunFixture {
   phase: "light" | "rem" | "deep";
@@ -28,12 +26,13 @@ async function seedSucceededAttempt(
 ): Promise<void> {
   const outputSchema = run.phase === "light" ? "light-output" : run.phase === "rem" ? "rem-output" : "annotation-change-set";
   const outputRef = `agent-artifact:${run.outputArtifactId}`;
+  const artifact = encodeArtifact(output);
   await pool.query(
     `insert into science_v3_agent_artifact(
        artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
      ) values($1,$2,$3,'structured_output',$4,$5::jsonb,$6)`,
     [run.outputArtifactId, TENANT, run.operationId,
-      `https://schemas.mathpilot.dev/science-v3/${outputSchema}/v1`, JSON.stringify(output), sha(output)],
+      `https://schemas.mathpilot.dev/science-v3/${outputSchema}/v1`, artifact.json, artifact.sha256],
   );
   await pool.query(
     `insert into science_v3_agent_attempt(
@@ -84,6 +83,7 @@ async function seedLightRun(
     closed_at: `2026-01-0${index}T00:02:00Z`,
     history_is_untrusted_data: true,
   };
+  const inputArtifact = encodeArtifact(input);
   const output = {
     schema_version: 3,
     status: "ready",
@@ -117,7 +117,7 @@ async function seedLightRun(
     `insert into science_v3_agent_artifact(
        artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
      ) values($1,$2,$3,'input_bundle','https://schemas.mathpilot.dev/science-v3/light-input/v1',$4::jsonb,$5)`,
-    [inputArtifactId, TENANT, operationId, JSON.stringify(input), sha(input)],
+    [inputArtifactId, TENANT, operationId, inputArtifact.json, inputArtifact.sha256],
   );
   await pool.query(
     `insert into infra_outbox(

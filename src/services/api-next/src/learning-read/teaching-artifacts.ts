@@ -6,6 +6,7 @@ import type {
   CanonicalMessagePart,
   MathDerivationTeachingArtifact,
 } from "@mathpilot/contracts";
+import { verifyCanonicalJson } from "@mathpilot/content-integrity/node";
 import type pg from "pg";
 
 export interface TeachingArtifactSourceMessage {
@@ -31,7 +32,8 @@ interface TeachingArtifactRow {
   artifact_ref: string;
   artifact_schema: string;
   summary: string;
-  content: unknown;
+  payload: unknown;
+  sha256: string;
 }
 
 export const teachingArtifactKey = (messageId: string, artifactRef: string): string =>
@@ -59,7 +61,8 @@ export async function materializeTeachingArtifacts(
             part->>'artifact_ref' as artifact_ref,
             part->>'artifact_schema' as artifact_schema,
             part->>'summary' as summary,
-            artifact.payload->'content' as content
+            artifact.payload,
+            artifact.sha256
        from science_v3_canonical_message message
        join science_v3_foreground_request request
          on request.tenant_id=message.tenant_id
@@ -125,8 +128,10 @@ export async function materializeTeachingArtifacts(
   const result = new Map<string, MaterializedTeachingArtifact>();
   for (const row of rows) {
     if (row.artifact_schema !== MATH_DERIVATION_ARTIFACT_SCHEMA) continue;
+    verifyCanonicalJson(row.payload,row.sha256);
+    const payload=recordValue(row.payload);
     const summary = boundedString(row.summary, 1000);
-    const presentation = projectMathDerivation(row.content);
+    const presentation = projectMathDerivation(payload.content);
     if (!summary || !presentation) continue;
     result.set(teachingArtifactKey(row.message_id, row.artifact_ref), {
       schema: MATH_DERIVATION_ARTIFACT_SCHEMA,

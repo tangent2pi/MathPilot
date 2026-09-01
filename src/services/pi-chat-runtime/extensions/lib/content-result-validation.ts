@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import { CONTENT_POLICIES } from "@mathpilot/content-integrity";
+import { sealBoundedHostFile, type SealedContent } from "@mathpilot/content-integrity/node";
 
 type JsonObject = Record<string, unknown>;
 
@@ -11,6 +12,10 @@ export interface ValidatedContentResult {
   validationFile: string;
   sha256: string;
   itemCount: number;
+  result: JsonObject;
+  receipt: JsonObject;
+  resultSealed: SealedContent;
+  receiptSealed: SealedContent;
 }
 
 const FORMATS = new Set(["single_choice", "multiple_choice", "fill_blank", "true_false", "open_solution"]);
@@ -28,16 +33,25 @@ const relativeOutputPath = (cwd: string, value: string): string => {
   return normalized;
 };
 
-const readObject = async (cwd: string, relative: string): Promise<JsonObject> => {
+const sealJsonObject = async (
+  cwd: string,
+  relative: string,
+): Promise<{ value: JsonObject; sealed: SealedContent }> => {
   const file = path.resolve(cwd, relative);
-  const root = await realpath(path.resolve(cwd, "output")).catch(() => undefined);
-  const resolved = await realpath(file).catch(() => undefined);
-  if (!root || !resolved || !resolved.startsWith(`${root}${path.sep}`)) throw new Error("result file escapes output/");
-  const info = await stat(file);
-  if (!info.isFile() || info.size > 32 * 1024 * 1024) throw new Error("result file is missing or too large");
-  const value = JSON.parse(await readFile(file, "utf8")) as unknown;
-  if (!isObject(value)) throw new Error("result must be a JSON object");
-  return value;
+  const sealed = await sealBoundedHostFile({
+    root: path.resolve(cwd, "output"),
+    file,
+    policy: CONTENT_POLICIES.candidate,
+    declaredMimeType: "application/json",
+  });
+  try {
+    const value = JSON.parse(await readFile(sealed.storedPath, "utf8")) as unknown;
+    if (!isObject(value)) throw new Error("result must be a JSON object");
+    return { value, sealed };
+  } catch (error) {
+    await sealed.cleanup();
+    throw error;
+  }
 };
 
 /** Evidence and image references must resolve to host-provided input files.
@@ -72,11 +86,9 @@ const validateKtq = async (cwd: string, value: JsonObject): Promise<number> => {
     for (const reference of question.image_refs as unknown[]) {
       if (!(await inputFile(cwd, reference as string))) throw new Error(`KTQ question ${index} references a missing input image`);
     }
-    if (!nonEmpty(question.source_fragment_id)) {
-      const source = question.source;
-      if (!isObject(source) || !nonEmpty(source.path) || !Number.isSafeInteger(source.page) || Number(source.page) < 1 || !(await inputFile(cwd, source.path))) throw new Error(`KTQ question ${index} has invalid source evidence`);
-      if (source.bbox !== null && source.bbox !== undefined && (!Array.isArray(source.bbox) || source.bbox.length !== 4 || source.bbox.some((part) => typeof part !== "number" || !Number.isFinite(part)))) throw new Error(`KTQ question ${index} has invalid source bbox`);
-    }
+    const source = question.source;
+    if (!isObject(source) || !nonEmpty(source.path) || !Number.isSafeInteger(source.page) || Number(source.page) < 1 || !(await inputFile(cwd, source.path))) throw new Error(`KTQ question ${index} has invalid source evidence`);
+    if (source.bbox !== null && source.bbox !== undefined && (!Array.isArray(source.bbox) || source.bbox.length !== 4 || source.bbox.some((part) => typeof part !== "number" || !Number.isFinite(part)))) throw new Error(`KTQ question ${index} has invalid source bbox`);
     const components = question.knowledge_components;
     if (!Array.isArray(components) || components.length === 0 || components.some((entry) => !isObject(entry) || !/^K_[A-Za-z0-9_.:-]+$/.test(String(entry.id)) || !nonEmpty(entry.name))) throw new Error(`KTQ question ${index} has invalid K entries`);
     const type = question.question_type;
@@ -133,48 +145,95 @@ export async function validateContentRespond(cwd: string, params: { result_file?
   const resultFile = relativeOutputPath(cwd, params.result_file);
   const validationFile = relativeOutputPath(cwd, params.validation_file);
   if (resultFile === validationFile) throw new Error("result and validation files must differ");
-  const resultPath = path.resolve(cwd, resultFile);
-  const outputRoot = await realpath(path.resolve(cwd, "output")).catch(() => undefined);
-  const resolvedResult = await realpath(resultPath).catch(() => undefined);
-  if (!outputRoot || !resolvedResult || !resolvedResult.startsWith(`${outputRoot}${path.sep}`)) throw new Error("result file escapes output/");
-  const resultInfo = await stat(resultPath);
-  if (!resultInfo.isFile() || resultInfo.size > 32 * 1024 * 1024) throw new Error("result file is missing or too large");
-  const resultBytes = await readFile(resultPath);
-  const value = JSON.parse(resultBytes.toString("utf8")) as unknown;
-  if (!isObject(value)) throw new Error("result must be a JSON object");
-  const receipt = await readObject(cwd, validationFile);
-  const expectedSkill = value.schema === "mathpilot.ktq-result/v1" ? "ktq-extraction" : value.schema === "mathpilot.er-result/v1" ? "er-research" : undefined;
-  if (!expectedSkill || receipt.schema !== "mathpilot.validation-receipt/v1" || receipt.valid !== true || receipt.result_file !== resultFile || receipt.skill !== expectedSkill || !nonEmpty(receipt.sha256)) throw new Error("validation receipt does not match result file");
-  const sha256 = createHash("sha256").update(resultBytes).digest("hex");
-  if (receipt.sha256 !== sha256) throw new Error("validation receipt hash mismatch");
-  let itemCount: number;
-  if (expectedSkill === "ktq-extraction") {
-    itemCount = await validateKtq(cwd, value);
-  } else {
-    const frozenFile = path.resolve(cwd, "input/frozen/ktq.json");
-    const frozen = JSON.parse(await readFile(frozenFile, "utf8")) as unknown;
-    if (!isObject(frozen) || !Array.isArray(frozen.questions)) throw new Error("ER respond requires input/frozen/ktq.json");
-    const frozenDimensions = new Set<string>();
-    for (const question of frozen.questions) {
-      if (!isObject(question)) continue;
-      if (Array.isArray(question.measurement_dims)) for (const dimension of question.measurement_dims) if (nonEmpty(dimension)) frozenDimensions.add(dimension);
-      if (Array.isArray(question.measurement_targets)) for (const target of question.measurement_targets) if (isObject(target) && nonEmpty(target.dim)) frozenDimensions.add(target.dim);
-    }
-    if (frozenDimensions.size === 0) throw new Error("frozen KTQ has no measurement dimensions");
-    itemCount = validateEr(value, frozenDimensions);
+  const resultCapture = await sealJsonObject(cwd, resultFile);
+  let receiptCapture: Awaited<ReturnType<typeof sealJsonObject>>;
+  try {
+    receiptCapture = await sealJsonObject(cwd, validationFile);
+  } catch (error) {
+    await resultCapture.sealed.cleanup();
+    throw error;
   }
-  if (expectedSkill === "ktq-extraction" && receipt.question_count !== undefined && receipt.question_count !== itemCount) {
-    throw new Error("validation receipt question count mismatch");
-  }
-  if (expectedSkill === "er-research") {
-    const errorCount = Array.isArray(value.error_causes) ? value.error_causes.length : 0;
-    const ruleCount = Array.isArray(value.diagnosis_rules) ? value.diagnosis_rules.length : 0;
-    if (receipt.error_cause_count !== undefined && receipt.error_cause_count !== errorCount) {
-      throw new Error("validation receipt error-cause count mismatch");
+  let handedOff = false;
+  try {
+    const value = resultCapture.value;
+    const receipt = receiptCapture.value;
+    const expectedSkill = value.schema === "mathpilot.ktq-result/v1"
+      ? "ktq-extraction"
+      : value.schema === "mathpilot.er-result/v1"
+        ? "er-research"
+        : undefined;
+    if (
+      !expectedSkill
+      || receipt.schema !== "mathpilot.validation-receipt/v1"
+      || receipt.valid !== true
+      || receipt.result_file !== resultFile
+      || receipt.skill !== expectedSkill
+      || !nonEmpty(receipt.sha256)
+    ) {
+      throw new Error("validation receipt does not match result file");
     }
-    if (receipt.rule_count !== undefined && receipt.rule_count !== ruleCount) {
-      throw new Error("validation receipt rule count mismatch");
+    const sha256 = resultCapture.sealed.source.sha256;
+    if (receipt.sha256 !== sha256) throw new Error("validation receipt hash mismatch");
+    let itemCount: number;
+    if (expectedSkill === "ktq-extraction") {
+      itemCount = await validateKtq(cwd, value);
+    } else {
+      const frozenFile = path.resolve(cwd, "input/frozen/ktq.json");
+      const frozen = JSON.parse(await readFile(frozenFile, "utf8")) as unknown;
+      if (!isObject(frozen) || !Array.isArray(frozen.questions)) {
+        throw new Error("ER respond requires input/frozen/ktq.json");
+      }
+      const frozenDimensions = new Set<string>();
+      for (const question of frozen.questions) {
+        if (!isObject(question)) continue;
+        if (Array.isArray(question.measurement_dims)) {
+          for (const dimension of question.measurement_dims) {
+            if (nonEmpty(dimension)) frozenDimensions.add(dimension);
+          }
+        }
+        if (Array.isArray(question.measurement_targets)) {
+          for (const target of question.measurement_targets) {
+            if (isObject(target) && nonEmpty(target.dim)) frozenDimensions.add(target.dim);
+          }
+        }
+      }
+      if (frozenDimensions.size === 0) throw new Error("frozen KTQ has no measurement dimensions");
+      itemCount = validateEr(value, frozenDimensions);
+    }
+    if (
+      expectedSkill === "ktq-extraction"
+      && receipt.question_count !== undefined
+      && receipt.question_count !== itemCount
+    ) {
+      throw new Error("validation receipt question count mismatch");
+    }
+    if (expectedSkill === "er-research") {
+      const errorCount = Array.isArray(value.error_causes) ? value.error_causes.length : 0;
+      const ruleCount = Array.isArray(value.diagnosis_rules) ? value.diagnosis_rules.length : 0;
+      if (receipt.error_cause_count !== undefined && receipt.error_cause_count !== errorCount) {
+        throw new Error("validation receipt error-cause count mismatch");
+      }
+      if (receipt.rule_count !== undefined && receipt.rule_count !== ruleCount) {
+        throw new Error("validation receipt rule count mismatch");
+      }
+    }
+    const validated: ValidatedContentResult = {
+      kind: expectedSkill === "ktq-extraction" ? "ktq" : "er",
+      schema: String(value.schema),
+      resultFile,
+      validationFile,
+      sha256,
+      itemCount,
+      result: value,
+      receipt,
+      resultSealed: resultCapture.sealed,
+      receiptSealed: receiptCapture.sealed,
+    };
+    handedOff = true;
+    return validated;
+  } finally {
+    if (!handedOff) {
+      await Promise.all([resultCapture.sealed.cleanup(), receiptCapture.sealed.cleanup()]);
     }
   }
-  return { kind: expectedSkill === "ktq-extraction" ? "ktq" : "er", schema: String(value.schema), resultFile, validationFile, sha256, itemCount };
 }

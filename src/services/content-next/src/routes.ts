@@ -79,9 +79,21 @@ export function registerContentNextRoutes(
         promptVersion: typeof body.prompt_version === "string" ? body.prompt_version : null,
       };
       try {
-        const candidate = await repository.register(actor, input);
-        return reply.code(201).send({
+        const registered = await repository.register(actor, input);
+        const candidate = {
+          candidate_set_id:registered.candidate_set_id,phase:registered.phase,
+          owner_teacher_user_id:registered.owner_teacher_user_id,thread_id:registered.thread_id,
+          sequence_no:registered.sequence_no,status:registered.status,item_count:registered.item_count,
+          created_at:registered.created_at,decided_at:registered.decided_at,
+        };
+        return reply.code(registered.created ? 201 : 200).send({
           kind: "content_review",
+          registration: {
+            created:registered.created,
+            result_object_id:registered.result_object_id,
+            receipt_object_id:registered.receipt_object_id,
+            result_sha256:registered.result_sha256,
+          },
           candidate,
           review_url: `/content/review/${encodeURIComponent(candidate.candidate_set_id)}`,
         });

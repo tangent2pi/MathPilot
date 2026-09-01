@@ -15,18 +15,16 @@ const principal: PiPrincipal = {
   roles: ["student"],
 };
 
-const record = (archived: boolean, minioKey?: string): PiThreadRecord => ({
+const record = (): PiThreadRecord => ({
   threadId: "thread-test",
   tenantId: principal.tenantId,
   ownerUserId: principal.userId,
   sessionDir: "sessions/00000000-0000-4000-8000-000000000001",
   sessionFile: "agent/sessions/thread-test.jsonl",
   createdAt: "2026-09-01T00:00:00.000Z",
-  ...(minioKey ? { minioKey } : {}),
-  ...(archived ? { archivedAt: "2026-09-01T00:00:01.000Z" } : {}),
 });
 
-test("existing local archive paths reject symlinks, including broken links", async () => {
+test("local thread paths reject symlinks, including broken links", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mathpilot-pi-local-path-"));
   const sessionsRoot = path.join(root, "sessions");
   const outside = path.join(root, "outside");
@@ -67,7 +65,7 @@ test("a cold empty live thread is available only while Pi still owns it", async 
     mkdir(agentSessionsRoot, { recursive: true }),
   ]);
   const runtime = { runtimeRoot: root, sessionsRoot, agentSessionsRoot };
-  const activeRecord = { ...record(false), sessionDir: "sessions/thread-test" };
+  const activeRecord = { ...record(), sessionDir: "sessions/thread-test" };
   try {
     assert.equal(await localThreadAvailable(runtime as never, activeRecord, {
       async getThread() { throw new Error("Unknown Pi thread"); },
@@ -76,22 +74,6 @@ test("a cold empty live thread is available only while Pi still owns it", async 
     assert.equal(await localThreadAvailable(runtime as never, activeRecord, {
       async getThread() { return { metadata: { id: activeRecord.threadId }, messages: [] }; },
     } as never), true);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("retired archive metadata fails closed instead of restoring through MinIO", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "mathpilot-pi-active-thread-"));
-  const sessionsRoot = path.join(root, "sessions");
-  const agentSessionsRoot = path.join(root, "agent", "sessions");
-  await Promise.all([mkdir(sessionsRoot, { recursive: true }), mkdir(agentSessionsRoot, { recursive: true })]);
-  try {
-    assert.equal(await localThreadAvailable(
-      { runtimeRoot: root, sessionsRoot, agentSessionsRoot } as never,
-      { ...record(true, "pi-threads/thread-test/old-snapshot"), sessionDir: "sessions/thread-test" },
-      { async getThread() { throw new Error("Unknown Pi thread"); } } as never,
-    ), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

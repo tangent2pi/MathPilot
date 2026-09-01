@@ -28,10 +28,7 @@ export const learningKeys = {
 };
 
 export function newIdempotencyKey(scope: string): string {
-  const id = typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return `web-${scope}-${id}`;
+  return `web-${scope}-${globalThis.crypto.randomUUID()}`;
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -88,10 +85,10 @@ export const learningApi = {
     return combined;
   },
 
-  createThread(key: string, title = "新对话") {
+  createThread(key: string, title = "新对话", requestedAt = new Date().toISOString()) {
     return requestJson<CreateThreadReceipt>(
       "/api/learning/threads",
-      commandInit(key, { expected_version: 0, requested_at: new Date().toISOString(), title }),
+      commandInit(key, { expected_version: 0, requested_at: requestedAt, title }),
     );
   },
 
@@ -99,7 +96,7 @@ export const learningApi = {
     threadId: string;
     key: string;
     expectedVersion: number;
-    parts: UserSubmittedMessagePart[];
+    parts: readonly UserSubmittedMessagePart[];
     requestedAt: string;
   }) {
     return requestJson<ForegroundReceipt>(

@@ -9,22 +9,40 @@ export interface HostPrincipal {
   issuedAt: string;
 }
 
-const principalPath = (cwd: string): string =>
-  path.join(path.dirname(path.resolve(cwd)), ".host-state", path.basename(path.resolve(cwd)), "principal.json");
+export const hostStateDirectory = (cwd: string): string => {
+  const workspace = path.resolve(cwd);
+  return path.join(path.dirname(workspace), ".host-state", path.basename(workspace));
+};
 
-export async function writeHostPrincipal(cwd: string, principal: Omit<HostPrincipal, "issuedAt">): Promise<void> {
-  const file = principalPath(cwd);
+export const hostStatePath = (cwd: string, filename: string): string => {
+  if (!/^[a-z][a-z0-9-]{0,63}\.json$/.test(filename)) {
+    throw new Error("invalid host-state filename");
+  }
+  return path.join(hostStateDirectory(cwd), filename);
+};
+
+export async function writeHostStateJson(cwd: string, filename: string, json: string): Promise<void> {
+  const file = hostStatePath(cwd, filename);
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   await chmod(path.dirname(file), 0o700);
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, JSON.stringify({ ...principal, issuedAt: new Date().toISOString() }), { encoding: "utf8", mode: 0o600 });
+    await writeFile(temporary, json, { encoding: "utf8", mode: 0o600 });
     await chmod(temporary, 0o600);
     await rename(temporary, file);
-    await chmod(file, 0o600);
   } finally {
     await rm(temporary, { force: true }).catch(() => undefined);
   }
+}
+
+const principalPath = (cwd: string): string => hostStatePath(cwd, "principal.json");
+
+export async function writeHostPrincipal(cwd: string, principal: Omit<HostPrincipal, "issuedAt">): Promise<void> {
+  await writeHostStateJson(
+    cwd,
+    "principal.json",
+    JSON.stringify({ ...principal, issuedAt: new Date().toISOString() }),
+  );
 }
 
 export async function readHostPrincipal(cwd: string): Promise<HostPrincipal> {

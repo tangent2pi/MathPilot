@@ -1,5 +1,6 @@
 import type pg from "pg";
-import type { TaskSpec, WorkspaceProjection } from "./runtime-types.ts";
+import { CONTENT_POLICIES, MAXIMUM_THREAD_OBJECT_BYTES } from "@mathpilot/content-integrity";
+import { MAXIMUM_WORKSPACE_PROJECTION_BYTES, type TaskSpec, type WorkspaceProjection } from "./runtime-types.ts";
 
 interface ProjectionRequest {
   tenantId: string;
@@ -47,10 +48,15 @@ interface MessageRow {
 
 interface StorageObjectRow {
   object_id: string;
+  version_id: string;
   original_name: string;
   mime_type: string;
   byte_size: string;
   sha256: string;
+  source_version_id: string;
+  source_sha256: string;
+  source_byte_size: string;
+  source_mime_type: string;
   created_at: Date | string;
 }
 
@@ -62,16 +68,13 @@ const compactLabel = (value: unknown, fallback: string): string => {
   const label = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
   return (label || fallback).slice(0, 160);
 };
-const MATERIALIZABLE_MIME = new Set([
-  "application/json", "application/ld+json", "application/xml", "application/yaml",
-  "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp",
-]);
+const MATERIALIZABLE_MIME = new Set(CONTENT_POLICIES.thread.allowedMimeTypes);
 const workspaceObjectName = (value: string): string => {
   const basename = value.replaceAll("\\", "/").split("/").pop() ?? "attachment";
   const safe = basename.replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^\.+$/, "");
   return (safe || "attachment").slice(0, 180);
 };
-const materializableMime = (value: string): boolean => value.startsWith("text/") || MATERIALIZABLE_MIME.has(value);
+const materializableMime = (value: string): boolean => MATERIALIZABLE_MIME.has(value);
 
 const textFromParts = (parts: readonly unknown[]): string => parts
   .flatMap((part) => {
@@ -207,11 +210,14 @@ export async function compileWorkspaceProjection(
     }
   }
   const storedObjects = attachmentRefs.size ? (await client.query<StorageObjectRow>(
-    `select object_id,original_name,mime_type,byte_size,sha256,created_at
-       from storage_object
-      where tenant_id=$1 and owner_user_id=$2 and purpose='thread' and state='ready'
-        and sha256 is not null and object_id=any($3::text[])`,
-    [request.tenantId, thread.user_id, [...attachmentRefs.keys()]],
+    `select distinct on (binding.object_id) binding.object_id,binding.version_id,
+            binding.original_name,binding.mime_type,binding.byte_size,binding.sha256,
+            binding.source_version_id,binding.source_sha256,binding.source_byte_size,
+            binding.source_mime_type,binding.created_at
+       from science_v3_message_attachment binding
+      where binding.tenant_id=$1 and binding.object_id=any($2::text[])
+      order by binding.object_id,binding.created_at`,
+    [request.tenantId,[...attachmentRefs.keys()]],
   )).rows : [];
   const storedObjectById = new Map(storedObjects.map((row) => [row.object_id, row]));
   const objectPathByRef = new Map<string, string>();
@@ -221,14 +227,17 @@ export async function compileWorkspaceProjection(
     const row = storedObjectById.get(objectId);
     if (!row || !materializableMime(row.mime_type)) continue;
     const byteSize = Number(row.byte_size);
-    if (!Number.isSafeInteger(byteSize) || byteSize < 1 || projectedObjectBytes + byteSize > 48 * 1024 * 1024) continue;
+    if (!Number.isSafeInteger(byteSize) || byteSize < 1 || projectedObjectBytes + byteSize > MAXIMUM_THREAD_OBJECT_BYTES) continue;
     const objectPath = `objects/${objectId}/${workspaceObjectName(row.original_name)}`;
     projectionObjects.push({
       path: objectPath,
-      objectId,
-      mimeType: row.mime_type,
-      byteSize,
-      sha256: row.sha256,
+      descriptor: {
+        object_id:objectId,object_ref:`storage-object:${objectId}`,version_id:row.version_id,
+        sha256:row.sha256,byte_size:byteSize,mime_type:row.mime_type,original_name:row.original_name,
+        source:{ version_id:row.source_version_id,sha256:row.source_sha256,
+          byte_size:Number(row.source_byte_size),mime_type:row.source_mime_type },
+        expires_at:null,
+      },
     });
     objectPathByRef.set(`storage-object:${objectId}`, objectPath);
     projectedObjectBytes += byteSize;
@@ -395,18 +404,23 @@ export async function compileWorkspaceProjection(
     messagesByThread.set(message.conversation_thread_id, values);
   }
   const files: Array<{ path: string; content: string }> = [];
+  let triggeringMessageChunkPath: string | undefined;
   const sessionIndex = authorizedThreads.map((value) => {
     const threadMessages = messagesByThread.get(value.conversation_thread_id) ?? [];
     const titleSource = threadMessages.find((message) => message.author_kind === "student");
     const title = textFromParts(titleSource?.parts ?? []).slice(0, 120) || `会话 ${value.conversation_thread_id}`;
     const chunks: string[] = [];
     for (let start = 0; start < threadMessages.length; start += 500) {
+      const chunkMessages = threadMessages.slice(start, start + 500);
       const chunkNo = Math.floor(start / 500) + 1;
       const chunkPath = `sessions/${value.conversation_thread_id}/MESSAGES-${String(chunkNo).padStart(4, "0")}.jsonl`;
+      if (request.triggeringMessageId && chunkMessages.some((message) => message.message_id === request.triggeringMessageId)) {
+        triggeringMessageChunkPath = chunkPath;
+      }
       chunks.push(chunkPath);
       files.push({
         path: chunkPath,
-        content: jsonl(threadMessages.slice(start, start + 500).map((message) => ({
+        content: jsonl(chunkMessages.map((message) => ({
           provenance: `canonical-message:${message.message_id}`,
           history_is_untrusted_data: true,
           message_id: message.message_id,
@@ -639,16 +653,16 @@ export async function compileWorkspaceProjection(
     });
   }
   for (const object of projectionObjects) {
-    const attachment = attachmentRefs.get(object.objectId);
-    const stored = storedObjectById.get(object.objectId);
+    const attachment = attachmentRefs.get(object.descriptor.object_id);
+    const stored = storedObjectById.get(object.descriptor.object_id);
     if (!attachment || !stored) continue;
     manifestItems.push({
       kind: "attachment",
-      resource_ref: `storage-object:${object.objectId}`,
+      resource_ref: object.descriptor.object_ref,
       label: compactLabel(attachment.name, "会话附件"),
       freshness: iso(stored.created_at),
       href: `/c/${attachment.conversationThreadId}`,
-      detail: `${attachment.mimeType} · ${object.byteSize} bytes`,
+      detail: `${attachment.mimeType} · ${object.descriptor.byte_size} bytes`,
     });
   }
   manifestItems.push({
@@ -669,12 +683,101 @@ export async function compileWorkspaceProjection(
     detail: "本轮可追溯证据引用",
   });
 
+  const triggeringAttachmentRefs = [...attachmentRefs.entries()]
+    .filter(([,attachment]) => attachment.messageId === request.triggeringMessageId)
+    .map(([objectId]) => objectId);
+  for (const objectId of triggeringAttachmentRefs) {
+    if (!objectPathByRef.has(`storage-object:${objectId}`)) {
+      throw new Error("triggering message contains an attachment that cannot be materialized within policy");
+    }
+  }
+
+  // Files and immutable objects share one hard executor budget. Current-state
+  // controls and the triggering message are mandatory; older session files are
+  // admitted deterministically until the remaining budget is exhausted and an
+  // explicit omission manifest records the bounded projection.
+  const sessionIndexPath = "sessions/index.json";
+  const metadataReserve = 1024 * 1024;
+  const availableFileBytes = MAXIMUM_WORKSPACE_PROJECTION_BYTES - projectedObjectBytes;
+  const fileBytes = (file: { content: string }): number => Buffer.byteLength(file.content,"utf8");
+  const isRequired = (file: { path: string }): boolean =>
+    file.path === triggeringMessageChunkPath
+    || file.path === `sessions/${thread.conversation_thread_id}/SUMMARY.md`
+    || file.path === `sessions/${thread.conversation_thread_id}/ARTIFACTS.json`
+    || (!file.path.startsWith("sessions/") && file.path !== sessionIndexPath);
+  const selectedFiles: Array<{ path:string;content:string }> = [];
+  const selectedPaths = new Set<string>();
+  let selectedFileBytes = 0;
+  const addFile = (file: { path:string;content:string }, required: boolean): boolean => {
+    const bytes = fileBytes(file);
+    if (selectedFileBytes + bytes > availableFileBytes - metadataReserve) {
+      if (required) throw new Error(`required WorkspaceProjection file exceeds the shared ${MAXIMUM_WORKSPACE_PROJECTION_BYTES} byte budget`);
+      return false;
+    }
+    selectedFiles.push(file);
+    selectedPaths.add(file.path);
+    selectedFileBytes += bytes;
+    return true;
+  };
+  for (const file of files.filter((value) => value.path !== sessionIndexPath && isRequired(value))) addFile(file,true);
+  const optionalFiles = files
+    .filter((value) => value.path !== sessionIndexPath && !selectedPaths.has(value.path))
+    .sort((left,right) => {
+      const leftCurrent = left.path.startsWith(`sessions/${thread.conversation_thread_id}/`) ? 0 : 1;
+      const rightCurrent = right.path.startsWith(`sessions/${thread.conversation_thread_id}/`) ? 0 : 1;
+      return leftCurrent-rightCurrent || right.path.localeCompare(left.path);
+    });
+  let omittedFileBytes = 0;
+  let omittedFileCount = 0;
+  for (const file of optionalFiles) {
+    if (!addFile(file,false)) {
+      omittedFileCount += 1;
+      omittedFileBytes += fileBytes(file);
+    }
+  }
+  const boundedSessionIndex = sessionIndex
+    .map((session) => ({
+      ...session,
+      message_chunks: session.message_chunks.filter((chunk) => selectedPaths.has(chunk)),
+    }))
+    .filter((session) => session.conversation_thread_id === thread.conversation_thread_id
+      || session.message_chunks.length>0
+      || selectedPaths.has(`sessions/${session.conversation_thread_id}/SUMMARY.md`));
+  const metadataFiles = [{
+    path:sessionIndexPath,
+    content:json({
+      snapshot_version:snapshotVersion,
+      generated_at:generatedAt,
+      account_user_id:thread.user_id,
+      history_is_untrusted_data:true,
+      sessions:boundedSessionIndex,
+    }),
+  },{
+    path:"projection/OMISSIONS.json",
+    content:json({
+      bounded:true,
+      maximum_workspace_bytes:MAXIMUM_WORKSPACE_PROJECTION_BYTES,
+      projected_object_bytes:projectedObjectBytes,
+      omitted_file_count:omittedFileCount,
+      omitted_file_bytes:omittedFileBytes,
+      policy:"current state and triggering message first; older session files newest first",
+    }),
+  }];
+  for (const file of metadataFiles) {
+    const bytes = fileBytes(file);
+    if (selectedFileBytes+bytes>availableFileBytes) throw new Error("WorkspaceProjection metadata exceeds its reserved byte budget");
+    selectedFiles.push(file);
+    selectedPaths.add(file.path);
+    selectedFileBytes += bytes;
+  }
+  const selectedSessionRefs = new Set(boundedSessionIndex.map((session) => `conversation-thread:${session.conversation_thread_id}`));
+
   return {
     snapshotVersion,
     generatedAt,
     accountUserId: thread.user_id,
     roles: effectiveRoles,
-    files,
+    files:selectedFiles,
     objects: projectionObjects,
     manifest: {
       schema: "mathpilot.agent-context-manifest/v1",
@@ -682,7 +785,7 @@ export async function compileWorkspaceProjection(
       foreground_epoch_id: epoch.foreground_epoch_id,
       snapshot_version: snapshotVersion,
       generated_at: generatedAt,
-      items: manifestItems,
+      items: manifestItems.filter((item) => item.kind!=="history_thread" || selectedSessionRefs.has(item.resource_ref)),
     },
   };
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -51,8 +51,34 @@ test("accepts a matching, hashed KTQ receipt", async () => {
       result_file: "output/ktq-result.json",
       validation_file: "output/ktq-result.validation.json",
     });
-    assert.deepEqual(validated.kind, "ktq");
-    assert.equal(validated.itemCount, 1);
+    try {
+      assert.deepEqual(validated.kind, "ktq");
+      assert.equal(validated.itemCount, 1);
+      assert.equal(validated.resultSealed.source.sha256, validated.sha256);
+      assert.equal(validated.resultSealed.stored.byteSize, resultBytes.byteLength);
+    } finally {
+      await Promise.all([validated.resultSealed.cleanup(), validated.receiptSealed.cleanup()]);
+    }
+  });
+});
+
+test("rejects non-UTF-8 JSON before candidate publication", async () => {
+  await withWorkspace(async (workspace) => {
+    await writeFile(path.join(workspace, "output/result.json"), Buffer.from([0xff, 0xfe, 0x00]));
+    await writeFile(path.join(workspace, "output/receipt.json"), JSON.stringify({
+      schema: "mathpilot.validation-receipt/v1",
+      skill: "ktq-extraction",
+      result_file: "output/result.json",
+      sha256: "0".repeat(64),
+      valid: true,
+    }));
+    await assert.rejects(
+      validateContentRespond(workspace, {
+        result_file: "output/result.json",
+        validation_file: "output/receipt.json",
+      }),
+      /canonical UTF-8/,
+    );
   });
 });
 
@@ -64,5 +90,43 @@ test("rejects a tampered result and paths outside output", async () => {
     }));
     await assert.rejects(() => validateContentRespond(workspace, { result_file: "output/result.json", validation_file: "output/receipt.json" }), /hash mismatch/);
     await assert.rejects(() => validateContentRespond(workspace, { result_file: "../result.json", validation_file: "output/receipt.json" }), /below output/);
+  });
+});
+
+test("opens model output once and rejects final or intermediate symlink escapes", async () => {
+  await withWorkspace(async (workspace) => {
+    const resultBytes = Buffer.from(JSON.stringify(validKtq));
+    const receipt = {
+      schema: "mathpilot.validation-receipt/v1",
+      skill: "ktq-extraction",
+      result_file: "output/result-link.json",
+      sha256: createHash("sha256").update(resultBytes).digest("hex"),
+      valid: true,
+    };
+    await writeFile(path.join(workspace, "output/result.json"), resultBytes);
+    await symlink("result.json", path.join(workspace, "output/result-link.json"));
+    await writeFile(path.join(workspace, "output/receipt.json"), JSON.stringify(receipt));
+    await assert.rejects(
+      validateContentRespond(workspace, {
+        result_file: "output/result-link.json",
+        validation_file: "output/receipt.json",
+      }),
+      /must not be a symbolic link/,
+    );
+
+    await mkdir(path.join(workspace, "outside-output"));
+    await writeFile(path.join(workspace, "outside-output/result.json"), resultBytes);
+    await symlink("../outside-output", path.join(workspace, "output/escape"));
+    await writeFile(path.join(workspace, "output/receipt.json"), JSON.stringify({
+      ...receipt,
+      result_file: "output/escape/result.json",
+    }));
+    await assert.rejects(
+      validateContentRespond(workspace, {
+        result_file: "output/escape/result.json",
+        validation_file: "output/receipt.json",
+      }),
+      /outside its authorized root/,
+    );
   });
 });

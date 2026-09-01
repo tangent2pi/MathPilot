@@ -72,24 +72,9 @@ export class LearningReadService {
       const rows = (await client.query<{
         student_id: string; display_name: string; class_names: string[]; created_at: Date | string;
       }>(
-        `select student.student_id,identity.display_name,
-                array_agg(distinct class.name order by class.name) as class_names,
-                min(student.created_at) as created_at
-           from identity_class_user teacher
-           join identity_class class
-             on class.tenant_id=teacher.tenant_id and class.class_id=teacher.class_id and class.status='active'
-           join identity_class_user learner
-             on learner.tenant_id=teacher.tenant_id and learner.class_id=teacher.class_id
-            and learner.class_role='student' and learner.status='active'
-           join science_v3_student student
-             on student.tenant_id=learner.tenant_id and student.user_id=learner.user_id
-           join identity_user identity
-             on identity.tenant_id=student.tenant_id and identity.user_id=student.user_id
-          where teacher.tenant_id=$1 and teacher.user_id=$2
-            and teacher.class_role='teacher' and teacher.status='active'
-          group by student.student_id,identity.display_name
-          order by identity.display_name,student.student_id`,
-        [principal.tenantId, principal.userId],
+        `select student_id,display_name,class_names,created_at
+           from mathpilot_science_v3_current_actor_students($1,false)
+          where actor_mode='teacher' order by display_name,student_id`, [principal.tenantId],
       )).rows;
       return learningView({
         kind: "learning_overview", resourceKind: "teacher-student-list", resourceId: principal.userId,
@@ -1041,16 +1026,8 @@ export class LearningReadService {
           and (
             event.audience_user_id=$3
             or ($4::boolean and event.student_id is not null and exists(
-              select 1 from science_v3_student student
-              join identity_class_user learner
-                on learner.tenant_id=student.tenant_id and learner.user_id=student.user_id
-               and learner.class_role='student' and learner.status='active'
-              join identity_class_user teacher
-                on teacher.tenant_id=learner.tenant_id and teacher.class_id=learner.class_id
-               and teacher.user_id=$3 and teacher.class_role='teacher' and teacher.status='active'
-              join identity_class class
-                on class.tenant_id=learner.tenant_id and class.class_id=learner.class_id and class.status='active'
-             where student.tenant_id=event.tenant_id and student.student_id=event.student_id
+              select 1 from mathpilot_science_v3_current_actor_students($1,false) subject
+               where subject.student_id=event.student_id and subject.actor_mode='teacher'
             ))
           )
         order by event.cursor limit $5`,

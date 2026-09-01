@@ -8,14 +8,18 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.15.17",
     "@assistant-ui/react-markdown": "^0.14.13",
     "@base-ui/react": "^1.7.0",
+    "@mathpilot/content-integrity": "workspace:*",
     "@mathpilot/contracts": "workspace:*",
     "@tanstack/react-query": "^5.101.4",
+    "@uppy/aws-s3": "5.1.0",
+    "@uppy/core": "5.2.0",
     "better-auth": "1.6.23",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -37,10 +41,12 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
     "tailwindcss": "^4.3.3",
+    "tsx": "4.20.6",
     "typescript": "^5.9.3",
     "vite": "8.0.10"
   }

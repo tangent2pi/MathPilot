@@ -5,6 +5,7 @@ import {
   MATH_DERIVATION_ARTIFACT_SCHEMA_URI,
 } from "@mathpilot/contracts";
 import type pg from "pg";
+import { canonicalJson } from "@mathpilot/content-integrity/node";
 import {
   materializeTeachingArtifacts,
   teachingArtifactKey,
@@ -21,6 +22,17 @@ const referencePart = {
 test("teaching artifact hydration is bound to the authorized foreground chain and one message", async () => {
   let queryText = "";
   let queryValues: unknown[] = [];
+  const payload = {
+    schema_version: 3,
+    artifact_schema: MATH_DERIVATION_ARTIFACT_SCHEMA,
+    summary: referencePart.summary,
+    content: {
+      schema: MATH_DERIVATION_ARTIFACT_SCHEMA,
+      label: "配方法",
+      secret_payload: "must-not-project",
+      steps: [{ expression: "(x+3)^2=4", note: "两边同时补 9", private_state: 1 }],
+    },
+  };
   const client = {
     async query(text: string, values: unknown[]) {
       queryText = text;
@@ -30,12 +42,8 @@ test("teaching artifact hydration is bound to the authorized foreground chain an
         artifact_ref: artifactRef,
         artifact_schema: MATH_DERIVATION_ARTIFACT_SCHEMA,
         summary: referencePart.summary,
-        content: {
-          schema: MATH_DERIVATION_ARTIFACT_SCHEMA,
-          label: "配方法",
-          secret_payload: "must-not-project",
-          steps: [{ expression: "(x+3)^2=4", note: "两边同时补 9", private_state: 1 }],
-        },
+        payload,
+        sha256:canonicalJson(payload).sha256,
       }] };
     },
   } as unknown as pg.PoolClient;

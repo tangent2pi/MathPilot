@@ -2,9 +2,15 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
 import test from "node:test";
 import type { ToolResultEvent } from "@earendil-works/pi-coding-agent";
-import { sandboxToolConfig } from "../extensions/sandbox.ts";
+import {
+  collectBoundedBytes,
+  detectSandboxedImageMimeType,
+  detectVerifiedImageMimeType,
+  sandboxToolConfig,
+} from "../extensions/sandbox.ts";
 import { checkpointPaddleOcrResult } from "../src/capabilities/ocr-checkpoint.ts";
 import { normalizePaddleOcrInput, paddleOcrArguments } from "../src/capabilities/ocr-input.ts";
 
@@ -45,6 +51,31 @@ test("general tools deny host roots and write only output/tmp", async () => {
       else process.env.PI_CHAT_SANDBOX_SKILLS_ROOT = previous;
     }
   });
+});
+
+test("sandbox file collection preserves arbitrary bytes and rejects oversized output", async () => {
+  const binary = Buffer.from([0x00, 0xff, 0x80, 0xc3, 0x28, 0x0a]);
+  assert.deepEqual(
+    await collectBoundedBytes(Readable.from([binary.subarray(0, 2), binary.subarray(2)]), binary.length),
+    binary,
+  );
+  await assert.rejects(
+    collectBoundedBytes(Readable.from([binary]), binary.length - 1),
+    /exceeds 5 bytes/,
+  );
+});
+
+test("sandbox image detection fully decodes through the shared integrity mechanism", async () => {
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "base64",
+  );
+  assert.equal(await detectVerifiedImageMimeType(png), "image/png");
+  assert.equal(await detectVerifiedImageMimeType(Buffer.from("not an image")), undefined);
+  await assert.rejects(
+    detectSandboxedImageMimeType(async () => { throw new Error("sandbox read permission denied"); }),
+    /sandbox read permission denied/,
+  );
 });
 
 test("OCR paths are normalized inside one workspace and reject escapes", async () => {

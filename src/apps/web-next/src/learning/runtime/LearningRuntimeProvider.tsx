@@ -2,6 +2,7 @@
 
 import {
   AssistantRuntimeProvider,
+  MessageNotSentError,
   useAui,
   useExternalStoreRuntime,
   useLocalRuntime,
@@ -18,12 +19,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { UnifiedAttachmentAdapter } from "@/AttachmentAdapter";
 import { AUTH_DRAFT_KEY, useAuth } from "@/auth";
+import { mathpilotObjectMetadata } from "@/storage-upload";
 import type {
   CanonicalMessagePart,
   LearningThreadMessage,
@@ -32,6 +35,12 @@ import type {
   UserSubmittedMessagePart,
 } from "../contracts";
 import { learningApi, learningKeys, newIdempotencyKey } from "../data/client";
+import {
+  acquireMessageCommandEnvelope,
+  bindMessageCommandThread,
+  messageCommandOutcomeIsUnknown,
+  type MessageCommandEnvelope,
+} from "./message-command-envelope";
 
 const ACTIVE_OPERATION_STATUSES = new Set(["accepted", "running", "needs_input"]);
 
@@ -73,6 +82,7 @@ function AuthenticatedLearningRuntime({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<PendingMessage | null>(null);
+  const retryEnvelope = useRef<MessageCommandEnvelope | null>(null);
   const attachmentAdapter = useMemo(() => new UnifiedAttachmentAdapter(), []);
   const query = useQuery({
     queryKey: threadId ? learningKeys.thread(threadId) : ["learning", "thread", "new"],
@@ -119,42 +129,69 @@ function AuthenticatedLearningRuntime({
   }, [operations, pending, threadId, view?.data.messages]);
 
   const onNew = useCallback(async (message: AppendMessage) => {
-    const key = newIdempotencyKey("message");
-    const requestedAt = message.createdAt.toISOString();
-    const optimistic = optimisticMessage(key, message);
-    setPending({ key, threadId, message: optimistic });
+    let parts: UserSubmittedMessagePart[];
     try {
-      let targetThreadId = threadId;
-      let expectedVersion = view?.data.thread.version;
-      if (!targetThreadId) {
-        const created = await learningApi.createThread(`${key}:thread`);
-        targetThreadId = created.thread.thread_id;
-        expectedVersion = created.thread.version;
-        setPending((current) => current?.key === key ? { ...current, threadId: targetThreadId } : current);
-        navigate(`/c/${encodeURIComponent(targetThreadId)}`, { replace: true });
-      }
-      if (expectedVersion === undefined) throw new Error("对话仍在载入，请稍后重试");
-      const receipt = await learningApi.sendMessage({
-        threadId: targetThreadId,
-        key,
-        expectedVersion,
-        parts: appendMessageParts(message),
-        requestedAt,
-      });
-      setPending((current) => current?.key === key ? {
-        ...current,
-        canonicalMessageId: receipt.message_id,
-        message: { ...current.message, id: receipt.message_id },
-      } : current);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: learningKeys.threads }),
-        queryClient.invalidateQueries({ queryKey: learningKeys.thread(targetThreadId) }),
-      ]);
+      parts = appendMessageParts(message);
     } catch (error) {
-      setPending((current) => current?.key === key ? null : current);
-      throw error;
+      throw messageNotSent(error, false);
     }
-  }, [navigate, queryClient, threadId, view?.data.thread.version]);
+
+    let envelope = acquireMessageCommandEnvelope(retryEnvelope.current, {
+      threadId,
+      expectedVersion: view?.data.thread.version,
+      requestedAt: message.createdAt.toISOString(),
+      parts,
+    }, () => newIdempotencyKey("message"));
+    retryEnvelope.current = envelope;
+    const optimistic = optimisticMessage(envelope.key, message, new Date(envelope.requestedAt));
+    setPending({ key: envelope.key, threadId: envelope.threadId, message: optimistic });
+
+    let receipt: Awaited<ReturnType<typeof learningApi.sendMessage>>;
+    let receiptThreadId: string | undefined;
+    try {
+      if (!envelope.threadId) {
+        const created = await learningApi.createThread(
+          `${envelope.key}:thread`,
+          "新对话",
+          envelope.requestedAt,
+        );
+        envelope = bindMessageCommandThread(envelope, created.thread.thread_id, created.thread.version);
+        retryEnvelope.current = envelope;
+        setPending((current) => current?.key === envelope.key
+          ? { ...current, threadId: created.thread.thread_id }
+          : current);
+        navigate(`/c/${encodeURIComponent(created.thread.thread_id)}`, { replace: true });
+      }
+      const targetThreadId = envelope.threadId;
+      if (!targetThreadId) throw new Error("对话标识未建立，请稍后重试");
+      if (envelope.expectedVersion === undefined) throw new Error("对话仍在载入，请稍后重试");
+      receipt = await learningApi.sendMessage({
+        threadId: targetThreadId,
+        key: envelope.key,
+        expectedVersion: envelope.expectedVersion,
+        parts: envelope.parts,
+        requestedAt: envelope.requestedAt,
+      });
+      receiptThreadId = targetThreadId;
+    } catch (error) {
+      setPending((current) => current?.key === envelope.key ? null : current);
+      const outcomeUnknown = messageCommandOutcomeIsUnknown(error);
+      if (!outcomeUnknown && retryEnvelope.current?.key === envelope.key) retryEnvelope.current = null;
+      throw messageNotSent(error, outcomeUnknown);
+    }
+
+    if (retryEnvelope.current?.key === envelope.key) retryEnvelope.current = null;
+    setPending((current) => current?.key === envelope.key ? {
+      ...current,
+      canonicalMessageId: receipt.message_id,
+      message: { ...current.message, id: receipt.message_id },
+    } : current);
+    attachmentAdapter.markCommitted(message.attachments ?? []);
+    await Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: learningKeys.threads }),
+      queryClient.invalidateQueries({ queryKey: learningKeys.thread(receiptThreadId!) }),
+    ]);
+  }, [attachmentAdapter, navigate, queryClient, threadId, view?.data.thread.version]);
 
   const onCancel = activeOperation ? async () => {
     await learningApi.cancelOperation(activeOperation.operation_id, activeOperation.version);
@@ -214,29 +251,43 @@ function appendMessageParts(message: AppendMessage): UserSubmittedMessagePart[] 
     if (!file || !file.data.startsWith("storage-object:obj_")) {
       throw new Error(`附件 ${attachment.name} 缺少可提交的存储引用`);
     }
+    const object = mathpilotObjectMetadata(file.providerMetadata?.mathpilot);
+    if (!object || object.object_ref!==file.data) {
+      throw new Error(`附件 ${attachment.name} 缺少不可变版本信息，请重新上传`);
+    }
     parts.push({
       type: "attachment",
-      attachment_ref: file.data,
-      name: attachment.name,
-      mime_type: file.mimeType,
+      attachment_ref: object.object_ref,
+      name: object.original_name,
+      mime_type: object.mime_type,
+      version_id: object.version_id,
+      sha256: object.sha256,
+      byte_size: object.byte_size,
     });
   }
   if (parts.length === 0) throw new Error("消息内容为空");
   return parts;
 }
 
-function optimisticMessage(key: string, message: AppendMessage): ThreadMessage {
+function optimisticMessage(key: string, message: AppendMessage, createdAt = message.createdAt): ThreadMessage {
   const content = message.content.filter((part): part is ThreadUserMessagePart =>
     part.type === "text" || part.type === "image" || part.type === "file"
       || part.type === "data" || part.type === "audio");
   return {
     id: `optimistic:${key}`,
     role: "user",
-    createdAt: message.createdAt,
+    createdAt,
     content,
     attachments: message.attachments ?? [],
     metadata: { custom: { optimistic: true, idempotencyKey: key }, isOptimistic: true },
   };
+}
+
+function messageNotSent(error: unknown, outcomeUnknown: boolean): MessageNotSentError {
+  if (outcomeUnknown) {
+    return new MessageNotSentError("发送结果尚未确认；再次发送会安全复用同一请求");
+  }
+  return new MessageNotSentError(error instanceof Error ? error.message : "消息未发送");
 }
 
 function canonicalMessage(

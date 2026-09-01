@@ -10,6 +10,7 @@
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
+    "@mathpilot/content-integrity": "workspace:*",
     "@mathpilot/contracts": "workspace:*",
     "@mathpilot/internal-service": "workspace:*",
     "better-auth": "1.6.23",

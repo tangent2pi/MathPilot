@@ -51,6 +51,11 @@ services:
       - minio_data:/data
     ports:
       - "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_PORT:-9000}:9000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   db-migrate:
     image: postgres:16-alpine
@@ -60,6 +65,7 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:-mathpilot-app-dev-only}
+      STORAGE_DB_PASSWORD: ${STORAGE_DB_PASSWORD:?STORAGE_DB_PASSWORD is required}
     volumes:
       - ../../db/migrations:/migrations:ro
       - ../../db/migrate.sh:/migrate.sh:ro
@@ -68,7 +74,7 @@ services:
       - sh
       - -ceu
       - |
-        psql "$${DATABASE_URL}" -v ON_ERROR_STOP=1 -v app_password="$${APP_DB_PASSWORD}" -f /app-role.sql
+        psql "$${DATABASE_URL}" -v ON_ERROR_STOP=1 -v app_password="$${APP_DB_PASSWORD}" -v storage_password="$${STORAGE_DB_PASSWORD}" -f /app-role.sql
         sh /migrate.sh
     restart: "no"
 
@@ -208,7 +214,7 @@ services:
       temporal:
         condition: service_healthy
       storage-next:
-        condition: service_started
+        condition: service_healthy
       internal-identity-preflight:
         condition: service_completed_successfully
     restart: unless-stopped
@@ -261,7 +267,7 @@ services:
       content-next:
         condition: service_started
       storage-next:
-        condition: service_started
+        condition: service_healthy
       internal-identity-preflight:
         condition: service_completed_successfully
 
@@ -302,7 +308,7 @@ services:
       MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING:?API to Storage keyring is required}"
       MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING:?Pi to Storage keyring is required}"
       MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING:?Learning to Storage keyring is required}"
-      DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
+      DATABASE_URL: postgres://mathpilot_storage:${STORAGE_DB_PASSWORD:?STORAGE_DB_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-mathpilot}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
@@ -313,11 +319,16 @@ services:
       db-seed:
         condition: service_completed_successfully
       minio:
-        condition: service_started
+        condition: service_healthy
       internal-identity-preflight:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:${STORAGE_NEXT_PORT:-3017}:3017"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3017/readyz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   web:
     build:
@@ -361,7 +372,7 @@ services:
       content-next:
         condition: service_started
       storage-next:
-        condition: service_started
+        condition: service_healthy
       internal-identity-preflight:
         condition: service_completed_successfully
     ports:

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import pg from "pg";
+import { digestJson, encodeArtifact, verifiedArtifactPayload } from "./artifact-integrity.ts";
 import {
   DEEP_COMPILER_VERSION,
   DEEP_GATE_POLICY_VERSION,
@@ -34,13 +35,6 @@ const artifactIdFromRef = (ref: string): string => {
   return match[1]!;
 };
 
-const jsonArtifact = (value: unknown): { json: string; sha256: string } => {
-  const json = JSON.stringify(value);
-  if (json === undefined) throw new Error("Dream artifact must be JSON serializable");
-  if (Buffer.byteLength(json,"utf8") > 1024*1024) throw new Error("Dream artifact exceeds 1 MiB");
-  return { json,sha256: createHash("sha256").update(json).digest("hex") };
-};
-
 const objectValue = (value: unknown, name: string): Record<string,unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} must be an object`);
   return value as Record<string,unknown>;
@@ -70,7 +64,9 @@ interface DreamRunRow {
 
 interface CommitContext extends DreamRunRow {
   input_payload: unknown;
+  input_sha256: string;
   output_payload: unknown;
+  output_sha256: string;
   agent_attempt_id: string;
   resolved_model_id: string;
   prompt_version: string;
@@ -291,7 +287,7 @@ export class PostgresDreamStore implements DreamStore {
             candidate.actionability,gate.distinctSessionCount,gate.contextDiversity,candidate.recency,
             candidate.source_trust,candidate.recommended_action],
         );
-        const digest = createHash("sha256").update(JSON.stringify({ candidate,gate })).digest("hex");
+        const digest = digestJson({ candidate,gate });
         await client.query(
           `insert into science_v3_rem_candidate_gate(
              tenant_id,rem_candidate_id,gate_status,reasons,policy_version,evidence_digest
@@ -389,7 +385,8 @@ export class PostgresDreamStore implements DreamStore {
     const inputArtifactId = artifactIdFromRef(input.inputRef);
     const outputArtifactId = artifactIdFromRef(input.outputRef);
     const row = (await client.query<CommitContext>(
-      `select run.*,input.payload as input_payload,output.payload as output_payload,
+      `select run.*,input.payload as input_payload,input.sha256 as input_sha256,
+              output.payload as output_payload,output.sha256 as output_sha256,
               attempt.agent_attempt_id,attempt.resolved_model_id,attempt.prompt_version,
               attempt.skill_ref,attempt.completed_at as attempt_completed_at
          from science_v3_dream_run run
@@ -408,6 +405,8 @@ export class PostgresDreamStore implements DreamStore {
       [input.tenantId,input.operationId,input.eventId,phase,inputArtifactId,outputArtifactId,input.outputRef],
     )).rows[0];
     if (!row || !row.resolved_model_id || !row.attempt_completed_at) throw new Error("Dream output is not bound to a completed AgentAttempt");
+    verifiedArtifactPayload({ payload:row.input_payload,sha256:row.input_sha256 }, `${phase} Dream input`);
+    verifiedArtifactPayload({ payload:row.output_payload,sha256:row.output_sha256 }, `${phase} Dream output`);
     if (row.status === "running") return row;
     if (this.isTerminal(row.status) && row.output_artifact_id === outputArtifactId) return row;
     throw new Error("DreamRun is not ready for commit");
@@ -635,7 +634,7 @@ export class PostgresDreamStore implements DreamStore {
         },
         history_is_untrusted_data: true,
       };
-      const artifact = jsonArtifact(payload);
+      const artifact = encodeArtifact(payload);
       await client.query(
         `insert into science_v3_operation(operation_id,tenant_id,requested_by_user_id,kind,status,user_message)
          values($1,$2,$3,'dream','accepted','REM 整理已排队') on conflict (operation_id) do nothing`,
@@ -775,7 +774,7 @@ export class PostgresDreamStore implements DreamStore {
         },
         history_is_untrusted_data: true,
       };
-      const artifact = jsonArtifact(payload);
+      const artifact = encodeArtifact(payload);
       await client.query(
         `insert into science_v3_operation(operation_id,tenant_id,requested_by_user_id,kind,status,user_message)
          values($1,$2,$3,'dream','accepted','Deep 整理已排队') on conflict (operation_id) do nothing`,
@@ -1029,7 +1028,7 @@ export class PostgresDreamStore implements DreamStore {
     const affected = active.filter((annotation) => output.operations.some((operation) =>
       operation.op === "supersede" && operation.annotation_id === annotation.annotation_id));
     const preimage = affected.map((annotation) => annotationJson(annotation));
-    const preimageArtifact = jsonArtifact(preimage);
+    const preimageArtifact = encodeArtifact(preimage);
     const preimageId = idFrom("pre",context.dream_run_id);
     await client.query(
       `insert into science_v3_annotation_preimage(
@@ -1141,10 +1140,10 @@ export class PostgresDreamStore implements DreamStore {
     return this.withTenant(input.tenantId,async (client) => {
       const change = (await client.query<{
         change_set_id: string; student_id: string; preimage_id: string; committed_set_version: string;
-        annotations: unknown; annotation_set_version: string;
+        annotations: unknown; annotation_set_version: string; sha256: string;
       }>(
         `select change.change_set_id,change.student_id,change.preimage_id,change.committed_set_version,
-                preimage.annotations,preimage.annotation_set_version
+                preimage.annotations,preimage.annotation_set_version,preimage.sha256
            from science_v3_annotation_change_set change join science_v3_annotation_preimage preimage
              on preimage.tenant_id=change.tenant_id and preimage.preimage_id=change.preimage_id
           where change.tenant_id=$1 and change.change_set_id=$2 and change.status='committed'`,
@@ -1156,6 +1155,10 @@ export class PostgresDreamStore implements DreamStore {
         [input.tenantId,input.actorUserId],
       );
       if (!teacher.rowCount) throw new Error("only the tenant teacher can rollback annotations");
+      const verifiedPreimage = verifiedArtifactPayload(
+        { payload:change.annotations,sha256:change.sha256 },
+        "annotation preimage",
+      );
       const existing = (await client.query<{
         rollback_id: string; from_set_version: string; to_set_version: string;
         restored_annotation_ids: string[]; retired_annotation_ids: string[];
@@ -1179,7 +1182,8 @@ export class PostgresDreamStore implements DreamStore {
       const fromVersion = Number(head.version);
       const toVersion = fromVersion+1;
       const rollbackId = idFrom("arb",input.changeSetId);
-      const preimage = Array.isArray(change.annotations) ? change.annotations.map((item) => objectValue(item,"preimage annotation")) : [];
+      const preimage = Array.isArray(verifiedPreimage)
+        ? verifiedPreimage.map((item) => objectValue(item,"preimage annotation")) : [];
       const created = (await client.query<{ annotation_id: string }>(
         `select annotation.annotation_id from science_v3_semantic_annotation annotation
           where annotation.tenant_id=$1 and annotation.change_set_id=$2

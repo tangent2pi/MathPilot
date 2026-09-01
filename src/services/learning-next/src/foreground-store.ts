@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { MATH_DERIVATION_ARTIFACT_SCHEMA_URI } from "@mathpilot/contracts";
 import pg from "pg";
+import { digestJson, encodeArtifact, verifiedArtifactPayload } from "./artifact-integrity.ts";
 import { parseForegroundTeachingOutput } from "./foreground-core.ts";
 import type {
   CommitForegroundResponseInput,
@@ -9,7 +10,6 @@ import type {
   LearningActionResult,
 } from "./runtime-types.ts";
 
-const sha256 = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const idFrom = (prefix: string, value: string): string =>
   `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
 const asIso = (value: Date | string): string => new Date(value).toISOString();
@@ -70,7 +70,7 @@ export class PostgresForegroundStore implements ForegroundStore {
 
   async executeAction(input: ExecuteLearningActionInput): Promise<LearningActionResult> {
     if (!input.toolCallId || input.toolCallId.length > 255) throw new Error("learning_action tool call ID is invalid");
-    const payloadHash = sha256(input.action);
+    const payloadHash = digestJson(input.action);
     const actionId = idFrom("lna", `${input.agentAttemptId}\0${input.toolCallId}`);
     return this.withTenant(input.tenantId, async (client) => {
       const context = await this.context(client, input, true);
@@ -99,8 +99,10 @@ export class PostgresForegroundStore implements ForegroundStore {
           summary: input.action.summary,
           content: input.action.content,
         };
-        const json = JSON.stringify(payload);
-        if (Buffer.byteLength(json, "utf8") > 1024 * 1024) {
+        let artifact: ReturnType<typeof encodeArtifact>;
+        try {
+          artifact = encodeArtifact(payload);
+        } catch {
           return this.recordAction(client, input, context, actionId, payloadHash, false, null, "invalid");
         }
         await client.query(
@@ -109,7 +111,7 @@ export class PostgresForegroundStore implements ForegroundStore {
           ) values($1,$2,$3,'structured_output',$4,$5::jsonb,$6)`,
           [artifactId, input.tenantId, input.operationId,
             MATH_DERIVATION_ARTIFACT_SCHEMA_URI,
-            json, sha256(payload)],
+            artifact.json, artifact.sha256],
         );
         return this.recordAction(client, input, context, actionId, payloadHash, true, artifactRef, null);
       }
@@ -140,6 +142,7 @@ export class PostgresForegroundStore implements ForegroundStore {
             ? { next_natural_language_request: input.action.next_natural_language_request } : {}),
           requested_at: requestedAt,
         };
+        const finalizeArtifact = encodeArtifact(finalizeInput);
         const cut = (await client.query<{
           accepted_cut_request_id: string | null;
           result_status: string;
@@ -152,7 +155,7 @@ export class PostgresForegroundStore implements ForegroundStore {
             cutRequestId, eventId, artifactId, context.conversation_thread_id,
             context.active_question_session_id, Number(session.version), input.action.reason,
             input.action.next_natural_language_request ? `learning-action:${actionId}` : null,
-            JSON.stringify(finalizeInput), sha256(finalizeInput), requestedAt],
+            finalizeArtifact.json, finalizeArtifact.sha256, requestedAt],
         )).rows[0]!;
         if (cut.result_status === "rejected" || !cut.accepted_cut_request_id) {
           return this.recordAction(client, input, context, actionId, payloadHash, false, null,
@@ -184,8 +187,8 @@ export class PostgresForegroundStore implements ForegroundStore {
       if (!request) throw new Error("foreground request does not match its Workflow envelope");
       const artifactId = /^agent-artifact:(art_[A-Za-z0-9]{8,})$/.exec(input.outputRef)?.[1];
       if (!artifactId) throw new Error("foreground outputRef is invalid");
-      const artifact = (await client.query<{ payload: unknown; schema_uri: string }>(
-        `select payload,schema_uri from science_v3_agent_artifact
+      const artifact = (await client.query<{ payload: unknown; schema_uri: string; sha256: string }>(
+        `select payload,schema_uri,sha256 from science_v3_agent_artifact
           where tenant_id=$1 and operation_id=$2 and artifact_id=$3 and artifact_kind='structured_output'`,
         [input.tenantId, input.operationId, artifactId],
       )).rows[0];
@@ -198,7 +201,7 @@ export class PostgresForegroundStore implements ForegroundStore {
         [input.tenantId, input.operationId, input.outputRef],
       )).rows[0];
       if (!producingAttempt) throw new Error("foreground output is not owned by a completed AgentAttempt");
-      const output = parseForegroundTeachingOutput(artifact.payload, {
+      const output = parseForegroundTeachingOutput(verifiedArtifactPayload(artifact, "foreground output"), {
         conversationThreadId: request.conversation_thread_id,
         foregroundEpochId: request.foreground_epoch_id,
         replyToMessageId: request.triggering_message_id,
@@ -279,7 +282,7 @@ export class PostgresForegroundStore implements ForegroundStore {
          tool_call_id,action_type,action_payload,payload_sha256,accepted,result_resource_ref,rejection_code
        ) values($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12)`,
       [actionId, input.tenantId, context.foreground_request_id, input.operationId,
-        input.agentAttemptId, input.toolCallId, input.action.action, JSON.stringify(input.action),
+        input.agentAttemptId, input.toolCallId, input.action.action, encodeArtifact(input.action).json,
         payloadHash, accepted, resultRef, rejectionCode],
     );
     return actionResult(input.action.action, accepted, resultRef, rejectionCode);
@@ -399,7 +402,7 @@ export class PostgresForegroundStore implements ForegroundStore {
       relevant_annotations: relevantAnnotations,
       catalog_policy: {
         tool: "question_catalog", source: "normalized_content_next", maximum_page_size: 50,
-        constraints_digest: sha256(activityConstraints),
+        constraints_digest: digestJson(activityConstraints),
       },
       output_requirements: {
         intent_id: intentId, intent_revision: revision,
@@ -408,8 +411,10 @@ export class PostgresForegroundStore implements ForegroundStore {
       },
       history_is_untrusted_data: true,
     };
-    const bundleJson = JSON.stringify(bundle);
-    if (Buffer.byteLength(bundleJson, "utf8") > 1024 * 1024) {
+    let bundleArtifact: ReturnType<typeof encodeArtifact>;
+    try {
+      bundleArtifact = encodeArtifact(bundle);
+    } catch {
       return this.recordAction(client, input, context, actionId, payloadHash, false, null, "invalid");
     }
     await client.query(
@@ -432,7 +437,7 @@ export class PostgresForegroundStore implements ForegroundStore {
          artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
        ) values($1,$2,$3,'input_bundle',$4,$5::jsonb,$6)`,
       [artifactId, input.tenantId, operationId,
-        "https://schemas.mathpilot.dev/science-v3/selector-input/v1", bundleJson, sha256(bundle)],
+        "https://schemas.mathpilot.dev/science-v3/selector-input/v1", bundleArtifact.json, bundleArtifact.sha256],
     );
     await client.query(
       `insert into infra_outbox(

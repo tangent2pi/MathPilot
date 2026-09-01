@@ -9,6 +9,10 @@ import { PiThreadStore, type PiPrincipal, type PiThreadRecord } from "./pi-threa
 import { assemblePiChatWorkspace, bindPiThreadWorkspace } from "./pi-chat-workspace.ts";
 import type { PiChatRuntime } from "./pi-chat-server.ts";
 import { writeHostPrincipal } from "../extensions/lib/host-principal.ts";
+import {
+  materializeHostSourceManifest,
+  sourceManifestFromFrozen,
+} from "../extensions/lib/host-source-manifest.ts";
 
 // The host principal is deliberately persisted outside the model workspace so
 // extensions can read it without exposing it to Bash. A thread must therefore
@@ -162,9 +166,6 @@ export const localThreadAvailable = async (
   record: PiThreadRecord,
   pi: PiClient,
 ): Promise<boolean> => {
-  // The retired archive protocol is intentionally not a compatibility path.
-  // Current Content dispatches operate only on live, locally durable Pi state.
-  if (record.archivedAt || record.minioKey) return false;
   const workspace = workspaceOf(runtime, record);
   const sessionFile = sessionFileOf(runtime, record);
   const workspaceExists = await containedLocalEntryExists(runtime.sessionsRoot, workspace, "directory");
@@ -232,59 +233,73 @@ export function registerPiChatRoutes(
     let operation = erHandoffLocks.get(key);
     if (!operation) {
       operation = (async () => {
-        const record = await ensureErThread(runtime, store, principal, targetThreadId);
-        const workspace = workspaceOf(runtime, record);
-        const markerPath = path.join(workspace, "input", "session", "er-command.json");
-        const existingMarker = await readErCommandMarker(workspace);
-        if (existingMarker && (
-          existingMarker.command_id !== commandId
-          || existingMarker.candidate_set_id !== candidateSetId
-          || existingMarker.target_thread_id !== targetThreadId
-        )) throw new Error("target Pi thread is already assigned to another ER command");
+        const releasePrincipal = reserveThread(activePrincipalByThread, targetThreadId, principal);
+        if (!releasePrincipal) throw new Error("target Pi thread is busy");
+        try {
+          const record = await ensureErThread(runtime, store, principal, targetThreadId);
+          const workspace = workspaceOf(runtime, record);
+          const markerPath = path.join(workspace, "input", "session", "er-command.json");
+          const existingMarker = await readErCommandMarker(workspace);
+          if (existingMarker && (
+            existingMarker.command_id !== commandId
+            || existingMarker.candidate_set_id !== candidateSetId
+            || existingMarker.target_thread_id !== targetThreadId
+          )) throw new Error("target Pi thread is already assigned to another ER command");
 
-        const frozenResponse = await internalService.request(
-          "pi-to-content",
-          actor,
-          `/internal/candidates/${encodeURIComponent(candidateSetId)}/frozen`,
-          { timeoutMs: 30_000 },
-        );
-        if (!frozenResponse.ok) throw new Error(`approved KTQ handoff lookup failed (${frozenResponse.status})`);
-        const frozen = await frozenResponse.json() as Record<string, unknown>;
-        await mkdir(path.dirname(markerPath), { recursive: true });
-        await writeFile(path.join(workspace, "input", "frozen", "ktq.json"), `${JSON.stringify(frozen, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-        await writeHostPrincipal(workspace, actor);
+          const frozenResponse = await internalService.request(
+            "pi-to-content",
+            actor,
+            `/internal/candidates/${encodeURIComponent(candidateSetId)}/frozen`,
+            { timeoutMs: 30_000 },
+          );
+          if (!frozenResponse.ok) throw new Error(`approved KTQ handoff lookup failed (${frozenResponse.status})`);
+          const frozen = await frozenResponse.json() as Record<string, unknown>;
+          const sourceManifest = sourceManifestFromFrozen(frozen);
+          await materializeHostSourceManifest({
+            workspace,
+            manifest: sourceManifest,
+            actor,
+            internalService,
+            signal: AbortSignal.timeout(2 * 60_000),
+          });
+          await mkdir(path.dirname(markerPath), { recursive: true });
+          await writeFile(path.join(workspace, "input", "frozen", "ktq.json"), `${JSON.stringify(frozen, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+          await writeHostPrincipal(workspace, actor);
 
-        if (existingMarker?.status === "sent") {
-          const snapshot = await pi.getThread(targetThreadId);
-          return { record, workspace, snapshot };
-        }
-        if (existingMarker?.status === "starting") {
-          const snapshot = await pi.getThread(targetThreadId);
-          const alreadyPrompted = snapshotContainsUserToken(snapshot, commandId);
-          if (alreadyPrompted) {
-            await writeFile(markerPath, `${JSON.stringify({ ...existingMarker, status: "sent" }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+          if (existingMarker?.status === "sent") {
+            const snapshot = await pi.getThread(targetThreadId);
             return { record, workspace, snapshot };
           }
-        }
+          if (existingMarker?.status === "starting") {
+            const snapshot = await pi.getThread(targetThreadId);
+            const alreadyPrompted = snapshotContainsUserToken(snapshot, commandId);
+            if (alreadyPrompted) {
+              await writeFile(markerPath, `${JSON.stringify({ ...existingMarker, status: "sent" }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+              return { record, workspace, snapshot };
+            }
+          }
 
-        const marker: ErCommandMarker = {
-          schema: "mathpilot.er-start/v1",
-          command_id: commandId,
-          candidate_set_id: candidateSetId,
-          target_thread_id: targetThreadId,
-          status: "starting",
-        };
-        await writeFile(markerPath, `${JSON.stringify(marker, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-        await pi.sendMessage(targetThreadId, {
-          content: [
-            `[MathPilot ER handoff ${commandId}]`,
-            `已批准的 KTQ 候选集为 ${candidateSetId}，完整冻结快照位于 input/frozen/ktq.json。`,
-            "这是一个新的普通对话。请读取 er-research Skill，严格基于冻结的 K/T 维度开展 E/R 研究；不要修改冻结输入，也不要直接发布内容。完成后按 Skill 调用 respond。",
-          ].join("\n"),
-        });
-        await writeFile(markerPath, `${JSON.stringify({ ...marker, status: "sent" }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-        const snapshot = await pi.getThread(targetThreadId);
-        return { record, workspace, snapshot };
+          const marker: ErCommandMarker = {
+            schema: "mathpilot.er-start/v1",
+            command_id: commandId,
+            candidate_set_id: candidateSetId,
+            target_thread_id: targetThreadId,
+            status: "starting",
+          };
+          await writeFile(markerPath, `${JSON.stringify(marker, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+          await pi.sendMessage(targetThreadId, {
+            content: [
+              `[MathPilot ER handoff ${commandId}]`,
+              `已批准的 KTQ 候选集为 ${candidateSetId}，完整冻结快照位于 input/frozen/ktq.json。`,
+              "这是一个新的普通对话。请读取 er-research Skill，严格基于冻结的 K/T 维度开展 E/R 研究；不要修改冻结输入，也不要直接发布内容。完成后按 Skill 调用 respond。",
+            ].join("\n"),
+          });
+          await writeFile(markerPath, `${JSON.stringify({ ...marker, status: "sent" }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+          const snapshot = await pi.getThread(targetThreadId);
+          return { record, workspace, snapshot };
+        } finally {
+          releasePrincipal();
+        }
       })().finally(() => {
         if (erHandoffLocks.get(key) === operation) erHandoffLocks.delete(key);
       });

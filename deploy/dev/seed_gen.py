@@ -887,7 +887,6 @@ def emit() -> None:
     line("  end if;")
     line("end $$;")
     line("grant usage on schema public to mathpilot_app;")
-    line("grant select, insert, update, delete on all tables in schema public to mathpilot_app;")
     line("")
     line("insert into identity_tenant(tenant_id, name)")
     line(f"values ('{TENANT}', 'Dev Tenant') on conflict (tenant_id) do nothing;")

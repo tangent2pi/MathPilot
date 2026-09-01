@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { canonicalJson } from "@mathpilot/content-integrity/node";
 import type pg from "pg";
 import type { Principal } from "./auth.ts";
 import { newId, withTenant } from "./lib.ts";
@@ -115,7 +116,7 @@ function parseCommand(value: unknown): ReviseSelectionIntentCommand {
   };
 }
 
-const sha256 = (value: unknown): string =>
+const commandDigest = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 const toIso = (value: Date | string): string => new Date(value).toISOString();
@@ -178,7 +179,7 @@ export async function reviseSelectionIntent(
   value: unknown,
 ): Promise<ReviseSelectionIntentResult> {
   const command = parseCommand(value);
-  const commandSha256 = sha256(command);
+  const commandSha256 = commandDigest(command);
   return withTenant(pool,principal.tenantId,async (client) => {
     const prior = acceptExisting(
       await findExisting(client,principal.tenantId,command.idempotency_key),
@@ -386,7 +387,7 @@ export async function reviseSelectionIntent(
         tool: "question_catalog",
         source: "normalized_content_next",
         maximum_page_size: 50,
-        constraints_digest: sha256(activityConstraints),
+        constraints_digest: canonicalJson(activityConstraints).sha256,
       },
       output_requirements: {
         intent_id: selectionIntentId,
@@ -396,10 +397,9 @@ export async function reviseSelectionIntent(
       },
       history_is_untrusted_data: true,
     };
-    const inputJson = JSON.stringify(inputBundle);
-    if (Buffer.byteLength(inputJson,"utf8") > 1024*1024) {
-      throw new SelectionCommandError(422, "selector context snapshot exceeds 1 MiB");
-    }
+    let inputArtifact:ReturnType<typeof canonicalJson>;
+    try { inputArtifact=canonicalJson(inputBundle); }
+    catch { throw new SelectionCommandError(422,"selector context snapshot exceeds 1 MiB"); }
 
     await client.query(
       `insert into science_v3_operation(
@@ -420,7 +420,7 @@ export async function reviseSelectionIntent(
       `insert into science_v3_agent_artifact(
          artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
        ) values($1,$2,$3,'input_bundle',$4,$5::jsonb,$6)`,
-      [artifactId,principal.tenantId,operationId,SELECTOR_INPUT_SCHEMA,inputJson,sha256(inputBundle)],
+      [artifactId,principal.tenantId,operationId,SELECTOR_INPUT_SCHEMA,inputArtifact.json,inputArtifact.sha256],
     );
     await client.query(
       `insert into infra_outbox(

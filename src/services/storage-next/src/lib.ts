@@ -52,11 +52,3 @@ export async function withPrincipal<T>(
 export function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
 }
-
-export function stringValue(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value.trim() : fallback;
-}
-
-export function finiteInteger(value: unknown, fallback = 0): number {
-  return typeof value === "number" && Number.isSafeInteger(value) ? value : fallback;
-}

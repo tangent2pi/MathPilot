@@ -2,20 +2,13 @@
  * One launcher for every MCP capability. Sandbox Runtime owns the Linux
  * sandbox implementation; this file only selects a capability policy.
  */
-import { spawn } from "node:child_process";
 import { chmod, mkdtemp, realpath, rm, stat } from "node:fs/promises";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import { mathPilotSandboxConfig, safeSandboxEnvironment, spawnOfficialSandbox } from "../sandbox-runtime.ts";
 
 type Capability = "core" | "search" | "ocr";
-
-const SYSTEM_READ_PATHS = ["/usr", "/bin", "/lib", "/lib64", "/etc"];
-const SANDBOX_RUNTIME_VENDOR = path.join(
-  path.dirname(createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime/package.json")),
-  "vendor",
-);
 
 const definitions = {
   core: {
@@ -84,21 +77,14 @@ const safeEnvironment = (
   home: string,
 ): NodeJS.ProcessEnv => {
   const definition = definitions[capability];
-  const env: NodeJS.ProcessEnv = {
-    HOME: home,
-    TMPDIR: home,
-    XDG_CACHE_HOME: home,
-    PATH: `${definition.packageRoot}/bin:/usr/local/bin:/usr/bin:/bin`,
-    LANG: "C.UTF-8",
-    LC_ALL: "C.UTF-8",
-    PYTHONUNBUFFERED: "1",
-    PYTHONDONTWRITEBYTECODE: "1",
+  const extra: Record<string,string> = {
+    XDG_CACHE_HOME:home,PYTHONUNBUFFERED:"1",PYTHONDONTWRITEBYTECODE:"1",
   };
   for (const name of definition.nonSecretEnv) {
     const value = process.env[name];
-    if (value !== undefined) env[name] = value;
+    if (value !== undefined) extra[name] = value;
   }
-  return env;
+  return safeSandboxEnvironment({ home,path:`${definition.packageRoot}/bin:/usr/local/bin:/usr/bin:/bin`,extra });
 };
 
 const capabilityConfig = (
@@ -123,44 +109,12 @@ const capabilityConfig = (
     ? [executionRoot]
     : [path.join(workspace, "output"), path.join(workspace, "tmp")];
 
-  return {
-    network: {
-      allowedDomains,
-      deniedDomains: [],
-      strictAllowlist: true,
-      // This deployment itself is nested under a container seccomp filter,
-      // which prevents SRT's optional apply-seccomp helper from creating its
-      // second user namespace. Unix sockets still cannot reach the host:
-      // bwrap has a private network namespace and deny-root filesystem.
-      allowAllUnixSockets: true,
-      ...(allowedDomains.length > 0 ? { tlsTerminate: {} } : {}),
-    },
-    filesystem: {
-      denyRead: ["/", "/sys", path.join(workspace, ".agent")],
-      allowRead: [
-        path.join(workspace, "AGENTS.md"),
-        path.join(workspace, "input"),
-        path.join(workspace, "task"),
-        definition.packageRoot,
-        SANDBOX_RUNTIME_VENDOR,
-        ...SYSTEM_READ_PATHS,
-      ],
-      allowWrite: workspaceWrites,
-      denyWrite: [path.join(workspace, "input"), path.join(workspace, ".agent")],
-    },
-    ...(credentials.length > 0
-      ? {
-          credentials: {
-            envVars: credentials.map(({ name, host }) => ({
-              name,
-              mode: "mask" as const,
-              injectHosts: [host],
-            })),
-          },
-        }
-      : {}),
-    enableWeakerNestedSandbox: false,
-  };
+  return mathPilotSandboxConfig({
+    workspace,allowedDomains,
+    allowRead:[path.join(workspace,"AGENTS.md"),path.join(workspace,"input"),path.join(workspace,"task"),definition.packageRoot],
+    allowWrite:workspaceWrites,
+    ...(credentials.length>0 ? { credentials:{ envVars:credentials.map(({ name,host }) => ({ name,mode:"mask" as const,injectHosts:[host] })) } } : {}),
+  });
 };
 
 const run = async (): Promise<number> => {
@@ -179,32 +133,23 @@ const run = async (): Promise<number> => {
     const config = capabilityConfig(capability, workspace, executionRoot);
     await SandboxManager.initialize(config);
     const definition = definitions[capability];
-    const descriptor = await SandboxManager.wrapWithSandboxArgv(
-      `exec ${definition.executable}`,
-      "/bin/bash",
-      config,
-      undefined,
-      executionRoot,
-    );
-    // Spawn the official descriptor as the service identity. In strong Linux
-    // mode SRT itself always creates a user namespace and drops every
-    // capability, including when the container service has uid 0.
-    const child = spawn(descriptor.argv[0]!, descriptor.argv.slice(1), {
-      cwd: executionRoot,
-      env: safeEnvironment(capability, home),
-      stdio: "inherit",
+    const child = await spawnOfficialSandbox({
+      command:`exec ${definition.executable}`,cwd:executionRoot,config,
+      env:safeEnvironment(capability,home),stdio:"inherit",
     });
     const forward = (signal: NodeJS.Signals) => child.kill(signal);
     process.once("SIGINT", forward);
     process.once("SIGTERM", forward);
-    const code = await new Promise<number>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", (childCode, childSignal) => resolve(childCode ?? (childSignal ? 1 : 0)));
-    });
-    process.removeListener("SIGINT", forward);
-    process.removeListener("SIGTERM", forward);
-    SandboxManager.cleanupAfterCommand();
-    return code;
+    try {
+      return await new Promise<number>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", (childCode, childSignal) => resolve(childCode ?? (childSignal ? 1 : 0)));
+      });
+    } finally {
+      process.removeListener("SIGINT", forward);
+      process.removeListener("SIGTERM", forward);
+      SandboxManager.cleanupAfterCommand();
+    }
   } finally {
     await SandboxManager.reset().catch(() => undefined);
     if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });

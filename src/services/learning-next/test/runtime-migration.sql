@@ -16,12 +16,12 @@ insert into science_v3_agent_artifact (
   'art_runtimeinput1', 'tnt_dev00001', 'op_runtime0001', 'input_bundle',
   'https://schemas.mathpilot.dev/science-v3/selector-input/v1',
   '{"schema_version":3}'::jsonb,
-  repeat('0', 64)
+  'd27d5fd0edbe2397ccd286daf420dc58c3ff4dff1d08a60724d5d88768a5673d'
 ), (
   'art_runtimeoutput1', 'tnt_dev00001', 'op_runtime0001', 'structured_output',
   'https://schemas.mathpilot.dev/science-v3/selection-decision/v1',
   '{"question_ref":"question:q1"}'::jsonb,
-  repeat('1', 64)
+  'c2d747a95ad2323b64a931d2d15dd7ef113b193eac8a5a2b02d313be77f46349'
 );
 
 insert into infra_outbox (

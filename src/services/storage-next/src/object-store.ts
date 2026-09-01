@@ -1,93 +1,297 @@
-import { createHash } from "node:crypto";
-import type { Readable } from "node:stream";
-import { Client as MinioClient, type BucketItemStat } from "minio";
+import { Readable } from "node:stream";
+import {
+  CreateBucketCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadBucketCommand,
+  HeadObjectCommand,
+  PutBucketLifecycleConfigurationCommand,
+  PutBucketVersioningCommand,
+  PutObjectCommand,
+  S3Client,
+  type S3ClientConfig,
+} from "@aws-sdk/client-s3";
+import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 export const BUCKETS = ["mathpilot-content", "mathpilot-working", "mathpilot-session"] as const;
 export type BucketName = (typeof BUCKETS)[number];
+export type DataPlaneAudience = "public" | "internal";
 
-type Endpoint = { client: MinioClient; origin: string };
-export type PresignAudience = "public" | "internal";
-
-function endpoint(value: string, accessKey: string, secretKey: string, region: string): Endpoint {
-  const parsed = new URL(value.includes("://") ? value : `http://${value}`);
-  if (!parsed.hostname) throw new Error("MinIO endpoint host is required");
-  return {
-    client: new MinioClient({
-      endPoint: parsed.hostname,
-      port: parsed.port ? Number(parsed.port) : parsed.protocol === "https:" ? 443 : 80,
-      useSSL: parsed.protocol === "https:",
-      accessKey,
-      secretKey,
-      region,
-      pathStyle: true,
-    }),
-    origin: `${parsed.protocol}//${parsed.host}`,
-  };
+export interface ObjectStoreConfiguration {
+  readonly endpoint: string;
+  readonly publicEndpoint: string;
+  readonly accessKey: string;
+  readonly secretKey: string;
+  readonly region: string;
+  readonly connectionTimeoutMs: number;
+  readonly requestTimeoutMs: number;
+  readonly socketTimeoutMs: number;
+  readonly maxAttempts: number;
 }
 
-export interface VerifiedObject {
-  stat: BucketItemStat;
-  sha256: string;
+interface Endpoint {
+  readonly client: S3Client;
+}
+
+function endpoint(value: string, config: ObjectStoreConfiguration): Endpoint {
+  const parsed = new URL(value.includes("://") ? value : `http://${value}`);
+  if (!parsed.hostname) throw new Error("S3 endpoint host is required");
+  if (parsed.username || parsed.password) throw new Error("S3 endpoint must not contain credentials");
+
+  const clientConfig: S3ClientConfig = {
+    endpoint: parsed.toString(),
+    forcePathStyle: true,
+    region: config.region,
+    credentials: { accessKeyId: config.accessKey, secretAccessKey: config.secretKey },
+    maxAttempts: config.maxAttempts,
+    requestHandler: new NodeHttpHandler({
+      connectionTimeout: config.connectionTimeoutMs,
+      requestTimeout: config.requestTimeoutMs,
+      socketTimeout: config.socketTimeoutMs,
+      throwOnRequestTimeout: true,
+    }),
+  };
+  return { client: new S3Client(clientConfig) };
+}
+
+function abortIfRequested(signal: AbortSignal): void {
+  signal.throwIfAborted();
+}
+
+function isMissingBucket(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const value = error as { name?: unknown; $metadata?: { httpStatusCode?: unknown } };
+  return value.$metadata?.httpStatusCode === 404
+    || value.name === "NotFound"
+    || value.name === "NoSuchBucket";
+}
+
+function requiredVersionId(value: string | undefined, operation: string): string {
+  if (!value) throw new Error(`S3 did not return an immutable ${operation} version`);
+  return value;
+}
+
+function requiredEtag(value: string | undefined, operation: string): string {
+  if (!value) throw new Error(`S3 did not return an ${operation} ETag`);
+  return value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+}
+
+function nodeReadable(body: unknown): Readable {
+  if (body instanceof Readable) return body;
+  if (body && typeof body === "object" && "transformToWebStream" in body
+    && typeof body.transformToWebStream === "function") {
+    const webStream = body.transformToWebStream();
+    return Readable.fromWeb(webStream as Parameters<typeof Readable.fromWeb>[0]);
+  }
+  throw new Error("S3 GetObject did not return a Node-readable body");
+}
+
+export interface UploadPostPolicy {
+  readonly url: string;
+  readonly fields: Readonly<Record<string, string>>;
+}
+
+export interface SourceObjectStat {
+  readonly size: number;
+  readonly etag: string;
+  readonly versionId: string;
+  readonly lastModified?: Date;
+  readonly metadata: Readonly<Record<string, string>>;
+}
+
+export interface StoredVersion {
+  readonly etag: string;
+  readonly versionId: string;
 }
 
 export class ObjectStore {
   private readonly internal: Endpoint;
   private readonly public: Endpoint;
-  private readonly buckets = new Set<BucketName>();
+  private readonly initialized = new Set<BucketName>();
 
-  constructor(config: { endpoint: string; publicEndpoint: string; accessKey: string; secretKey: string; region: string }) {
-    this.internal = endpoint(config.endpoint, config.accessKey, config.secretKey, config.region);
-    this.public = endpoint(config.publicEndpoint, config.accessKey, config.secretKey, config.region);
+  constructor(config: ObjectStoreConfiguration) {
+    this.internal = endpoint(config.endpoint, config);
+    this.public = endpoint(config.publicEndpoint, config);
   }
 
-  get publicOrigin(): string {
-    return this.public.origin;
-  }
-
-  async ensureBuckets(): Promise<void> {
+  async ensureBuckets(signal: AbortSignal): Promise<void> {
     for (const bucket of BUCKETS) {
-      if (this.buckets.has(bucket)) continue;
-      if (!(await this.internal.client.bucketExists(bucket))) await this.internal.client.makeBucket(bucket);
-      // MinIO accepts the S3 versioning configuration used here.  Repeating
-      // this call is harmless and repairs a bucket created by an older local
-      // compose volume.
-      await this.internal.client.setBucketVersioning(bucket, { Status: "Enabled" });
-      this.buckets.add(bucket);
+      abortIfRequested(signal);
+      if (this.initialized.has(bucket)) continue;
+      try {
+        await this.internal.client.send(new HeadBucketCommand({ Bucket: bucket }), { abortSignal: signal });
+      } catch (error) {
+        if (!isMissingBucket(error)) throw error;
+        await this.internal.client.send(new CreateBucketCommand({ Bucket: bucket }), { abortSignal: signal });
+      }
+      await this.internal.client.send(new PutBucketVersioningCommand({
+        Bucket: bucket,
+        VersioningConfiguration: { Status: "Enabled" },
+      }), { abortSignal: signal });
+      await this.internal.client.send(new PutBucketLifecycleConfigurationCommand({
+        Bucket: bucket,
+        LifecycleConfiguration: {
+          Rules: [
+            {
+              ID: "mathpilot-quarantine-expiry",
+              Status: "Enabled",
+              Filter: { Prefix: "quarantine/" },
+              Expiration: { Days: 1 },
+              NoncurrentVersionExpiration: { NoncurrentDays: 1 },
+              AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+            },
+            {
+              ID: "mathpilot-canonical-noncurrent-expiry",
+              Status: "Enabled",
+              Filter: { Prefix: "objects/" },
+              NoncurrentVersionExpiration: { NoncurrentDays: 1 },
+              AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+            },
+          ],
+        },
+      }), { abortSignal: signal });
+      this.initialized.add(bucket);
     }
   }
 
-  async presignedPut(bucket: BucketName, key: string, expiresSeconds: number): Promise<string> {
-    await this.ensureBuckets();
-    return this.public.client.presignedPutObject(bucket, key, expiresSeconds);
+  async createUploadPolicy(input: {
+    audience: DataPlaneAudience;
+    bucket: BucketName;
+    key: string;
+    mimeType: string;
+    byteSize: number;
+    expiresAt: Date;
+    objectId: string;
+  }, signal: AbortSignal): Promise<UploadPostPolicy> {
+    await this.ensureBuckets(signal);
+    abortIfRequested(signal);
+    const selected = input.audience === "public" ? this.public : this.internal;
+    const expires = Math.floor((input.expiresAt.getTime() - Date.now()) / 1_000);
+    if (expires < 1) throw new Error("S3 upload policy expiry must be in the future");
+    const signed = await createPresignedPost(selected.client, {
+      Bucket: input.bucket,
+      Key: input.key,
+      Expires: expires,
+      Fields: {
+        "Content-Type": input.mimeType,
+        "x-amz-meta-mathpilot-object-id": input.objectId,
+      },
+      Conditions: [
+        ["eq", "$Content-Type", input.mimeType],
+        ["eq", "$x-amz-meta-mathpilot-object-id", input.objectId],
+        ["content-length-range", input.byteSize, input.byteSize],
+      ],
+    });
+    abortIfRequested(signal);
+    return Object.freeze({
+      url: signed.url,
+      fields: Object.freeze(Object.fromEntries(
+        Object.entries(signed.fields).map(([key, value]) => [key, String(value)]),
+      )),
+    });
   }
 
-  async presignedInternalPut(bucket: BucketName, key: string, expiresSeconds: number): Promise<string> {
-    await this.ensureBuckets();
-    return this.internal.client.presignedPutObject(bucket, key, expiresSeconds);
-  }
-
-  async presignedGet(bucket: BucketName, key: string, expiresSeconds: number, versionId?: string | null): Promise<string> {
-    await this.ensureBuckets();
-    return this.public.client.presignedGetObject(bucket, key, expiresSeconds, versionId ? { versionId } : undefined);
-  }
-
-  async presignedInternalGet(bucket: BucketName, key: string, expiresSeconds: number, versionId?: string | null): Promise<string> {
-    await this.ensureBuckets();
-    return this.internal.client.presignedGetObject(bucket, key, expiresSeconds, versionId ? { versionId } : undefined);
-  }
-
-  async verify(bucket: BucketName, key: string, expectedSize: number, expectedMime: string): Promise<VerifiedObject> {
-    await this.ensureBuckets();
-    const stat = await this.internal.client.statObject(bucket, key);
-    if (stat.size !== expectedSize) throw new Error(`object size mismatch: expected ${expectedSize}, got ${stat.size}`);
-    const metadata = stat.metaData ?? {};
-    const contentType = Object.entries(metadata).find(([name]) => name.toLowerCase() === "content-type")?.[1];
-    if (typeof contentType === "string" && contentType && contentType.split(";", 1)[0]!.toLowerCase() !== expectedMime.toLowerCase()) {
-      throw new Error("object MIME type mismatch");
+  async statSource(
+    bucket: BucketName,
+    key: string,
+    versionId: string | undefined,
+    signal: AbortSignal,
+  ): Promise<SourceObjectStat> {
+    await this.ensureBuckets(signal);
+    const value = await this.internal.client.send(new HeadObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      VersionId: versionId,
+    }), { abortSignal: signal });
+    if (value.ContentLength === undefined || value.ContentLength < 0) {
+      throw new Error("S3 did not return the source object size");
     }
-    const stream = await this.internal.client.getObject(bucket, key);
-    const hash = createHash("sha256");
-    for await (const chunk of stream as Readable) hash.update(chunk as Uint8Array);
-    return { stat, sha256: hash.digest("hex") };
+    return Object.freeze({
+      size: value.ContentLength,
+      etag: requiredEtag(value.ETag, "source object"),
+      versionId: requiredVersionId(value.VersionId, "source object"),
+      ...(value.LastModified ? { lastModified: value.LastModified } : {}),
+      metadata: Object.freeze({ ...(value.Metadata ?? {}) }),
+    });
+  }
+
+  async openSource(bucket: BucketName, key: string, versionId: string, signal: AbortSignal): Promise<Readable> {
+    await this.ensureBuckets(signal);
+    const value = await this.internal.client.send(new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      VersionId: versionId,
+    }), { abortSignal: signal });
+    if (value.VersionId && value.VersionId !== versionId) {
+      throw new Error("S3 returned a different source object version");
+    }
+    return nodeReadable(value.Body);
+  }
+
+  async putCanonical(input: {
+    bucket: BucketName;
+    key: string;
+    stream: Readable;
+    byteSize: number;
+    mimeType: string;
+    sha256: string;
+    objectId: string;
+  }, signal: AbortSignal): Promise<StoredVersion> {
+    await this.ensureBuckets(signal);
+    const value = await this.internal.client.send(new PutObjectCommand({
+      Bucket: input.bucket,
+      Key: input.key,
+      Body: input.stream,
+      ContentLength: input.byteSize,
+      ContentType: input.mimeType,
+      Metadata: {
+        "mathpilot-object-id": input.objectId,
+        "mathpilot-sha256": input.sha256,
+      },
+    }), { abortSignal: signal });
+    return Object.freeze({
+      etag: requiredEtag(value.ETag, "canonical object"),
+      versionId: requiredVersionId(value.VersionId, "canonical object"),
+    });
+  }
+
+  async removeVersion(bucket: BucketName, key: string, versionId: string, signal: AbortSignal): Promise<void> {
+    await this.ensureBuckets(signal);
+    await this.internal.client.send(new DeleteObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      VersionId: versionId,
+    }), { abortSignal: signal });
+  }
+
+  async presignedDownload(input: {
+    audience: DataPlaneAudience;
+    bucket: BucketName;
+    key: string;
+    versionId: string;
+    expiresSeconds: number;
+    mimeType: string;
+    originalName: string;
+  }, signal: AbortSignal): Promise<string> {
+    await this.ensureBuckets(signal);
+    abortIfRequested(signal);
+    const selected = input.audience === "public" ? this.public : this.internal;
+    const filename = input.originalName.replace(/[\r\n"\\]/g, "_").slice(0, 180) || "object";
+    const value = await getSignedUrl(selected.client, new GetObjectCommand({
+      Bucket: input.bucket,
+      Key: input.key,
+      VersionId: input.versionId,
+      ResponseContentType: input.mimeType,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+    }), { expiresIn: input.expiresSeconds });
+    abortIfRequested(signal);
+    return value;
+  }
+
+  close(): void {
+    this.internal.client.destroy();
+    this.public.client.destroy();
   }
 }

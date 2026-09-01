@@ -357,10 +357,7 @@ export interface WorkspaceProjectionFile {
 
 export interface WorkspaceProjectionObject {
   path: string;
-  objectId: string;
-  mimeType: string;
-  byteSize: number;
-  sha256: string;
+  descriptor: import("@mathpilot/content-integrity").ImmutableObjectDescriptor;
 }
 
 export interface WorkspaceProjectionManifestItem {
@@ -394,13 +391,13 @@ export interface WorkspaceProjection {
 }
 
 export interface WorkspaceObjectReader {
-  read(input: {
+  materialize(input: {
     tenantId: string;
     accountUserId: string;
     roles: readonly ("student" | "teacher")[];
-    object: WorkspaceProjectionObject;
+    objects: readonly { object: WorkspaceProjectionObject; destination: string }[];
     signal: AbortSignal;
-  }): Promise<Buffer>;
+  }): Promise<void>;
 }
 
 export interface PiExecutorRequest {
@@ -474,3 +471,4 @@ export interface LearningNextActivities {
   }): Promise<void>;
   commitForegroundResponse(input: CommitForegroundResponseInput): Promise<ForegroundResponseCommitResult>;
 }
+export const MAXIMUM_WORKSPACE_PROJECTION_BYTES = 64 * 1024 * 1024;

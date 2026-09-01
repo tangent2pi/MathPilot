@@ -1,192 +1,280 @@
-/** Pi 插件式结构化出口；不修改 Pi 本体。 */
-import { createHash } from "node:crypto";
+/** Pi plugin structured exit; byte ownership stays in the shared integrity + Storage mechanisms. */
+import { openAsBlob } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  type ImmutableObjectDescriptor,
+} from "@mathpilot/content-integrity";
+import type { SealedContent } from "@mathpilot/content-integrity/node";
+import { publishStorageObject } from "@mathpilot/content-integrity/publication";
 import { configuredInternalService } from "@mathpilot/internal-service";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { listBoundAttachments } from "./attachments/manifest.ts";
 import { readHostPrincipal } from "./lib/host-principal.ts";
-import { validateContentRespond } from "./lib/content-result-validation.ts";
+import {
+  candidateSourceObjects,
+  readHostSourceManifest,
+} from "./lib/host-source-manifest.ts";
+import { validateContentRespond, type ValidatedContentResult } from "./lib/content-result-validation.ts";
 
 type HostPrincipal = Awaited<ReturnType<typeof readHostPrincipal>>;
-
-const normalizeInputReference = (value: string): string => {
-  const normalized = path.posix.normalize(value.replaceAll("\\", "/"));
-  return normalized.startsWith("input/") ? normalized : `input/${normalized}`;
+type AuditPair = readonly [ImmutableObjectDescriptor, ImmutableObjectDescriptor];
+type CandidateRegistration = {
+  created: boolean;
+  resultObjectId: string;
+  receiptObjectId: string;
+  resultSha256: string;
 };
 
-async function sourceObjectsForResult(cwd: string, result: Record<string, unknown>): Promise<Array<{
-  workspace_path: string;
-  object_id: string;
-  version_id: string;
-  sha256: string;
-}>> {
-  const references = new Set<string>();
-  if (result.schema === "mathpilot.ktq-result/v1" && Array.isArray(result.questions)) {
-    for (const questionValue of result.questions) {
-      if (!questionValue || typeof questionValue !== "object" || Array.isArray(questionValue)) continue;
-      const question = questionValue as Record<string, unknown>;
-      const source = question.source && typeof question.source === "object" && !Array.isArray(question.source)
-        ? question.source as Record<string, unknown>
-        : undefined;
-      if (typeof source?.path === "string") references.add(normalizeInputReference(source.path));
-      if (Array.isArray(question.image_refs)) {
-        for (const value of question.image_refs) if (typeof value === "string") references.add(normalizeInputReference(value));
-      }
-    }
+const objectValue = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+
+const parseCandidateRegistration = (body: Record<string, unknown>): CandidateRegistration => {
+  const value = objectValue(body.registration);
+  if (
+    !value
+    || typeof value.created !== "boolean"
+    || typeof value.result_object_id !== "string"
+    || typeof value.receipt_object_id !== "string"
+    || typeof value.result_sha256 !== "string"
+    || !/^[0-9a-f]{64}$/.test(value.result_sha256)
+  ) {
+    throw new Error("content candidate registration response is missing its object claim receipt");
   }
-  if (!references.size) return [];
-  const attachments = await listBoundAttachments(cwd);
-  const byPath = new Map(attachments.map((attachment) => [attachment.workspacePath, attachment]));
-  return [...references].map((workspacePath) => {
-    const attachment = byPath.get(workspacePath);
-    if (!attachment) throw new Error(`validated source is not backed by a registered storage object: ${workspacePath}`);
-    return {
-      workspace_path: workspacePath,
-      object_id: attachment.storageObjectId,
-      version_id: attachment.versionId,
-      sha256: attachment.sha256,
-    };
+  return {
+    created: value.created,
+    resultObjectId: value.result_object_id,
+    receiptObjectId: value.receipt_object_id,
+    resultSha256: value.result_sha256,
+  };
+};
+
+export const candidateRegistrationDisposition = (
+  body: Record<string, unknown>,
+  audits: AuditPair,
+  resultSha256: string,
+): { claimed: boolean; replayed: boolean } => {
+  const registration = parseCandidateRegistration(body);
+  if (registration.resultSha256 !== resultSha256) {
+    throw new Error("content candidate registration response changed the sealed result digest");
+  }
+  const claimed = registration.resultObjectId === audits[0].object_id
+    && registration.receiptObjectId === audits[1].object_id;
+  if (registration.created && !claimed) {
+    throw new Error("content candidate registration claimed different audit objects");
+  }
+  return { claimed, replayed: !registration.created };
+};
+
+async function removeUnclaimed(objectId: string, principal: HostPrincipal): Promise<void> {
+  await configuredInternalService("pi-chat-runtime").request(
+    "pi-to-storage",
+    principal,
+    `/internal/objects/${encodeURIComponent(objectId)}`,
+    { method: "DELETE", timeoutMs: 10_000, signal: AbortSignal.timeout(10_000) },
+  ).catch(() => undefined);
+}
+
+const removeUnclaimedPair = async (pair: AuditPair, principal: HostPrincipal): Promise<void> => {
+  await Promise.all(pair.map((object) => removeUnclaimed(object.object_id, principal)));
+};
+
+async function storeCandidateAudit(
+  sealed: SealedContent,
+  originalName: string,
+  principal: HostPrincipal,
+  signal?: AbortSignal,
+): Promise<ImmutableObjectDescriptor> {
+  const runtime = configuredInternalService("pi-chat-runtime");
+  return publishStorageObject({
+    request: {
+      purpose: "candidate",
+      mime_type: sealed.stored.mimeType,
+      byte_size: sealed.stored.byteSize,
+      original_name: path.basename(originalName),
+    },
+    ...(signal ? { signal } : {}),
+    expectedStored: sealed.stored,
+    adapter: {
+      async initialize(request,requestSignal) {
+        const response = await runtime.request("pi-to-storage", principal, "/internal/objects/init", {
+          method:"POST",json:request,signal:requestSignal,timeoutMs:30_000,
+        });
+        if (!response.ok) throw new Error(`candidate audit object init failed (${response.status})`);
+        return response.json();
+      },
+      async upload(descriptor,requestSignal) {
+        const form = new FormData();
+        for (const [name,value] of Object.entries(descriptor.upload.fields)) form.append(name,value);
+        form.append("file",await openAsBlob(sealed.storedPath,{ type:sealed.stored.mimeType }),path.basename(originalName));
+        const response = await fetch(descriptor.upload.url,{ method:"POST",body:form,signal:requestSignal });
+        if (!response.ok) throw new Error(`candidate audit object upload failed (${response.status})`);
+      },
+      async complete(objectId,requestSignal) {
+        const response = await runtime.request(
+          "pi-to-storage",principal,`/internal/objects/${encodeURIComponent(objectId)}/complete`,
+          { method:"POST",json:{},signal:requestSignal,timeoutMs:5*60_000 },
+        );
+        if (!response.ok) throw new Error(`candidate audit object verification failed (${response.status})`);
+        return response.json();
+      },
+      async removeUnclaimed(objectId) { await removeUnclaimed(objectId,principal); },
+    },
   });
 }
 
-async function storeCandidateAuditFile(
-  cwd: string,
-  relativeFile: string,
-  principal: NonNullable<HostPrincipal>,
+async function publishAuditPair(
+  validated: ValidatedContentResult,
+  principal: HostPrincipal,
   signal?: AbortSignal,
-): Promise<{ objectId: string; sha256: string; versionId: string }> {
-  const bytes = await readFile(path.resolve(cwd, relativeFile));
-  const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const internalService = configuredInternalService("pi-chat-runtime");
-  const initialized = await internalService.request("pi-to-storage", principal, "/internal/objects/init", {
-    method: "POST",
-    json: {
-      purpose: "candidate",
-      mime_type: "application/json",
-      byte_size: bytes.length,
-      original_name: path.basename(relativeFile),
-      audience: "runtime",
-    },
-    ...(signal ? { signal } : {}),
-    timeoutMs: 30_000,
-  });
-  const initBody = await initialized.json().catch(() => ({})) as { object_id?: unknown; upload_url?: unknown };
-  if (!initialized.ok || typeof initBody.object_id !== "string" || typeof initBody.upload_url !== "string") throw new Error(`candidate audit object init failed (${initialized.status})`);
-  const uploaded = await fetch(initBody.upload_url, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: bytes,
-    signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(5 * 60_000)])
-      : AbortSignal.timeout(5 * 60_000),
-  });
-  if (!uploaded.ok) throw new Error(`candidate audit object upload failed (${uploaded.status})`);
-  const completed = await internalService.request(
-    "pi-to-storage",
-    principal,
-    `/internal/objects/${encodeURIComponent(initBody.object_id)}/complete`,
-    {
-      method: "POST",
-      json: { sha256 },
-      ...(signal ? { signal } : {}),
-      timeoutMs: 5 * 60_000,
-    },
-  );
-  const completeBody = await completed.json().catch(() => ({})) as { sha256?: unknown; version_id?: unknown };
-  if (!completed.ok || completeBody.sha256 !== sha256 || typeof completeBody.version_id !== "string" || !completeBody.version_id) throw new Error(`candidate audit object verification failed (${completed.status})`);
-  return { objectId: initBody.object_id, sha256, versionId: completeBody.version_id };
+): Promise<AuditPair> {
+  const results = await Promise.allSettled([
+    storeCandidateAudit(validated.resultSealed, validated.resultFile, principal, signal),
+    storeCandidateAudit(validated.receiptSealed, validated.validationFile, principal, signal),
+  ]);
+  const failure = results.find((value): value is PromiseRejectedResult => value.status === "rejected");
+  if (failure) {
+    await Promise.all(results.flatMap((value) => value.status === "fulfilled"
+      ? [removeUnclaimed(value.value.object_id, principal)]
+      : []));
+    throw failure.reason;
+  }
+  return [
+    (results[0] as PromiseFulfilledResult<ImmutableObjectDescriptor>).value,
+    (results[1] as PromiseFulfilledResult<ImmutableObjectDescriptor>).value,
+  ];
 }
+
+const publicValidationDetails = (validated: ValidatedContentResult): Record<string, unknown> => ({
+  kind: validated.kind,
+  schema: validated.schema,
+  resultFile: validated.resultFile,
+  validationFile: validated.validationFile,
+  sha256: validated.sha256,
+  itemCount: validated.itemCount,
+});
 
 export default async (pi: ExtensionAPI) => {
   pi.registerTool({
     name: "respond",
     label: "Respond",
-    description:
-      "提交最终结果。KTQ/ER 必须引用已经由对应 Skill 验证的工作区文件；其他任务可使用 output。",
+    description: "提交最终结果。KTQ/ER 必须引用已经由对应 Skill 验证的工作区文件；其他任务可使用 output。",
     parameters: Type.Object({
       output: Type.Optional(Type.Unknown()),
       result_file: Type.Optional(Type.String()),
       validation_file: Type.Optional(Type.String()),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, context) {
-      const principal = params.result_file || params.validation_file
-        ? await readHostPrincipal(context.cwd)
-        : undefined;
+    async execute(toolCallId, params, signal, _onUpdate, context) {
+      const contentSubmission = params.result_file !== undefined || params.validation_file !== undefined;
+      const principal = contentSubmission ? await readHostPrincipal(context.cwd) : undefined;
       if (principal && !principal.roles.includes("teacher")) {
         throw new Error("KTQ/ER content respond requires a teacher principal");
       }
-      const validated = params.result_file || params.validation_file
+      const validated = contentSubmission
         ? await validateContentRespond(context.cwd, params)
         : undefined;
       let registered: Record<string, unknown> | undefined;
-      if (validated && principal) {
-        const threadManifest = JSON.parse(await readFile(path.join(context.cwd, "input", "session", "thread.json"), "utf8")) as { thread_id?: unknown };
-        if (typeof threadManifest.thread_id !== "string" || !threadManifest.thread_id) throw new Error("Pi thread manifest is missing");
-        const result = JSON.parse(await readFile(path.resolve(context.cwd, validated.resultFile), "utf8")) as Record<string, unknown>;
-        const sourceObjects = await sourceObjectsForResult(context.cwd, result);
-        const frozen = validated.kind === "er"
-          ? JSON.parse(await readFile(path.join(context.cwd, "input", "frozen", "ktq.json"), "utf8").catch(() => "{}")) as Record<string, unknown>
-          : {};
-        const [resultAudit, receiptAudit] = await Promise.all([
-          storeCandidateAuditFile(context.cwd, validated.resultFile, principal, _signal),
-          storeCandidateAuditFile(context.cwd, validated.validationFile, principal, _signal),
-        ]);
-        if (resultAudit.sha256 !== validated.sha256) throw new Error("stored result hash does not match validated result");
-        const candidateBody = {
-          phase: validated.kind,
-          thread_id: threadManifest.thread_id,
-          tool_call_id: _toolCallId,
-          result_sha256: validated.sha256,
-          result_object_id: resultAudit.objectId,
-          receipt_object_id: receiptAudit.objectId,
-          source_objects: sourceObjects,
-          result,
-          ...(typeof frozen.candidate_set_id === "string"
-            ? { input_candidate_set_id: frozen.candidate_set_id }
-            : {}),
-          ...(typeof result.supersedes_candidate_set_id === "string"
-            ? { supersedes_candidate_set_id: result.supersedes_candidate_set_id }
-            : {}),
+      try {
+        if (validated && principal) {
+          const threadManifest = JSON.parse(
+            await readFile(path.join(context.cwd, "input/session/thread.json"), "utf8"),
+          ) as { thread_id?: unknown };
+          if (typeof threadManifest.thread_id !== "string" || !threadManifest.thread_id) {
+            throw new Error("Pi thread manifest is missing");
+          }
+          const sources = candidateSourceObjects(
+            validated.kind,
+            validated.result,
+            await readHostSourceManifest(context.cwd),
+          );
+          const frozen = validated.kind === "er"
+            ? JSON.parse(
+                await readFile(path.join(context.cwd, "input/frozen/ktq.json"), "utf8").catch(() => "{}"),
+              ) as Record<string, unknown>
+            : {};
+
+          let audits: AuditPair | undefined;
+          let claimed = false;
+          try {
+            audits = await publishAuditPair(validated, principal, signal);
+            const [resultAudit, receiptAudit] = audits;
+            const resultSha256 = validated.resultSealed.stored.sha256;
+            if (resultAudit.sha256 !== resultSha256) {
+              throw new Error("stored result hash does not match validated result");
+            }
+            const response = await configuredInternalService("pi-chat-runtime").request(
+              "pi-to-content",
+              principal,
+              "/internal/candidates/register",
+              {
+                method: "POST",
+                json: {
+                  phase: validated.kind,
+                  thread_id: threadManifest.thread_id,
+                  tool_call_id: toolCallId,
+                  result_sha256: resultSha256,
+                  result_object_id: resultAudit.object_id,
+                  receipt_object_id: receiptAudit.object_id,
+                  source_objects: sources.map(({ workspace_path, descriptor }) => ({
+                    workspace_path,
+                    object_id: descriptor.object_id,
+                    version_id: descriptor.version_id,
+                    sha256: descriptor.sha256,
+                  })),
+                  result: validated.result,
+                  ...(typeof frozen.candidate_set_id === "string"
+                    ? { input_candidate_set_id: frozen.candidate_set_id }
+                    : {}),
+                  ...(typeof validated.result.supersedes_candidate_set_id === "string"
+                    ? { supersedes_candidate_set_id: validated.result.supersedes_candidate_set_id }
+                    : {}),
+                },
+                signal: signal
+                  ? AbortSignal.any([signal,AbortSignal.timeout(30_000)])
+                  : AbortSignal.timeout(30_000),
+                timeoutMs: 30_000,
+              },
+            );
+            const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+            if (!response.ok) {
+              throw new Error(
+                `content candidate registration failed (${response.status}): ${String(body.detail ?? body.error ?? "unknown error")}`,
+              );
+            }
+            const disposition = candidateRegistrationDisposition(body, audits, resultSha256);
+            claimed = disposition.claimed;
+            const candidate = body.candidate && typeof body.candidate === "object" && !Array.isArray(body.candidate)
+              ? body.candidate as Record<string, unknown>
+              : {};
+            registered = {
+              ...body,
+              replayed: disposition.replayed,
+              ...(typeof candidate.candidate_set_id === "string"
+                ? { candidate_set_id: candidate.candidate_set_id }
+                : {}),
+            };
+          } finally {
+            if (audits && !claimed) await removeUnclaimedPair(audits, principal);
+          }
+        }
+        const details = validated
+          ? { ...publicValidationDetails(validated), ...(registered ?? {}) }
+          : params;
+        const content = validated
+          ? JSON.stringify({ ...details, schema: "mathpilot.content-respond/v1" })
+          : "responded";
+        return {
+          content: [{ type: "text", text: content }],
+          details,
+          terminate: true,
         };
-        const response = await configuredInternalService("pi-chat-runtime").request(
-          "pi-to-content",
-          principal,
-          "/internal/candidates/register",
-          {
-            method: "POST",
-            json: candidateBody,
-            ...(_signal ? { signal: _signal } : {}),
-            timeoutMs: 30_000,
-          },
-        );
-        const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-        if (!response.ok) throw new Error(`content candidate registration failed (${response.status}): ${String(body.detail ?? body.error ?? "unknown error")}`);
-        const candidate = body.candidate && typeof body.candidate === "object" && !Array.isArray(body.candidate)
-          ? body.candidate as Record<string, unknown>
-          : {};
-        registered = {
-          ...body,
-          ...(typeof candidate.candidate_set_id === "string" ? { candidate_set_id: candidate.candidate_set_id } : {}),
-        };
+      } finally {
+        if (validated) {
+          await Promise.all([validated.resultSealed.cleanup(), validated.receiptSealed.cleanup()]);
+        }
       }
-      const content = validated
-        ? JSON.stringify({
-            ...(registered ?? {}),
-            schema: "mathpilot.content-respond/v1",
-            kind: validated.kind,
-            itemCount: validated.itemCount,
-            resultFile: validated.resultFile,
-            validationFile: validated.validationFile,
-            sha256: validated.sha256,
-          })
-        : "responded";
-      return {
-        content: [{ type: "text", text: content }],
-        details: registered ? { ...validated, ...registered } : validated ?? params,
-        terminate: true,
-      };
     },
   });
 };
