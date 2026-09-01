@@ -18,7 +18,9 @@ const objects = process.env.MINIO_ENDPOINT && process.env.MINIO_ACCESS_KEY && pr
       accessKey: process.env.MINIO_ACCESS_KEY,
       secretKey: process.env.MINIO_SECRET_KEY,
       bucket: process.env.MINIO_BUCKET ?? "mathpilot-workspaces",
-      useSSL: process.env.MINIO_USE_SSL === "true",
+      ...(process.env.MINIO_USE_SSL === undefined
+        ? {}
+        : { useSSL: process.env.MINIO_USE_SSL === "true" }),
     })
   : undefined;
 

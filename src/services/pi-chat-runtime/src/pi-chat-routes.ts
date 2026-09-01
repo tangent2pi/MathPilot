@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PiClient, PiHostUiResponse, PiSendMessageInput, PiThinkingLevel } from "@assistant-ui/react-pi";
@@ -136,6 +135,34 @@ const sessionFileOf = (runtime: PiChatRuntime, record: PiThreadRecord): string =
   return sessionFile;
 };
 
+const pathIsWithin = (root: string, candidate: string): boolean => {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+};
+
+export const containedLocalEntryExists = async (
+  allowedRoot: string,
+  candidate: string,
+  expected: "directory" | "file",
+): Promise<boolean> => {
+  const rootInfo = await lstat(allowedRoot);
+  if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) throw new Error("local path root must be a real directory");
+  let info;
+  try {
+    info = await lstat(candidate);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  if (info.isSymbolicLink()) throw new Error("local path symlinks are forbidden");
+  if ((expected === "directory" && !info.isDirectory()) || (expected === "file" && !info.isFile())) {
+    throw new Error(`local path must be a ${expected}`);
+  }
+  const [root, resolved] = await Promise.all([realpath(allowedRoot), realpath(candidate)]);
+  if (!pathIsWithin(root, resolved) || resolved === root) throw new Error("local path escapes its allowed root");
+  return true;
+};
+
 type ErCommandMarker = {
   schema: "mathpilot.er-start/v1";
   command_id: string;
@@ -229,16 +256,76 @@ const snapshotContainsUserToken = (snapshot: PiSnapshot, token: string): boolean
   })(),
 );
 
-const restoreArchivedThread = async (
+export const restoreArchivedThread = async (
   runtime: PiChatRuntime,
   record: PiThreadRecord,
+  pi: PiClient,
   objectStore?: PiObjectStore,
-): Promise<void> => {
-  if (!objectStore || !record.minioKey) return;
+): Promise<boolean> => {
   const workspace = workspaceOf(runtime, record);
   const sessionFile = sessionFileOf(runtime, record);
-  if (!existsSync(workspace)) await objectStore.downloadDirectory(`${record.minioKey}/workspace/`, workspace);
-  if (!existsSync(sessionFile)) await objectStore.downloadFile(`${record.minioKey}/session.jsonl`, sessionFile);
+  let workspaceExists = await containedLocalEntryExists(runtime.sessionsRoot, workspace, "directory");
+  let sessionFileExists = await containedLocalEntryExists(runtime.agentSessionsRoot, sessionFile, "file");
+  if (record.archivedAt && objectStore && record.minioKey) {
+    if (!workspaceExists) {
+      await objectStore.downloadDirectory(`${record.minioKey}/workspace/`, workspace, runtime.sessionsRoot);
+      workspaceExists = true;
+    }
+    if (!sessionFileExists) {
+      await objectStore.downloadFile(`${record.minioKey}/session.jsonl`, sessionFile, runtime.agentSessionsRoot);
+      sessionFileExists = true;
+    }
+  }
+  if (!workspaceExists) return false;
+  if (!sessionFileExists) {
+    // Pi deliberately delays JSONL persistence until an assistant message.
+    // A live empty thread is still usable in this process; after restart there
+    // is no durable transcript to reconstruct and callers must fail closed.
+    try {
+      await pi.getThread(record.threadId);
+    } catch {
+      return false;
+    }
+  }
+  if (record.archivedAt) await pi.archiveThread(record.threadId);
+  return true;
+};
+
+type ArchivePiPort = Pick<PiClient, "archiveThread" | "unarchiveThread">;
+type ArchiveStorePort = Pick<PiThreadStore, "commitArchiveState">;
+
+export const commitArchiveTransition = async (input: {
+  pi: ArchivePiPort;
+  store: ArchiveStorePort;
+  principal: PiPrincipal;
+  threadId: string;
+  createSnapshot: () => Promise<string | undefined>;
+}): Promise<void> => {
+  const key = await input.createSnapshot();
+  await input.pi.archiveThread(input.threadId);
+  try {
+    await input.store.commitArchiveState(input.principal, input.threadId, true, key);
+  } catch (error) {
+    await input.pi.unarchiveThread(input.threadId).catch(() => undefined);
+    throw error;
+  }
+};
+
+export const commitUnarchiveTransition = async (input: {
+  pi: ArchivePiPort;
+  store: ArchiveStorePort;
+  principal: PiPrincipal;
+  threadId: string;
+  restoreSnapshot: () => Promise<void>;
+}): Promise<void> => {
+  await input.restoreSnapshot();
+  await input.pi.unarchiveThread(input.threadId);
+  try {
+    await input.store.commitArchiveState(input.principal, input.threadId, false);
+  } catch (error) {
+    await input.pi.archiveThread(input.threadId).catch(() => undefined);
+    throw error;
+  }
 };
 
 const owned = async (
@@ -413,7 +500,9 @@ export function registerPiChatRoutes(
       operation = (async () => {
         const record = await store.deletable(principal, targetThreadId);
         if (!record) throw new Error("review target thread is not owned by this teacher");
-        await restoreArchivedThread(runtime, record, objectStore);
+        if (!await restoreArchivedThread(runtime, record, pi, objectStore)) {
+          throw new Error("review target Pi session is not recoverable");
+        }
         const workspace = workspaceOf(runtime, record);
         const markerPath = path.join(workspace, "input", "session", "review-feedback", `${commandId}.json`);
         const existingMarker = await readReviewFeedbackMarker(markerPath);
@@ -491,8 +580,9 @@ export function registerPiChatRoutes(
     if (!principal) return reply.code(401).send({ error: "trusted principal required" });
     const includeArchived = (request.query as { includeArchived?: string }).includeArchived === "true";
     const records = await store.list(principal);
-    await Promise.all(records.map((record) => restoreArchivedThread(runtime, record, objectStore)));
-    const lists = await Promise.all(records.map((record) => pi.listThreads({ workspacePath: workspaceOf(runtime, record), includeArchived })));
+    const restored = await Promise.all(records.map((record) => restoreArchivedThread(runtime, record, pi, objectStore)));
+    const availableRecords = records.filter((_, index) => restored[index]);
+    const lists = await Promise.all(availableRecords.map((record) => pi.listThreads({ workspacePath: workspaceOf(runtime, record), includeArchived })));
     return lists.flat();
   });
 
@@ -542,7 +632,9 @@ export function registerPiChatRoutes(
       const record = await owned(store, principal, threadId, reply, request.method !== "GET", request.method === "DELETE");
       if (!record) return;
       if (request.method === "GET") {
-        await restoreArchivedThread(runtime, record, objectStore);
+        if (!await restoreArchivedThread(runtime, record, pi, objectStore)) {
+          return reply.code(409).send({ error: "Pi thread session is not recoverable" });
+        }
         return pi.getThread(threadId);
       }
       if (request.method === "PATCH") {
@@ -633,7 +725,9 @@ export function registerPiChatRoutes(
     const { threadId, artifactId, "*": file } = request.params as { threadId: string; artifactId: string; "*": string };
     const record = await owned(store, principal, threadId, reply);
     if (!record) return;
-    await restoreArchivedThread(runtime, record, objectStore);
+    if (!await restoreArchivedThread(runtime, record, pi, objectStore)) {
+      return reply.code(409).send({ error: "Pi thread session is not recoverable" });
+    }
     const workspace = workspaceOf(runtime, record);
     try {
       // 正常路径在 agent_end 时已发布；这里的幂等发布覆盖用户立即点击和服务重启恢复。
@@ -876,20 +970,65 @@ export function registerPiChatRoutes(
       const principal = principalOf(request); if (!principal) return reply.code(401).send({ error: "trusted principal required" });
       const { threadId } = request.params as { threadId: string };
       const record = await owned(store, principal, threadId, reply, true); if (!record) return;
-      if (action === "archive") {
-        const sessionFile = sessionFileOf(runtime, record);
-        // Pi 在首条消息前不会落下 JSONL；这种空线程没有会话内容可归档。
-        if (objectStore && existsSync(sessionFile)) {
-          const key = `pi-threads/${threadId}`;
-          await objectStore.uploadDirectory(`${key}/workspace/`, workspaceOf(runtime, record));
-          await objectStore.uploadFile(`${key}/session.jsonl`, sessionFile);
-          await store.setMinioKey(principal, threadId, key);
+      const releasePrincipal = reserveThread(activePrincipalByThread, threadId, principal);
+      if (!releasePrincipal) return reply.code(409).send({ error: "thread is busy" });
+      try {
+        if (action === "archive" && record.archivedAt) {
+          await restoreArchivedThread(runtime, record, pi, objectStore);
+          return reply.code(204).send();
         }
-        await pi.archiveThread(threadId); await store.markArchived(principal, threadId, true);
-      } else {
-        await pi.unarchiveThread(threadId); await store.markArchived(principal, threadId, false);
+        if (action === "unarchive" && !record.archivedAt) {
+          await pi.unarchiveThread(threadId);
+          return reply.code(204).send();
+        }
+        if (action === "archive") {
+          const workspace = workspaceOf(runtime, record);
+          const sessionFile = sessionFileOf(runtime, record);
+          const [workspaceExists, sessionFileExists] = await Promise.all([
+            containedLocalEntryExists(runtime.sessionsRoot, workspace, "directory"),
+            containedLocalEntryExists(runtime.agentSessionsRoot, sessionFile, "file"),
+          ]);
+          if (!workspaceExists || !sessionFileExists) {
+            return reply.code(409).send({ error: "Pi thread session is not durable" });
+          }
+          await commitArchiveTransition({
+            pi,
+            store,
+            principal,
+            threadId,
+            async createSnapshot() {
+              if (!objectStore) return undefined;
+              const key = `pi-threads/${threadId}/${randomUUID()}`;
+              await objectStore.uploadDirectory(
+                `${key}/workspace/`,
+                workspace,
+                runtime.sessionsRoot,
+              );
+              await objectStore.uploadFile(
+                `${key}/session.jsonl`,
+                sessionFile,
+                runtime.agentSessionsRoot,
+              );
+              return key;
+            },
+          });
+        } else {
+          await commitUnarchiveTransition({
+            pi,
+            store,
+            principal,
+            threadId,
+            async restoreSnapshot() {
+              if (!await restoreArchivedThread(runtime, record, pi, objectStore)) {
+                throw new Error("Pi thread session is not recoverable");
+              }
+            },
+          });
+        }
+        return reply.code(204).send();
+      } finally {
+        releasePrincipal();
       }
-      return reply.code(204).send();
     });
   }
 
