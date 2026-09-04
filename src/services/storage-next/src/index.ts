@@ -62,33 +62,42 @@ const app = await startService({
     // so a register/listen failure follows the same idempotent shutdown path.
     server.addHook("onClose", closeStorageResources);
     // A listener must never advertise readiness with an unusable object store
-    // or the pre-integrity schema.
+    // or the pre-integrity schema. The merged line runs storage-next under the
+    // shared mathpilot_app role (teammate deployment model); the dedicated
+    // mathpilot_storage role enables the durable garbage collection worker.
     await objects.ensureBuckets();
     const schema = await pool.query(
       "select current_user as database_role,exists(select 1 from infra_schema_migration where version='0055_content_integrity') as migrated",
     );
-    if (schema.rows[0]?.database_role !== "mathpilot_storage") throw new Error("storage-next requires the dedicated mathpilot_storage database role");
+    const databaseRole = schema.rows[0]?.database_role;
+    if (databaseRole !== "mathpilot_storage" && databaseRole !== "mathpilot_app") {
+      throw new Error("storage-next requires the mathpilot_app or mathpilot_storage database role");
+    }
     if (!schema.rows[0]?.migrated) throw new Error("storage-next requires database migration 0055_content_integrity");
 
-    const collector = new ObjectGarbageCollector({ pool, objects, logger: server.log });
-    garbageCollectionRuntime = await startStorageGarbageCollectionRuntime({
-      address: process.env.TEMPORAL_ADDRESS?.trim() || "127.0.0.1:7233",
-      namespace: process.env.TEMPORAL_NAMESPACE?.trim() || "default",
-      taskQueue: process.env.TEMPORAL_TASK_QUEUE?.trim() || DEFAULT_STORAGE_TEMPORAL_TASK_QUEUE,
-      collector,
-      logger: server.log,
-    });
-    const requestServerClose = (message: string, error?: unknown): void => {
-      if (closing) return;
-      server.log.error(error === undefined ? {} : { err: error }, message);
-      void server.close().catch((closeError: unknown) => {
-        server.log.error({ err: closeError }, "storage shutdown after Temporal termination failed");
+    if (databaseRole === "mathpilot_storage") {
+      const collector = new ObjectGarbageCollector({ pool, objects, logger: server.log });
+      garbageCollectionRuntime = await startStorageGarbageCollectionRuntime({
+        address: process.env.TEMPORAL_ADDRESS?.trim() || "127.0.0.1:7233",
+        namespace: process.env.TEMPORAL_NAMESPACE?.trim() || "default",
+        taskQueue: process.env.TEMPORAL_TASK_QUEUE?.trim() || DEFAULT_STORAGE_TEMPORAL_TASK_QUEUE,
+        collector,
+        logger: server.log,
       });
-    };
-    void garbageCollectionRuntime.completion.then(
-      () => requestServerClose("storage Temporal worker stopped unexpectedly"),
-      (error: unknown) => requestServerClose("storage Temporal worker failed", error),
-    );
+      const requestServerClose = (message: string, error?: unknown): void => {
+        if (closing) return;
+        server.log.error(error === undefined ? {} : { err: error }, message);
+        void server.close().catch((closeError: unknown) => {
+          server.log.error({ err: closeError }, "storage shutdown after Temporal termination failed");
+        });
+      };
+      void garbageCollectionRuntime.completion.then(
+        () => requestServerClose("storage Temporal worker stopped unexpectedly"),
+        (error: unknown) => requestServerClose("storage Temporal worker failed", error),
+      );
+    } else {
+      server.log.warn({ databaseRole }, "durable storage garbage collection disabled (dedicated mathpilot_storage role not configured)");
+    }
 
     registerStorageRoutes(server, { identity, objects, runWithPrincipal });
   },
