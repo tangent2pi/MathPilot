@@ -1,0 +1,32 @@
+{
+  "valid": {
+    "type": "urn:mathpilot:problem:request-validation-failed",
+    "title": "Request validation failed",
+    "status": 422,
+    "code": "request_validation_failed"
+  },
+  "valid_cases": [
+    {
+      "type": "urn:mathpilot:problem:version-conflict",
+      "title": "The resource version changed",
+      "status": 409,
+      "code": "version_conflict",
+      "detail": "Refresh the resource and retry the command.",
+      "current_version": 4
+    }
+  ],
+  "missing_field": {
+    "type": "urn:mathpilot:problem:request-validation-failed",
+    "title": "Request validation failed",
+    "status": 422
+  },
+  "rejected": [
+    {
+      "type": "https://mathpilot.dev/problems/debug",
+      "title": "Debug details",
+      "status": 500,
+      "code": "debug",
+      "stack": "/srv/mathpilot/index.ts:42"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mathpilot.dev/http/problem-details/v1",
+  "title": "MathPilot RFC 9457 Problem Details",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "title", "status", "code"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "pattern": "^urn:mathpilot:problem:[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+    "code": { "type": "string", "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$" },
+    "detail": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "current_version": { "type": "integer", "minimum": 0 }
+  }
+}
