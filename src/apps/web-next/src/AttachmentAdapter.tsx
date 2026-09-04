@@ -46,13 +46,30 @@ type CompletedUpload = {
 
 type UploadState = InFlightUpload | CompletedUpload;
 
+/**
+ * The Pi gateway receives immutable storage descriptors, never browser file
+ * bytes or an opaque UI-only attachment id.  `attachment_id` remains useful
+ * for projecting the materialized workspace file back onto the user turn.
+ */
+export type PiTurnAttachment = ImmutableObjectDescriptor & {
+  attachment_id: string;
+};
+
 const defaultStorage: AttachmentStorage = {
   upload: uploadStorageObject,
   remove: deleteStorageObject,
 };
 
+const imageDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onerror = () => reject(new Error("读取图片失败"));
+  reader.onload = () => resolve(String(reader.result));
+  reader.readAsDataURL(file);
+});
+
 export class UnifiedAttachmentAdapter implements AttachmentAdapter {
   private readonly uploads = new Map<string, UploadState>();
+  private readonly claimedPiUploads = new Map<string, CompletedUpload>();
 
   constructor(private readonly storage: AttachmentStorage = defaultStorage) {}
 
@@ -88,6 +105,14 @@ export class UnifiedAttachmentAdapter implements AttachmentAdapter {
       if (this.uploads.get(attachment.id) === upload) this.uploads.delete(attachment.id);
       return;
     }
+    const claimed = this.claimedPiUploads.get(attachment.id);
+    if (claimed) {
+      await this.storage.remove(claimed.descriptor.object_id);
+      if (this.claimedPiUploads.get(attachment.id) === claimed) {
+        this.claimedPiUploads.delete(attachment.id);
+      }
+      return;
+    }
     const file = attachment.content?.find((part) => part.type === "file");
     const descriptor = file?.type === "file"
       ? mathpilotObjectMetadata(file.providerMetadata?.mathpilot)
@@ -97,17 +122,23 @@ export class UnifiedAttachmentAdapter implements AttachmentAdapter {
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
     const descriptor = await this.upload(attachment);
+    const filePart = {
+      type: "file" as const,
+      data: descriptor.object_ref,
+      mimeType: descriptor.mime_type,
+      filename: descriptor.original_name,
+      sourceType: "id" as const,
+      providerMetadata: { mathpilot: descriptor },
+    };
+    const imagePart = attachment.type === "image"
+      ? [{ type: "image" as const, image: await imageDataUrl(attachment.file), filename: descriptor.original_name }]
+      : [];
     return {
       ...attachment,
       status: { type: "complete" },
-      content: [{
-        type: "file",
-        data: descriptor.object_ref,
-        mimeType: descriptor.mime_type,
-        filename: descriptor.original_name,
-        sourceType: "id",
-        providerMetadata: { mathpilot: descriptor },
-      }],
+      // Keep the immutable file reference for the canonical ledger and the
+      // standard image part for react-pi's native visual input.
+      content: [filePart, ...imagePart],
     } as CompleteAttachment;
   }
 
@@ -115,6 +146,42 @@ export class UnifiedAttachmentAdapter implements AttachmentAdapter {
   markCommitted(attachments: readonly CompleteAttachment[]): void {
     for (const attachment of attachments) {
       if (this.uploads.get(attachment.id)?.kind === "complete") this.uploads.delete(attachment.id);
+    }
+  }
+
+  /**
+   * Atomically reserves the completed objects for one Pi gateway message.
+   * A transport failure can restore the exact same immutable references, so a
+   * retry does not upload a second object or accidentally attach it to a later
+   * text-only turn.
+   */
+  claimForPiTurn(): readonly PiTurnAttachment[] {
+    const claimed: PiTurnAttachment[] = [];
+    for (const [attachmentId, upload] of this.uploads) {
+      if (upload.kind !== "complete") continue;
+      this.uploads.delete(attachmentId);
+      this.claimedPiUploads.set(attachmentId, upload);
+      claimed.push({ ...upload.descriptor, attachment_id: attachmentId });
+    }
+    return claimed;
+  }
+
+  /** Return an unaccepted Pi gateway claim to the next retry of this turn. */
+  restorePiTurn(attachments: readonly PiTurnAttachment[]): void {
+    for (const attachment of attachments) {
+      const claimed = this.claimedPiUploads.get(attachment.attachment_id);
+      if (!claimed) continue;
+      this.claimedPiUploads.delete(attachment.attachment_id);
+      if (!this.uploads.has(attachment.attachment_id)) {
+        this.uploads.set(attachment.attachment_id, claimed);
+      }
+    }
+  }
+
+  /** The Pi gateway accepted ownership; the canonical receipt now owns it. */
+  markPiTurnAccepted(attachments: readonly PiTurnAttachment[]): void {
+    for (const attachment of attachments) {
+      this.claimedPiUploads.delete(attachment.attachment_id);
     }
   }
 

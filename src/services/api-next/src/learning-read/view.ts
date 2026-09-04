@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { CommandCapability, LearningView, LearningViewKind } from "@mathpilot/contracts";
 
 export interface ViewOptions<T extends object> {
@@ -36,7 +37,12 @@ export function learningView<T extends object>(options: ViewOptions<T>): Learnin
 }
 
 export function viewEtag(view: LearningView): string {
-  return `W/\"${view.resource.kind}:${view.resource.id}:${view.resource.version}\"`;
+  // generated_at changes on every read, while the remainder is the cached
+  // representation. Hashing that representation keeps composite views fresh
+  // when child resources change without advancing the parent resource version.
+  const representation = { ...view, generated_at: undefined };
+  const digest = createHash("sha256").update(JSON.stringify(representation)).digest("base64url");
+  return `W/\"${digest}\"`;
 }
 
 export function capability(

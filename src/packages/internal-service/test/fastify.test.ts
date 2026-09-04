@@ -110,6 +110,26 @@ test("transport errors take precedence over a catch-all domain mapper", async ()
   await app.close();
 });
 
+test("shared readiness stays unavailable until service dependencies are initialized", async () => {
+  let ready = false;
+  const app = await startFastifyService({
+    name: "dependency-readiness-test",
+    port: 0,
+    readiness: () => ready,
+    register() {},
+  });
+
+  const unavailable = await app.inject("/readyz");
+  assert.equal(unavailable.statusCode, 503);
+  assert.deepEqual(unavailable.json(), { status: "not_ready", service: "dependency-readiness-test" });
+
+  ready = true;
+  const available = await app.inject("/readyz");
+  assert.equal(available.statusCode, 200);
+  assert.deepEqual(available.json(), { status: "ready", service: "dependency-readiness-test" });
+  await app.close();
+});
+
 test("register failure closes the app and invokes already-owned resources", async () => {
   const events: string[] = [];
   const app = fakeApp(events, async () => { events.push("unexpected.listen"); });

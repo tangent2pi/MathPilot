@@ -178,7 +178,7 @@ export class LearningReadService {
           has_more: hasMore,
         },
         capabilities: subject.actorMode === "self"
-          ? [capability("send_message", `/api/learning/threads/${threadId}/messages`, subject.threadVersion, sendDisabled)]
+          ? [capability("send_message", `/api/pi/threads/${threadId}/messages`, subject.threadVersion, sendDisabled)]
           : [],
       });
     });
@@ -257,7 +257,7 @@ export class LearningReadService {
                 and candidate.operation_id=request.operation_id
                 and candidate.task_type='foreground_teaching'
                 and candidate.workspace_manifest is not null
-              order by candidate.temporal_attempt desc,candidate.started_at desc
+              order by candidate.started_at desc,candidate.agent_attempt_id desc
               limit 1
            ) attempt on true
           where request.tenant_id=$1 and request.conversation_thread_id=$2
@@ -266,7 +266,7 @@ export class LearningReadService {
       )).rows[0];
       const capabilities: CommandCapability[] = [];
       if (subject.actorMode === "self" && subject.threadStatus === "active") {
-        capabilities.push(capability("send_message", `/api/learning/threads/${threadId}/messages`, subject.threadVersion));
+        capabilities.push(capability("send_message", `/api/pi/threads/${threadId}/messages`, subject.threadVersion));
         if (!currentQuestion) {
           capabilities.push(capability("revise_selection_intent", `/api/learning/threads/${threadId}/intent-revisions`, subject.threadVersion));
         }
@@ -975,9 +975,14 @@ export class LearningReadService {
 
   async operation(principal: Principal, operationId: string): Promise<LearningView> {
     return withPrincipal(this.pool, principal, async (client) => {
-      const row = (await client.query<OperationRow & { requested_by_user_id: string; student_id: string | null }>(
+      const row = (await client.query<OperationRow & {
+        requested_by_user_id: string;
+        student_id: string | null;
+        conversation_thread_id: string | null;
+      }>(
         `select operation.*,
-                coalesce(foreground.student_id,cut.student_id,intent.student_id,question.student_id) student_id
+                coalesce(foreground.student_id,cut.student_id,intent.student_id,question.student_id) student_id,
+                foreground.conversation_thread_id
            from science_v3_operation operation
            left join science_v3_foreground_request foreground
              on foreground.tenant_id=operation.tenant_id and foreground.operation_id=operation.operation_id
@@ -1010,7 +1015,13 @@ export class LearningReadService {
         version: Number(row.version), factsThrough: row.updated_at, permissions: actorPermissions(subject),
         data: operationViewData(row),
         capabilities: row.requested_by_user_id === principal.userId && ["accepted", "running", "needs_input"].includes(row.status)
-          ? [capability("cancel_operation", `/api/learning/operations/${operationId}/cancel`, Number(row.version))] : [],
+          ? [capability(
+              "cancel_operation",
+              row.kind === "foreground_teaching" && row.conversation_thread_id
+                ? `/api/pi/threads/${row.conversation_thread_id}/cancel`
+                : `/api/learning/operations/${operationId}/cancel`,
+              Number(row.version),
+            )] : [],
       });
     });
   }

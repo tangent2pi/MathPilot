@@ -17,8 +17,9 @@ services:
       timeout: 3s
       retries: 10
 
-  # Temporal is the sole authority for retry, timer, cancellation, child wait,
-  # Schedule and Continue-As-New in the Next learning runtime.
+  # Temporal owns background retry, timers, child waits, Schedules and
+  # Continue-As-New. Foreground chat cancellation/reconnect belongs to the Pi
+  # AgentSession declared below.
   temporal:
     image: temporalio/auto-setup:1.29.7
     environment:
@@ -175,9 +176,11 @@ services:
       MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
       MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
       MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING:?API to Content keyring is required}"
+      MATHPILOT_INTERNAL_API_TO_PI_KEYRING: "${MATHPILOT_INTERNAL_API_TO_PI_KEYRING:?API to Pi keyring is required}"
       MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING:?API to Storage keyring is required}"
       MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING:?Content to Pi keyring is required}"
       MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING:?Pi to Content keyring is required}"
+      MATHPILOT_INTERNAL_PI_TO_LEARNING_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_LEARNING_KEYRING:?Pi to Learning keyring is required}"
       MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING:?Pi to Storage keyring is required}"
       MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING:?Learning to Storage keyring is required}"
     network_mode: none
@@ -195,6 +198,7 @@ services:
       MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
       MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
       MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING:?Learning to Storage keyring is required}"
+      MATHPILOT_INTERNAL_PI_TO_LEARNING_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_LEARNING_KEYRING:?Pi to Learning keyring is required}"
       MATHPILOT_INTERNAL_STORAGE_URL: http://storage-next:3017
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       TEMPORAL_ADDRESS: temporal:7233
@@ -217,9 +221,15 @@ services:
         condition: service_healthy
       internal-identity-preflight:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3018/readyz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
-  # 内容候选后台 Agent 宿主；浏览器学习对话只走 learning-next/Temporal。
+  # Pi AgentSession owns foreground learning streams; canonical learning facts
+  # remain in learning-next, while background jobs remain Temporal-owned.
   pi-chat-runtime:
     init: true
     build:
@@ -236,9 +246,12 @@ services:
       MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
       MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
       MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING:?Content to Pi keyring is required}"
+      MATHPILOT_INTERNAL_API_TO_PI_KEYRING: "${MATHPILOT_INTERNAL_API_TO_PI_KEYRING:?API to Pi keyring is required}"
       MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING:?Pi to Content keyring is required}"
+      MATHPILOT_INTERNAL_PI_TO_LEARNING_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_LEARNING_KEYRING:?Pi to Learning keyring is required}"
       MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING:?Pi to Storage keyring is required}"
       MATHPILOT_INTERNAL_CONTENT_URL: http://content-next:3016
+      MATHPILOT_INTERNAL_LEARNING_URL: http://learning-next:3018
       MATHPILOT_INTERNAL_STORAGE_URL: http://storage-next:3017
       PI_DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/mathpilot_pi
       PI_CHAT_RUNTIME_ROOT: /var/lib/mathpilot/pi-chat
@@ -264,12 +277,19 @@ services:
     depends_on:
       pi-db-migrate:
         condition: service_completed_successfully
+      learning-next:
+        condition: service_healthy
       content-next:
         condition: service_started
       storage-next:
         condition: service_healthy
       internal-identity-preflight:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3105/readyz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   # Next content boundary. It owns normalized candidates, reviews, packages,
   # review-feedback delivery and the ER handoff poller.
@@ -358,8 +378,10 @@ services:
       MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
       MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
       MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING:?API to Content keyring is required}"
+      MATHPILOT_INTERNAL_API_TO_PI_KEYRING: "${MATHPILOT_INTERNAL_API_TO_PI_KEYRING:?API to Pi keyring is required}"
       MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING:?API to Storage keyring is required}"
       MATHPILOT_INTERNAL_CONTENT_URL: http://content-next:3016
+      MATHPILOT_INTERNAL_PI_URL: http://pi-chat-runtime:3105
       MATHPILOT_INTERNAL_STORAGE_URL: http://storage-next:3017
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:?DEFAULT_TENANT_ID is required}
@@ -378,6 +400,8 @@ services:
         condition: service_completed_successfully
       content-next:
         condition: service_started
+      pi-chat-runtime:
+        condition: service_healthy
       storage-next:
         condition: service_healthy
       internal-identity-preflight:

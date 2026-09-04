@@ -4,7 +4,6 @@ import { agentAttemptId, type RuntimeStore } from "./runtime-store.ts";
 import type { QuestionStore } from "./question-store.ts";
 import type { SelectionStore } from "./selection-store.ts";
 import type { DreamStore } from "./dream-store.ts";
-import type { ForegroundStore } from "./foreground-store.ts";
 import { getTaskSpec } from "./task-registry.ts";
 import type { LearningNextActivities, PiTaskExecutor } from "./runtime-types.ts";
 
@@ -13,16 +12,31 @@ export interface ActivityDependencies {
   questionStore: QuestionStore;
   selectionStore: SelectionStore;
   dreamStore: DreamStore;
-  foregroundStore: ForegroundStore;
   executor: PiTaskExecutor;
 }
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
-export function createActivities({ store, questionStore, selectionStore, dreamStore, foregroundStore, executor }: ActivityDependencies): LearningNextActivities {
+export const temporalDriverExecutionId = (
+  agentAttemptId: string,
+): string => {
+  const value = `temporal-attempt:${agentAttemptId}`;
+  if (!/^[A-Za-z0-9][A-Za-z0-9:._-]{0,254}$/.test(value)) {
+    throw new Error("Temporal execution identity exceeds the driver id contract");
+  }
+  return value;
+};
+
+export function createActivities({ store, questionStore, selectionStore, dreamStore, executor }: ActivityDependencies): LearningNextActivities {
   return {
     async executePiTask(input) {
       const context = Context.current();
+      if (input.taskType === "foreground_teaching") {
+        throw ApplicationFailure.nonRetryable(
+          "foreground_teaching is Interactive Epoch only and cannot run in Temporal",
+          "interactive_only_task",
+        );
+      }
       const taskSpec = getTaskSpec(input.taskType, input.taskSpecVersion);
       const cached = await store.findOperationResult(input);
       if (cached) return cached;
@@ -37,6 +51,7 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
         workflowRunId,
         temporalActivityId: context.info.activityId,
         temporalAttempt: context.info.attempt,
+        driverExecutionId: temporalDriverExecutionId(attemptId),
       };
       await store.startAttempt(start);
       context.heartbeat({ stage: "input", attemptId });
@@ -65,17 +80,6 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
                 agentAttemptId: attemptId,
                 toolCallId,
                 ...params,
-              }),
-            },
-          } : {}),
-          ...(input.taskType === "foreground_teaching" ? {
-            learningAction: {
-              perform: (toolCallId, action) => foregroundStore.executeAction({
-                tenantId: input.tenantId,
-                operationId: input.operationId,
-                agentAttemptId: attemptId,
-                toolCallId,
-                action,
               }),
             },
           } : {}),
@@ -118,6 +122,5 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
     replayScientificCorrection: (input) => questionStore.replayCorrection(input),
     commitSelectionDecision: (input) => selectionStore.commitDecision(input),
     markSelectionSuperseded: (input) => selectionStore.markSuperseded(input),
-    commitForegroundResponse: (input) => foregroundStore.commitResponse(input),
   };
 }

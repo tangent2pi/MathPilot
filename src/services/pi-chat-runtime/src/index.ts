@@ -1,7 +1,9 @@
 import { configureInternalService } from "@mathpilot/internal-service";
 import { startFastifyService } from "@mathpilot/internal-service/fastify";
+import fastifySSE from "@fastify/sse";
 import { createPiChatRuntime } from "./pi-chat-server.ts";
 import { registerPiChatRoutes } from "./pi-chat-routes.ts";
+import { registerPiHttpRoutes } from "./pi-http-routes.ts";
 import { PiThreadStore } from "./pi-thread-store.ts";
 
 const databaseUrl = process.env.PI_DATABASE_URL;
@@ -17,6 +19,8 @@ await startFastifyService({
   port: Number(process.env.PORT ?? 3105),
   bodyLimit: 48 * 1024 * 1024,
   async register(app) {
+    await app.register(fastifySSE, { heartbeatInterval: 20_000 });
     registerPiChatRoutes(app, runtime, threads, internalService);
+    registerPiHttpRoutes(app, runtime, threads, internalService);
   },
 });

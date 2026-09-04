@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { ProblemInput } from "@mathpilot/internal-service/fastify";
+import { sendProblem, type ProblemInput } from "@mathpilot/internal-service/fastify";
 import type pg from "pg";
 import type { Principal } from "./auth.ts";
 import { LearningCommandService, commandErrorFromUnknown } from "./learning-command/service.ts";
@@ -75,8 +75,11 @@ export function registerLearningHttp(
   });
   app.post("/api/learning/threads/:threadId/messages", async (request, reply) => {
     const principal = await principalOf(request, reply); if (!principal) return;
-    const result = await commands.submitForegroundMessage(principal, params(request).threadId!, request.body, headerKey(request));
-    return reply.code(result.created ? 202 : 200).send(result);
+    return sendProblem(reply, {
+      status: 410,
+      code: "interactive_pi_required",
+      title: "Foreground messages must be submitted through the Pi session endpoint",
+    });
   });
   app.get("/api/learning/threads/:threadId/context", async (request, reply) => {
     const principal = await principalOf(request, reply); if (!principal) return;

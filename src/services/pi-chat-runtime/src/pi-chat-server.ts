@@ -2,8 +2,8 @@ import { chmod, cp, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } fr
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createPiNodeClient } from "@assistant-ui/react-pi/node";
+import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { createPiNodeClient, getPiThreadSupervisor } from "@assistant-ui/react-pi/node";
 import type { PiClient } from "@assistant-ui/react-pi";
 import { assemblePiChatWorkspace } from "./pi-chat-workspace.ts";
 
@@ -81,7 +81,53 @@ export interface PiChatRuntime {
   sessionsRoot: string;
   agentSessionsRoot: string;
   skillsRoot: string;
+  foregroundModel: { provider: string; modelId: string };
+  /** The pinned react-pi supervisor owns live SessionManagers. Canonical sync
+   * must append through that same manager so its in-memory tree and JSONL stay
+   * coherent; cold sessions are opened directly. */
+  canonicalSession(threadId: string, sessionFile: string): CanonicalSessionAppender;
 }
+
+export interface CanonicalSessionAppender {
+  manager: SessionManager;
+  appendCustomMessage(message: { customType: string; content: string; display: boolean; details?: unknown }): Promise<void>;
+}
+
+export const canonicalSessionFromSupervisor = (
+  supervisor: unknown,
+  threadId: string,
+  sessionFile: string,
+): CanonicalSessionAppender => {
+  const records = (supervisor as {
+    records?: Map<string, { session?: {
+      sessionManager?: SessionManager;
+      isStreaming?: boolean;
+      sendCustomMessage?: (
+        message: Parameters<CanonicalSessionAppender["appendCustomMessage"]>[0],
+        options?: { triggerTurn?: boolean },
+      ) => Promise<void>;
+    } }>;
+  } | undefined)?.records;
+  if (!(records instanceof Map)) throw new Error("react-pi supervisor record contract is unavailable");
+  const live = records.get(threadId)?.session;
+  if (live?.sessionManager) {
+    if (typeof live.sendCustomMessage !== "function") throw new Error("react-pi live AgentSession contract is unavailable");
+    return {
+      manager: live.sessionManager,
+      async appendCustomMessage(message) {
+        if (live.isStreaming) throw new Error("Pi session is currently streaming");
+        await live.sendCustomMessage!(message, { triggerTurn: false });
+      },
+    };
+  }
+  const manager = SessionManager.open(sessionFile);
+  return {
+    manager,
+    async appendCustomMessage(message) {
+      manager.appendCustomMessageEntry(message.customType, message.content, message.display, message.details);
+    },
+  };
+};
 
 /**
  * Claude 原型的正式开发宿主：官方 PiThreadSupervisor + agentDir 插件发现。
@@ -197,11 +243,19 @@ export async function createPiChatRuntime(): Promise<PiChatRuntime> {
   if (!models.getModel(PROVIDER, auxiliaryModelId)) {
     throw new Error(`configured auxiliary model ${PROVIDER}/${auxiliaryModelId} was not loaded`);
   }
+  const supervisor = getPiThreadSupervisor({ workspacePath: sessionsRoot, agentDir, model });
+  const client = createPiNodeClient({ workspacePath: sessionsRoot, agentDir, model });
   return {
-    client: createPiNodeClient({ workspacePath: sessionsRoot, agentDir, model }),
+    client,
     runtimeRoot,
     sessionsRoot,
     agentSessionsRoot,
     skillsRoot: sandboxSkillsRoot,
+    foregroundModel: { provider: PROVIDER, modelId: mainModelId },
+    canonicalSession(threadId, sessionFile) {
+      // react-pi 0.0.20 intentionally keeps records private. This narrow,
+      // version-pinned adapter is the only host boundary that inspects it.
+      return canonicalSessionFromSupervisor(supervisor, threadId, sessionFile);
+    },
   };
 }

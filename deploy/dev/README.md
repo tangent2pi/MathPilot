@@ -30,18 +30,27 @@ docker compose up -d --build
 browser / assistant-ui
         │
         ▼
-web-next ──same-origin──▶ api-next ──▶ PostgreSQL science-v3 facts/read models
-                                  │
-                                  ├─outbox──▶ Temporal ──▶ learning-next ──▶ configured DeepSeek model
-                                  ├────────▶ content-next ──▶ normalized official/teacher content
-                                  └────────▶ storage-next ──▶ MinIO
+web-next / React Pi ──same-origin──▶ api-next
+                                      │
+                                      ├─atomic admission──▶ PostgreSQL canonical facts/read models
+                                      ├─signed api-to-pi──▶ pi-chat-runtime / Pi AgentSession
+                                      │                         │ native snapshot + SSE stream
+                                      │                         └─signed pi-to-learning──▶ learning-next
+                                      │                                                   └─atomic final commit──▶ PostgreSQL
+                                      ├───────────────▶ content-next ──▶ normalized official/teacher content
+                                      └───────────────▶ storage-next ──▶ MinIO
 
-pi-chat-runtime ──▶ content-next candidate work only
+PostgreSQL background outbox ──▶ Temporal ──▶ learning-next background activities
 ```
 
-学习对话不经过 `pi-chat-runtime`。前台对话和 `reasoning` 任务使用主模型，`fast`
-任务使用副模型；当前两者都配置为 `deepseek-v4-flash-vision-exp`。端点、密钥和两个
-模型 ID 均由环境变量显式注入，运行时代码及 Compose 不提供隐藏回退：
+前台学习对话由 Pi AgentSession 管理文本、reasoning、工具事件、取消和断线重连；
+PostgreSQL 仍是规范消息、学习动作和最终结果的唯一事实源。前台不进入 Temporal，
+Dream、选题、判定等后台任务继续由 Temporal 管理。当前部署契约为
+`memory-single-replica`，前台思考等级固定为 `high`。
+
+前台对话和 `reasoning` 任务使用主模型，`fast` 任务使用副模型；当前两者都配置为
+`deepseek-v4-flash-vision-exp`。端点、密钥和两个模型 ID 均由环境变量显式注入，
+运行时代码及 Compose 不提供隐藏回退：
 
 ```sh
 PI_MODEL_API_BASE=https://api.deepseek.com

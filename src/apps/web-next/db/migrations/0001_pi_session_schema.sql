@@ -6,10 +6,14 @@ begin;
 
 do $$
 declare
-  schema_marker constant text := 'mathpilot.pi-session-schema/v1';
+  schema_marker constant text := 'mathpilot.pi-session-schema/v2';
+  previous_schema_marker constant text := 'mathpilot.pi-session-schema/v1';
 begin
   if to_regclass('public.pi_threads') is not null
-     and coalesce(obj_description(to_regclass('public.pi_threads'), 'pg_class'), '') <> schema_marker then
+     and coalesce(obj_description(to_regclass('public.pi_threads'), 'pg_class'), '') not in (
+       previous_schema_marker,
+       schema_marker
+     ) then
     raise exception 'unsupported legacy mathpilot_pi schema; keep/export it and provision a separate empty mathpilot_pi database';
   end if;
   if to_regclass('public.pi_threads') is null
@@ -38,13 +42,19 @@ create table if not exists pi_threads (
   constraint pi_threads_tenant_identity unique (thread_id, tenant_id),
   constraint pi_threads_session_dir_relative check (
     session_dir ~ '^sessions/[A-Za-z0-9][A-Za-z0-9._-]{0,199}$'
-  ),
-  constraint pi_threads_session_file_relative check (
-    session_file ~ '^agent/sessions/[A-Za-z0-9][A-Za-z0-9._-]{0,255}\.jsonl$'
   )
 );
 
-comment on table pi_threads is 'mathpilot.pi-session-schema/v1';
+-- v1 stored files directly below agent/sessions. Pi's official SessionManager
+-- discovers them in a cwd-scoped child directory instead. Keep accepting the
+-- old form during online, compare-and-swap relocation; all new mappings use
+-- the cwd-scoped form.
+alter table pi_threads drop constraint if exists pi_threads_session_file_relative;
+alter table pi_threads add constraint pi_threads_session_file_relative check (
+  session_file ~ '^agent/sessions/(--[A-Za-z0-9._-]{1,251}--/)?[A-Za-z0-9][A-Za-z0-9._-]{0,248}\.jsonl$'
+);
+
+comment on table pi_threads is 'mathpilot.pi-session-schema/v2';
 
 create index if not exists pi_threads_owner_idx
   on pi_threads (tenant_id, owner_user_id, created_at desc);

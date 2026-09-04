@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { storageObjectReferenceSchema } from "@mathpilot/content-integrity";
 import { canonicalJson } from "@mathpilot/content-integrity/node";
+import { parseInteractiveAdmissionReceipt } from "@mathpilot/contracts";
 import type { CanonicalMessagePart, DomainUIPart } from "@mathpilot/contracts";
 import type pg from "pg";
 import type { Principal } from "../auth.ts";
@@ -174,7 +175,7 @@ export class LearningCommandService {
     });
   }
 
-  async submitForegroundMessage(principal: Principal, threadId: string, value: unknown, headerKey: unknown) {
+  async submitInteractiveForegroundMessage(principal: Principal, threadId: string, value: unknown, headerKey: unknown) {
     if (!threadPattern.test(threadId)) throw new LearningCommandError(404, "thread_not_found", "对话不存在");
     const body = objectValue(value);
     const key = idempotencyKey(headerKey, body);
@@ -188,9 +189,11 @@ export class LearningCommandService {
       if (thread.threadStatus !== "active") throw new LearningCommandError(409, "thread_archived", "对话已归档");
       const existing = (await client.query<{
         foreground_request_id: string; operation_id: string; triggering_message_id: string;
-        foreground_epoch_id: string; command_sha256: string;
+        foreground_epoch_id: string; command_sha256: string; event_id: string;
+        input_artifact_id: string; status: string;
       }>(
-        `select foreground_request_id,operation_id,triggering_message_id,foreground_epoch_id,command_sha256
+        `select foreground_request_id,operation_id,triggering_message_id,foreground_epoch_id,command_sha256,
+                event_id,input_artifact_id,status
            from science_v3_foreground_request where tenant_id=$1 and idempotency_key=$2`,
         [principal.tenantId, key],
       )).rows[0];
@@ -198,11 +201,17 @@ export class LearningCommandService {
         if (existing.command_sha256 !== commandSha256) {
           throw new LearningCommandError(409, "idempotency_conflict", "该幂等键已用于另一条消息命令");
         }
-        return {
-          accepted: true, created: false, foreground_request_id: existing.foreground_request_id,
-          operation_id: existing.operation_id, message_id: existing.triggering_message_id,
-          foreground_epoch_id: existing.foreground_epoch_id, thread_version: thread.threadVersion,
-        };
+        return this.admitInteractiveAttempt(client, principal, {
+          created: false,
+          threadId,
+          requestId: existing.foreground_request_id,
+          operationId: existing.operation_id,
+          messageId: existing.triggering_message_id,
+          epochId: existing.foreground_epoch_id,
+          eventId: existing.event_id,
+          artifactId: existing.input_artifact_id,
+          threadVersion: thread.threadVersion,
+        });
       }
       if (thread.threadVersion !== version) {
         throw new LearningCommandError(409, "version_conflict", `当前对话版本为 ${thread.threadVersion}`, thread.threadVersion);
@@ -261,12 +270,209 @@ export class LearningCommandService {
         )).rows[0];
         if (renamed) threadVersion = Number(renamed.version);
       }
-      return {
-        accepted: true, created: result.created, foreground_request_id: result.foreground_request_id,
-        operation_id: result.operation_id, message_id: result.canonical_message_id,
-        foreground_epoch_id: result.foreground_epoch_id, thread_version: threadVersion,
-      };
+      return this.admitInteractiveAttempt(client, principal, {
+        created: result.created,
+        threadId,
+        requestId: result.foreground_request_id,
+        operationId: result.operation_id,
+        messageId: result.canonical_message_id,
+        epochId: result.foreground_epoch_id,
+        eventId,
+        artifactId,
+        threadVersion,
+      });
     });
+  }
+
+  /** Compensate only the narrow gap after canonical admission and before Pi
+   * durably confirms ownership. Normal model terminal states always flow from
+   * Pi to Learning. Every identity/status predicate is locked and checked in
+   * one transaction so a late Pi completion can only conflict, never revive
+   * or double-commit this request. */
+  async failInteractiveDispatch(principal: Principal, receiptValue: unknown) {
+    const receipt = parseInteractiveAdmissionReceipt(receiptValue);
+    const detail = "Pi 未确认接管本次前台消息，请使用同一消息重试";
+    return withPrincipal(this.pool, principal, async (client) => {
+      const row = (await client.query<{
+        requested_by_user_id: string;
+        operation_status: string;
+        request_status: string;
+        attempt_status: string;
+        error_code: string | null;
+        foreground_epoch_id: string;
+        conversation_thread_id: string;
+        triggering_message_id: string;
+        input_artifact_id: string;
+        event_id: string;
+        execution_driver: string;
+        driver_execution_id: string;
+      }>(
+        `select operation.requested_by_user_id,operation.status operation_status,
+                request.status request_status,attempt.status attempt_status,attempt.error_code,
+                request.foreground_epoch_id,request.conversation_thread_id,request.triggering_message_id,
+                request.input_artifact_id,request.event_id,attempt.execution_driver,attempt.driver_execution_id
+           from science_v3_foreground_request request
+           join science_v3_operation operation
+             on operation.tenant_id=request.tenant_id and operation.operation_id=request.operation_id
+           join science_v3_agent_attempt attempt
+             on attempt.tenant_id=request.tenant_id and attempt.operation_id=request.operation_id
+            and attempt.agent_attempt_id=$4
+          where request.tenant_id=$1 and request.foreground_request_id=$2 and request.operation_id=$3
+          for update of request,operation,attempt`,
+        [principal.tenantId, receipt.foreground_request_id, receipt.operation_id, receipt.agent_attempt_id],
+      )).rows[0];
+      if (!row || row.requested_by_user_id !== principal.userId
+        || row.conversation_thread_id !== receipt.conversation_thread_id
+        || row.foreground_epoch_id !== receipt.foreground_epoch_id
+        || row.triggering_message_id !== receipt.triggering_message_id
+        || row.event_id !== receipt.event_id
+        || `agent-artifact:${row.input_artifact_id}` !== receipt.input_ref
+        || row.execution_driver !== "interactive_epoch"
+        || row.driver_execution_id !== receipt.driver_execution_id) {
+        throw new LearningCommandError(409, "interactive_attempt_conflict", "前台执行记录与该消息不一致");
+      }
+      if (row.request_status === "failed" && row.operation_status === "failed"
+        && row.attempt_status === "failed" && row.error_code === "dispatch_failed") {
+        return { compensated: false, status: "failed" as const, error_code: "dispatch_failed" as const };
+      }
+      if (row.request_status !== "running" || row.operation_status !== "running" || row.attempt_status !== "started") {
+        throw new LearningCommandError(409, "interactive_attempt_terminal", "前台执行已由另一终态完成");
+      }
+      const attempt = await client.query(
+        `update science_v3_agent_attempt
+            set status='failed',error_code='dispatch_failed',error_detail=$5,completed_at=clock_timestamp()
+          where tenant_id=$1 and agent_attempt_id=$2 and operation_id=$3
+            and driver_execution_id=$4 and execution_driver='interactive_epoch' and status='started'`,
+        [principal.tenantId, receipt.agent_attempt_id, receipt.operation_id, receipt.driver_execution_id, detail],
+      );
+      const operation = await client.query(
+        `update science_v3_operation
+            set status='failed',user_message=$4,retryable=true,updated_at=clock_timestamp(),version=version+1
+          where tenant_id=$1 and operation_id=$2 and requested_by_user_id=$3 and status='running'`,
+        [principal.tenantId, receipt.operation_id, principal.userId, detail],
+      );
+      const request = await client.query(
+        `update science_v3_foreground_request
+            set status='failed',completed_at=clock_timestamp(),updated_at=clock_timestamp()
+          where tenant_id=$1 and foreground_request_id=$2 and operation_id=$3 and status='running'`,
+        [principal.tenantId, receipt.foreground_request_id, receipt.operation_id],
+      );
+      if (attempt.rowCount !== 1 || operation.rowCount !== 1 || request.rowCount !== 1) {
+        throw new LearningCommandError(409, "interactive_dispatch_race", "前台执行接管状态已变化");
+      }
+      return { compensated: true, status: "failed" as const, error_code: "dispatch_failed" as const };
+    });
+  }
+
+  private async admitInteractiveAttempt(
+    client: pg.PoolClient,
+    principal: Principal,
+    input: {
+      created: boolean;
+      threadId: string;
+      requestId: string;
+      operationId: string;
+      messageId: string;
+      epochId: string;
+      eventId: string;
+      artifactId: string;
+      threadVersion: number;
+    },
+  ) {
+    const attemptId = deterministicId("agt", input.requestId, "interactive-epoch");
+    const driverExecutionId = `interactive-epoch:${input.epochId}:${input.requestId}`;
+    await client.query(
+      `update science_v3_operation
+          set status='running',user_message='正在组织回复',updated_at=clock_timestamp(),version=version+1
+        where tenant_id=$1 and operation_id=$2 and status='accepted'`,
+      [principal.tenantId, input.operationId],
+    );
+    await client.query(
+      `update science_v3_foreground_request
+          set status='running',updated_at=clock_timestamp()
+        where tenant_id=$1 and foreground_request_id=$2 and status='queued'`,
+      [principal.tenantId, input.requestId],
+    );
+    await client.query(
+      `insert into science_v3_agent_attempt(
+         agent_attempt_id,tenant_id,operation_id,execution_driver,driver_execution_id,
+         workflow_id,workflow_run_id,temporal_activity_id,temporal_attempt,
+         task_type,task_spec_version,input_ref,model_policy_id,prompt_version,skill_ref
+       ) values($1,$2,$3,'interactive_epoch',$4,null,null,null,null,
+         'foreground_teaching','v1',$5,'foreground_teaching-model-v1','foreground_teaching-prompt@v1','skill:foreground-teaching@v1')
+       on conflict (agent_attempt_id) do nothing`,
+      [attemptId, principal.tenantId, input.operationId, driverExecutionId, `agent-artifact:${input.artifactId}`],
+    );
+    const attempt = (await client.query<{
+      operation_id: string; execution_driver: string; driver_execution_id: string;
+      input_ref: string; status: string;
+    }>(
+      `select operation_id,execution_driver,driver_execution_id,input_ref,status
+         from science_v3_agent_attempt where tenant_id=$1 and agent_attempt_id=$2`,
+      [principal.tenantId, attemptId],
+    )).rows[0];
+    const inputRef = `agent-artifact:${input.artifactId}`;
+    if (!attempt || attempt.operation_id !== input.operationId
+      || attempt.execution_driver !== "interactive_epoch"
+      || attempt.driver_execution_id !== driverExecutionId
+      || attempt.input_ref !== inputRef) {
+      throw new LearningCommandError(409, "interactive_attempt_conflict", "前台执行记录与该消息不一致");
+    }
+    // Migration 0042 removes foreground events from the Temporal relay before
+    // this writer is deployed.  Consuming the outbox row and admitting the
+    // Interactive Epoch happen in the same transaction.  `workflow_id` stays
+    // null: an Interactive Epoch is not a Temporal Workflow and must never be
+    // represented by a fabricated Temporal identity.
+    const claimed = await client.query<{ workflow_id: string | null; published_at: Date | string | null }>(
+      `update infra_outbox
+          set published_at=coalesce(published_at,clock_timestamp()),
+              delivery_attempts=case when published_at is null then delivery_attempts+1 else delivery_attempts end,
+              last_delivery_attempt_at=case when published_at is null then clock_timestamp() else last_delivery_attempt_at end,
+              last_delivery_error=null
+        where tenant_id=$1 and event_id=$2 and event_type='foreground.message_submitted'
+          and workflow_id is null
+      returning workflow_id,published_at`,
+      [principal.tenantId, input.eventId],
+    );
+    if (claimed.rowCount !== 1 || claimed.rows[0]?.workflow_id !== null) {
+      throw new LearningCommandError(409, "foreground_driver_conflict", "该消息已由另一前台执行器接管");
+    }
+    const request = (await client.query<{ status: string }>(
+      `select status from science_v3_foreground_request
+        where tenant_id=$1 and foreground_request_id=$2`,
+      [principal.tenantId, input.requestId],
+    )).rows[0];
+    if (!request) {
+      throw new LearningCommandError(409, "interactive_attempt_conflict", "前台请求记录不存在");
+    }
+    const dispatchRequired = request.status === "running" && attempt.status === "started";
+    const terminalReplay = (
+      request.status === "succeeded" && attempt.status === "succeeded"
+      || request.status === "failed" && attempt.status === "failed"
+      || request.status === "cancelled" && attempt.status === "cancelled"
+    );
+    if (!dispatchRequired && !terminalReplay) {
+      throw new LearningCommandError(409, "interactive_attempt_conflict", "前台请求与执行记录状态不一致");
+    }
+    return {
+      accepted: dispatchRequired,
+      created: input.created,
+      foreground_request_id: input.requestId,
+      operation_id: input.operationId,
+      message_id: input.messageId,
+      conversation_thread_id: input.threadId,
+      triggering_message_id: input.messageId,
+      foreground_epoch_id: input.epochId,
+      event_id: input.eventId,
+      agent_attempt_id: attemptId,
+      input_ref: inputRef,
+      execution_driver: "interactive_epoch" as const,
+      driver_execution_id: driverExecutionId,
+      request_status: request.status,
+      attempt_status: attempt.status,
+      dispatch_required: dispatchRequired,
+      thread_version: input.threadVersion,
+    };
   }
 
   async submitAttempt(principal: Principal, questionSessionId: string, value: unknown, headerKey: unknown) {
@@ -607,12 +813,18 @@ export class LearningCommandService {
     idempotencyKey(headerKey, body);
     const version = expectedVersion(body);
     return withPrincipal(this.pool, principal, async (client) => {
-      const operation = (await client.query<{ requested_by_user_id: string; status: string; version: string }>(
-        `select requested_by_user_id,status,version from science_v3_operation
+      const operation = (await client.query<{ requested_by_user_id: string; kind: string; status: string; version: string }>(
+        `select requested_by_user_id,kind,status,version from science_v3_operation
           where tenant_id=$1 and operation_id=$2 for update`,
         [principal.tenantId, operationId],
       )).rows[0];
       if (!operation || operation.requested_by_user_id !== principal.userId) throw new LearningCommandError(404, "operation_not_found", "操作不存在");
+      // Interactive foreground cancellation is owned by Pi. Marking only the
+      // canonical row here would leave the model running and make its terminal
+      // callback conflict with a fabricated cancellation.
+      if (operation.kind === "foreground_teaching") {
+        throw new LearningCommandError(409, "interactive_pi_cancel_required", "请通过当前对话的停止按钮取消回复");
+      }
       if (operation.status === "cancelled") return { operation_id: operationId, status: "cancelled", version: Number(operation.version) };
       if (!["accepted", "running", "needs_input"].includes(operation.status)) throw new LearningCommandError(409, "operation_terminal", "该操作已经结束");
       if (Number(operation.version) !== version) throw new LearningCommandError(409, "version_conflict", `当前操作版本为 ${operation.version}`, Number(operation.version));

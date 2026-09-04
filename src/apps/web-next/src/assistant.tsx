@@ -15,7 +15,7 @@ export const Assistant = () => {
   const threadMatch = useMatch("/c/:threadId");
   const threadId = threadMatch?.params.threadId;
   return (
-    <LearningRuntimeProvider threadId={threadId}>
+    <LearningRuntimeProvider key={threadId ?? "new"} threadId={threadId}>
       <SidebarProvider>
         <LearningSidebar />
         <SidebarInset className="h-dvh overflow-hidden">

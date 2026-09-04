@@ -1,11 +1,9 @@
 import type {
   CreateThreadReceipt,
-  ForegroundReceipt,
   LearningView,
   ThreadListView,
   ThreadMessagesView,
   ThreadSummary,
-  UserSubmittedMessagePart,
 } from "../contracts";
 import { responseJson } from "../../lib/http-problem";
 
@@ -69,25 +67,6 @@ export const learningApi = {
     return requestJson<CreateThreadReceipt>(
       "/api/learning/threads",
       commandInit(key, { expected_version: 0, requested_at: requestedAt, title }),
-    );
-  },
-
-  sendMessage(input: {
-    threadId: string;
-    key: string;
-    expectedVersion: number;
-    parts: readonly UserSubmittedMessagePart[];
-    requestedAt: string;
-  }) {
-    return requestJson<ForegroundReceipt>(
-      `/api/learning/threads/${encodeURIComponent(input.threadId)}/messages`,
-      commandInit(input.key, {
-        schema_version: 3,
-        command_type: "send_message",
-        expected_version: input.expectedVersion,
-        requested_at: input.requestedAt,
-        parts: input.parts,
-      }),
     );
   },
 

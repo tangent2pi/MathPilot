@@ -5,6 +5,10 @@ import {
   MAXIMUM_THREAD_OBJECT_BYTES,
   parseObjectReference,
 } from "@mathpilot/content-integrity";
+import {
+  MAXIMUM_WORKSPACE_PROJECTION_FILES,
+  MAXIMUM_WORKSPACE_PROJECTION_OBJECTS,
+} from "@mathpilot/contracts";
 import { MAXIMUM_WORKSPACE_PROJECTION_BYTES, type TaskSpec, type WorkspaceProjection } from "./runtime-types.ts";
 
 interface ProjectionRequest {
@@ -229,6 +233,7 @@ export async function compileWorkspaceProjection(
   const projectionObjects: WorkspaceProjection["objects"][number][] = [];
   let projectedObjectBytes = 0;
   for (const objectId of attachmentRefs.keys()) {
+    if (projectionObjects.length >= MAXIMUM_WORKSPACE_PROJECTION_OBJECTS) continue;
     const row = storedObjectById.get(objectId);
     if (!row || !materializableMime(row.mime_type)) continue;
     const byteSize = Number(row.byte_size);
@@ -703,6 +708,8 @@ export async function compileWorkspaceProjection(
   // explicit omission manifest records the bounded projection.
   const sessionIndexPath = "sessions/index.json";
   const metadataReserve = 1024 * 1024;
+  const metadataFileCount = 2;
+  const maximumContentFiles = MAXIMUM_WORKSPACE_PROJECTION_FILES - metadataFileCount;
   const availableFileBytes = MAXIMUM_WORKSPACE_PROJECTION_BYTES - projectedObjectBytes;
   const fileBytes = (file: { content: string }): number => Buffer.byteLength(file.content,"utf8");
   const isRequired = (file: { path: string }): boolean =>
@@ -715,8 +722,9 @@ export async function compileWorkspaceProjection(
   let selectedFileBytes = 0;
   const addFile = (file: { path:string;content:string }, required: boolean): boolean => {
     const bytes = fileBytes(file);
-    if (selectedFileBytes + bytes > availableFileBytes - metadataReserve) {
-      if (required) throw new Error(`required WorkspaceProjection file exceeds the shared ${MAXIMUM_WORKSPACE_PROJECTION_BYTES} byte budget`);
+    if (selectedFiles.length >= maximumContentFiles
+      || selectedFileBytes + bytes > availableFileBytes - metadataReserve) {
+      if (required) throw new Error("required WorkspaceProjection files exceed the shared count or byte budget");
       return false;
     }
     selectedFiles.push(file);
@@ -770,7 +778,10 @@ export async function compileWorkspaceProjection(
   }];
   for (const file of metadataFiles) {
     const bytes = fileBytes(file);
-    if (selectedFileBytes+bytes>availableFileBytes) throw new Error("WorkspaceProjection metadata exceeds its reserved byte budget");
+    if (selectedFiles.length >= MAXIMUM_WORKSPACE_PROJECTION_FILES
+      || selectedFileBytes+bytes>availableFileBytes) {
+      throw new Error("WorkspaceProjection metadata exceeds its reserved count or byte budget");
+    }
     selectedFiles.push(file);
     selectedPaths.add(file.path);
     selectedFileBytes += bytes;

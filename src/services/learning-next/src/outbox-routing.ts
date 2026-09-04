@@ -12,7 +12,6 @@ export const DIRECT_WORKFLOW_TYPES = {
   light: "lightWorkflow",
   rem: "remSweepWorkflow",
   deep: "deepConsolidationWorkflow",
-  foreground_teaching: "foregroundTeachingWorkflow",
 } as const;
 
 export interface DirectWorkflowRoute {
@@ -42,6 +41,9 @@ export function directWorkflowRoute(eventType: string): DirectWorkflowRoute | Fi
 }
 
 export function workflowInputFromOutbox(event: OutboxWorkflowStart, taskType: TaskType): AgentTaskWorkflowInput {
+  if (event.eventType === "foreground.message_submitted") {
+    throw new Error("foreground.message_submitted is Interactive Epoch only and cannot enter Temporal");
+  }
   return {
     schemaVersion: 3,
     tenantId: event.tenantId,
@@ -54,7 +56,7 @@ export function workflowInputFromOutbox(event: OutboxWorkflowStart, taskType: Ta
     inputRef: event.payloadRef,
     idempotencyKey: event.eventId,
     revision: event.aggregateVersion,
-    ...(["question.closed","dream.rem_requested","dream.deep_requested","foreground.message_submitted"].includes(event.eventType)
+    ...(["question.closed","dream.rem_requested","dream.deep_requested"].includes(event.eventType)
       ? { resultOwnership: "parent" as const } : {}),
   };
 }

@@ -4,10 +4,11 @@ import type { InternalActor, InternalServiceRuntime } from "@mathpilot/internal-
 import { internalServiceContext, internalServiceGuard, sendProblem } from "@mathpilot/internal-service/fastify";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { PiClient } from "@assistant-ui/react-pi";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiThreadStore, type PiPrincipal, type PiThreadRecord } from "./pi-thread-store.ts";
 import { assemblePiChatWorkspace, bindPiThreadWorkspace } from "./pi-chat-workspace.ts";
+import { ensurePiSessionFile, relocateLegacyPiSessionFile } from "./pi-session-files.ts";
 import type { PiChatRuntime } from "./pi-chat-server.ts";
+import { PiThreadLeaseRegistry } from "./pi-thread-leases.ts";
 import { writeHostPrincipal } from "../extensions/lib/host-principal.ts";
 import {
   materializeHostSourceManifest,
@@ -18,26 +19,39 @@ import {
 // extensions can read it without exposing it to Bash. A thread must therefore
 // have at most one in-flight turn: otherwise two internal dispatches could
 // overwrite that file while Pi is still executing the first turn.
-const principalKey = (principal: PiPrincipal): string => `${principal.tenantId}\u0000${principal.userId}`;
-const reserveThread = (active: Map<string, string>, threadId: string, principal: PiPrincipal): (() => void) | undefined => {
-  if (active.has(threadId)) return undefined;
-  const key = principalKey(principal);
-  active.set(threadId, key);
-  return () => {
-    if (active.get(threadId) === key) active.delete(threadId);
-  };
-};
-
-const workspaceOf = (runtime: PiChatRuntime, record: PiThreadRecord): string => {
+export const workspaceOf = (runtime: PiChatRuntime, record: PiThreadRecord): string => {
   const workspace = path.resolve(runtime.runtimeRoot, record.sessionDir);
   if (!workspace.startsWith(`${path.resolve(runtime.sessionsRoot)}${path.sep}`)) throw new Error("invalid session directory");
   return workspace;
 };
 
-const sessionFileOf = (runtime: PiChatRuntime, record: PiThreadRecord): string => {
+export const sessionFileOf = (runtime: PiChatRuntime, record: PiThreadRecord): string => {
   const sessionFile = path.resolve(runtime.runtimeRoot, record.sessionFile);
   if (!sessionFile.startsWith(`${path.resolve(runtime.agentSessionsRoot)}${path.sep}`)) throw new Error("invalid Pi session file");
   return sessionFile;
+};
+
+export const reconcileLegacyPiThreadSession = async (
+  runtime: PiChatRuntime,
+  store: PiThreadStore,
+  principal: PiPrincipal,
+  record: PiThreadRecord,
+): Promise<PiThreadRecord> => {
+  const mappedSessionFile = sessionFileOf(runtime, record);
+  if (path.dirname(mappedSessionFile) !== path.resolve(runtime.agentSessionsRoot)) return record;
+  const workspace = workspaceOf(runtime, record);
+  if (!await containedLocalEntryExists(runtime.sessionsRoot, workspace, "directory")) {
+    throw new Error("legacy Pi thread workspace is missing");
+  }
+  const relocated = await relocateLegacyPiSessionFile(workspace, record.threadId, mappedSessionFile);
+  if (!await containedLocalEntryExists(runtime.agentSessionsRoot, relocated, "file")) {
+    throw new Error("relocated Pi session escaped its allowed root");
+  }
+  const relative = path.relative(runtime.runtimeRoot, relocated);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("relocated Pi session escaped the runtime root");
+  }
+  return store.replaceSessionFile(principal, record.threadId, record.sessionFile, relative);
 };
 
 const pathIsWithin = (root: string, candidate: string): boolean => {
@@ -98,7 +112,7 @@ const ensureErThread = async (
 ): Promise<PiThreadRecord> => {
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(targetThreadId)) throw new Error("invalid target Pi thread id");
   const existing = await store.accessible(principal, targetThreadId);
-  if (existing) return existing;
+  if (existing) return reconcileLegacyPiThreadSession(runtime, store, principal, existing);
 
   // The workspace name is deterministic for the command.  This is not a
   // second workflow identity; it only lets a retry find the same ordinary Pi
@@ -110,22 +124,7 @@ const ensureErThread = async (
   await mkdir(path.join(workspacePath, "input", "frozen"), { recursive: true });
   await bindPiThreadWorkspace(workspacePath, targetThreadId);
 
-  let sessionFileAbsolute: string | undefined;
-  const discovered = await SessionManager.list(workspacePath, runtime.agentSessionsRoot).catch(() => []);
-  const discoveredTarget = discovered.find((info) => info.id === targetThreadId);
-  if (discoveredTarget) sessionFileAbsolute = discoveredTarget.path;
-  if (!sessionFileAbsolute) {
-    const manager = SessionManager.create(workspacePath, runtime.agentSessionsRoot, { id: targetThreadId });
-    sessionFileAbsolute = manager.getSessionFile();
-    const header = manager.getHeader();
-    if (!sessionFileAbsolute || !header) throw new Error("Pi did not allocate a session file for ER handoff");
-    // SessionManager intentionally waits for the first assistant message before
-    // flushing an empty session.  Persist the header now so pi.getThread() can
-    // open the pre-generated ID and the command remains retryable after a crash.
-    await writeFile(sessionFileAbsolute, `${JSON.stringify(header)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 }).catch((error) => {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    });
-  }
+  const sessionFileAbsolute = (await ensurePiSessionFile(workspacePath, targetThreadId)).sessionFile;
   const relativeSessionFile = path.relative(runtime.runtimeRoot, sessionFileAbsolute);
   if (relativeSessionFile.startsWith("..") || path.isAbsolute(relativeSessionFile)) throw new Error("ER session file is outside runtime root");
   return store.create(principal, { threadId: targetThreadId, sessionDir, sessionFile: relativeSessionFile });
@@ -198,13 +197,13 @@ export function registerPiChatRoutes(
   runtime: PiChatRuntime,
   store: PiThreadStore,
   internalService: InternalServiceRuntime,
+  leases = new PiThreadLeaseRegistry(),
 ): void {
   const pi: PiClient = runtime.client;
-  const activePrincipalByThread = new Map<string, string>();
   const contentGuard = internalServiceGuard(internalService, ["content-to-pi"]);
 
   app.addHook("onClose", async () => {
-    activePrincipalByThread.clear();
+    leases.clear();
     erHandoffLocks.clear();
     reviewFeedbackLocks.clear();
     await store.close();
@@ -223,7 +222,7 @@ export function registerPiChatRoutes(
     let operation = erHandoffLocks.get(key);
     if (!operation) {
       operation = (async () => {
-        const releasePrincipal = reserveThread(activePrincipalByThread, targetThreadId, principal);
+        const releasePrincipal = leases.acquire(targetThreadId, principal);
         if (!releasePrincipal) throw new Error("target Pi thread is busy");
         try {
           const record = await ensureErThread(runtime, store, principal, targetThreadId);
@@ -346,8 +345,9 @@ export function registerPiChatRoutes(
     let operation = reviewFeedbackLocks.get(key);
     if (!operation) {
       operation = (async () => {
-        const record = await store.deletable(principal, targetThreadId);
+        let record = await store.deletable(principal, targetThreadId);
         if (!record) throw new Error("review target thread is not owned by this teacher");
+        record = await reconcileLegacyPiThreadSession(runtime, store, principal, record);
         if (!await localThreadAvailable(runtime, record, pi)) {
           throw new Error("review target Pi session is not recoverable");
         }
@@ -371,7 +371,7 @@ export function registerPiChatRoutes(
           }
         }
 
-        const releasePrincipal = reserveThread(activePrincipalByThread, targetThreadId, principal);
+        const releasePrincipal = leases.acquire(targetThreadId, principal);
         if (!releasePrincipal) throw new Error("review target thread is busy");
         try {
           await writeHostPrincipal(workspace, actor);

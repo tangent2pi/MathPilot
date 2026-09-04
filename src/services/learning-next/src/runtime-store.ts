@@ -8,6 +8,7 @@ import type {
   PiTaskActivityResult,
   TaskSpec,
   WorkspaceProjection,
+  InteractiveFrozenContextInput,
 } from "./runtime-types.ts";
 import { compileWorkspaceProjection } from "./workspace-projection.ts";
 
@@ -18,6 +19,8 @@ export interface AttemptStart {
   workflowRunId: string;
   temporalActivityId: string;
   temporalAttempt: number;
+  /** Stable identity owned by Temporal; Interactive Epochs never call this path. */
+  driverExecutionId: string;
 }
 
 export interface AttemptCompletion {
@@ -31,6 +34,7 @@ export interface RuntimeStore {
   findOperationResult(input: PiTaskActivityInput): Promise<PiTaskActivityResult | undefined>;
   loadInputBundle(input: PiTaskActivityInput, taskSpec: TaskSpec): Promise<unknown>;
   loadWorkspaceProjection(input: PiTaskActivityInput, taskSpec: TaskSpec, inputBundle: unknown): Promise<WorkspaceProjection>;
+  loadInteractiveContext(input: InteractiveFrozenContextInput, taskSpec: TaskSpec): Promise<{ inputBundle: unknown; workspaceProjection: WorkspaceProjection }>;
   startAttempt(value: AttemptStart): Promise<void>;
   recordWorkspaceProjection(agentAttemptId: string, tenantId: string, projection: WorkspaceProjection): Promise<void>;
   storeStructuredOutput(value: AttemptStart, output: unknown, schemaUri: string): Promise<string>;
@@ -153,7 +157,41 @@ export class PostgresRuntimeStore implements RuntimeStore {
     }));
   }
 
+  async loadInteractiveContext(
+    input: InteractiveFrozenContextInput,
+    taskSpec: TaskSpec,
+  ): Promise<{ inputBundle: unknown; workspaceProjection: WorkspaceProjection }> {
+    const artifactId = artifactIdFromRef(input.inputRef);
+    const inputBundle = await this.withTenant(input.tenantId, async (client) => {
+      const result = await client.query<{ payload: unknown; schema_uri: string; sha256: string }>(
+        `select payload,schema_uri,sha256
+           from science_v3_agent_artifact
+          where tenant_id=$1 and operation_id=$2 and artifact_id=$3
+            and artifact_kind='input_bundle'
+            and (expires_at is null or expires_at > now())`,
+        [input.tenantId, input.operationId, artifactId],
+      );
+      const artifact = result.rows[0];
+      if (!artifact) throw new Error("frozen task input does not exist or has expired");
+      if (artifact.schema_uri !== taskSpec.input_schema) throw new Error("frozen task input schema does not match TaskSpec");
+      return verifiedArtifactPayload(artifact, "frozen task input");
+    });
+    if (!taskSpec.workspace_projection_policy.enabled) throw new Error("TaskSpec does not authorize a WorkspaceProjection");
+    const workspaceProjection = await this.withTenant(input.tenantId, (client) => compileWorkspaceProjection(client, {
+      tenantId: input.tenantId,
+      operationId: input.operationId,
+      conversationThreadId: input.conversationThreadId,
+      foregroundEpochId: input.foregroundEpochId,
+      triggeringMessageId: input.triggeringMessageId,
+      taskSpec,
+    }));
+    return { inputBundle, workspaceProjection };
+  }
+
   async startAttempt(value: AttemptStart): Promise<void> {
+    if (value.input.taskType === "foreground_teaching") {
+      throw new Error("foreground_teaching is Interactive Epoch only and cannot start in Temporal");
+    }
     await this.withTenant(value.input.tenantId, async (client) => {
       await client.query(
         `update science_v3_operation
@@ -161,14 +199,6 @@ export class PostgresRuntimeStore implements RuntimeStore {
           where tenant_id=$1 and operation_id=$2 and status='accepted'`,
         [value.input.tenantId, value.input.operationId],
       );
-      if (value.input.taskType === "foreground_teaching") {
-        await client.query(
-          `update science_v3_foreground_request
-              set status='running',updated_at=clock_timestamp()
-            where tenant_id=$1 and operation_id=$2 and status='queued'`,
-          [value.input.tenantId, value.input.operationId],
-        );
-      }
       const operation = await client.query<{ status: string }>(
         `select status from science_v3_operation where tenant_id=$1 and operation_id=$2`,
         [value.input.tenantId, value.input.operationId],
@@ -181,8 +211,9 @@ export class PostgresRuntimeStore implements RuntimeStore {
         `insert into science_v3_agent_attempt (
            agent_attempt_id,tenant_id,operation_id,workflow_id,workflow_run_id,
            temporal_activity_id,task_type,task_spec_version,temporal_attempt,input_ref,
+           execution_driver,driver_execution_id,
            model_policy_id,prompt_version,skill_ref
-         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'temporal_activity',$11,$12,$13,$14)
          on conflict (agent_attempt_id) do nothing`,
         [
           value.agentAttemptId,
@@ -195,6 +226,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
           value.taskSpec.spec_version,
           value.temporalAttempt,
           value.input.inputRef,
+          value.driverExecutionId,
           value.taskSpec.model_policy.policy_id,
           `${value.input.taskType}-prompt@${value.taskSpec.spec_version}`,
           value.taskSpec.skill_ref,

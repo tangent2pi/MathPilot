@@ -31,6 +31,13 @@ export const INTERNAL_EDGES = {
     keyringEnv: "MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING",
     targetUrlEnv: "MATHPILOT_INTERNAL_STORAGE_URL",
   },
+  "api-to-pi": {
+    id: "api-to-pi",
+    caller: "api-next",
+    audience: "pi-chat-runtime",
+    keyringEnv: "MATHPILOT_INTERNAL_API_TO_PI_KEYRING",
+    targetUrlEnv: "MATHPILOT_INTERNAL_PI_URL",
+  },
   "content-to-pi": {
     id: "content-to-pi",
     caller: "content-next",
@@ -51,6 +58,13 @@ export const INTERNAL_EDGES = {
     audience: "storage-next",
     keyringEnv: "MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING",
     targetUrlEnv: "MATHPILOT_INTERNAL_STORAGE_URL",
+  },
+  "pi-to-learning": {
+    id: "pi-to-learning",
+    caller: "pi-chat-runtime",
+    audience: "learning-next",
+    keyringEnv: "MATHPILOT_INTERNAL_PI_TO_LEARNING_KEYRING",
+    targetUrlEnv: "MATHPILOT_INTERNAL_LEARNING_URL",
   },
   "learning-to-storage": {
     id: "learning-to-storage",

@@ -99,3 +99,22 @@ test("remove aborts an in-flight upload and deletes a late successful object", a
 
   assert.deepEqual(removed, ["obj_latefile"]);
 });
+
+test("a failed Pi gateway turn restores the same immutable attachment for retry", async () => {
+  const adapter = new UnifiedAttachmentAdapter({
+    upload: async () => descriptor("pi-turn"),
+    remove: async () => undefined,
+  });
+  const attachment = pending("pi-turn");
+  await adapter.send(attachment);
+
+  const firstClaim = adapter.claimForPiTurn();
+  assert.deepEqual(firstClaim, [{ ...descriptor("pi-turn"), attachment_id: "pi-turn" }]);
+  assert.deepEqual(adapter.claimForPiTurn(), []);
+
+  adapter.restorePiTurn(firstClaim);
+  const retryClaim = adapter.claimForPiTurn();
+  assert.deepEqual(retryClaim, firstClaim);
+  adapter.markPiTurnAccepted(retryClaim);
+  assert.deepEqual(adapter.claimForPiTurn(), []);
+});

@@ -27,6 +27,7 @@ export function internalServiceTestEnvironment(
     MATHPILOT_ENVIRONMENT: "test",
     MATHPILOT_INTERNAL_REPLAY_MODE: "memory-single-replica",
     MATHPILOT_INTERNAL_CONTENT_URL: "http://content-next.test:3016",
+    MATHPILOT_INTERNAL_LEARNING_URL: "http://learning-next.test:3018",
     MATHPILOT_INTERNAL_PI_URL: "http://pi-chat-runtime.test:3105",
     MATHPILOT_INTERNAL_STORAGE_URL: "http://storage-next.test:3017",
   };

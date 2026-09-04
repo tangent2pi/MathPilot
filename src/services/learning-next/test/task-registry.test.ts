@@ -18,8 +18,8 @@ test("domain workflows are not collapsed into unrelated Pi tasks", () => {
   assert.throws(() => directTaskTypeForEvent("teacher.correction_recorded"), /deterministic replay/);
   assert.equal(directWorkflowRoute("question.cut_requested")?.workflowType, "finalizeQuestionWorkflow");
   assert.equal(directWorkflowRoute("teacher.correction_recorded")?.workflowType, "replayScientificStateWorkflow");
-  assert.equal(directWorkflowRoute("foreground.message_submitted")?.workflowType, "foregroundTeachingWorkflow");
-  assert.equal(directTaskTypeForEvent("foreground.message_submitted"), "foreground_teaching");
+  assert.throws(() => directWorkflowRoute("foreground.message_submitted"), /Interactive Epoch only/);
+  assert.throws(() => directTaskTypeForEvent("foreground.message_submitted"), /Interactive Epoch only/);
   const soft = workflowInputFromOutbox({
     schemaVersion: 3,
     eventId: "evt_closed00000001",
@@ -32,7 +32,7 @@ test("domain workflows are not collapsed into unrelated Pi tasks", () => {
     occurredAt: "2026-08-31T08:00:00.000Z",
   }, "light");
   assert.equal(soft.resultOwnership, "parent");
-  const foreground = workflowInputFromOutbox({
+  assert.throws(() => workflowInputFromOutbox({
     schemaVersion: 3,
     eventId: "evt_foreground0001",
     tenantId: "tnt_test00001",
@@ -42,8 +42,7 @@ test("domain workflows are not collapsed into unrelated Pi tasks", () => {
     aggregateVersion: 2,
     payloadRef: "agent-artifact:art_foreground01",
     occurredAt: "2026-08-31T08:00:00.000Z",
-  }, "foreground_teaching");
-  assert.equal(foreground.resultOwnership, "parent");
+  }, "foreground_teaching"), /Interactive Epoch only/);
 });
 
 test("teacher correction routes reference-only deterministic replay input", () => {

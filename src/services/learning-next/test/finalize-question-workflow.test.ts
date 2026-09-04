@@ -94,9 +94,6 @@ test("FinalizeQuestion turns exhausted grading into unresolved and still closes 
     async markSelectionSuperseded() {
       throw new Error("unexpected selection supersede Activity");
     },
-    async commitForegroundResponse() {
-      throw new Error("unexpected foreground response Activity");
-    },
   };
   const worker = await Worker.create({
     connection: environment.nativeConnection,

@@ -1,4 +1,5 @@
-import type { MathDerivationTeachingArtifact } from "@mathpilot/contracts";
+import type { BoundedLearningAction } from "@mathpilot/contracts";
+export { MAXIMUM_WORKSPACE_PROJECTION_BYTES } from "@mathpilot/contracts";
 
 export const TASK_TYPES = [
   "grade",
@@ -324,20 +325,6 @@ export interface QuestionCatalogCapability {
   search(toolCallId: string, input: QuestionCatalogToolInput): Promise<unknown>;
 }
 
-export type BoundedLearningAction =
-  | {
-      action: "request_cut";
-      reason: "completed" | "student_switch" | "skipped" | "system_policy" | "abandoned";
-      next_natural_language_request?: string;
-    }
-  | { action: "revise_selection_intent"; natural_language_request: string }
-  | {
-      action: "present_validated_artifact";
-      artifact_schema: "mathpilot.teaching-artifact/math-derivation/v1";
-      summary: string;
-      content: MathDerivationTeachingArtifact;
-    };
-
 export interface LearningActionResult {
   accepted: boolean;
   action: BoundedLearningAction["action"];
@@ -409,7 +396,6 @@ export interface PiExecutorRequest {
   inputBundle: unknown;
   taskSpec: TaskSpec;
   questionCatalog?: QuestionCatalogCapability;
-  learningAction?: LearningActionCapability;
   workspaceProjection?: WorkspaceProjection;
   signal: AbortSignal;
   heartbeat: (detail?: unknown) => void;
@@ -432,16 +418,67 @@ export interface ExecuteLearningActionInput {
   agentAttemptId: string;
   toolCallId: string;
   action: BoundedLearningAction;
+  actorUserId?: string;
+  foregroundRequestId?: string;
+  conversationThreadId?: string;
+  foregroundEpochId?: string;
+  triggeringMessageId?: string;
+  inputRef?: string;
+  driverExecutionId?: string;
 }
 
-export interface CommitForegroundResponseInput {
+export interface InteractiveAttemptPrepareInput {
+  tenantId: string;
+  actorUserId: string;
+  agentAttemptId: string;
+  operationId: string;
+  foregroundRequestId: string;
+  conversationThreadId: string;
+  foregroundEpochId: string;
+  triggeringMessageId: string;
+  inputRef: string;
+  driverExecutionId: string;
+}
+
+export interface InteractiveAttemptPreparation {
+  agentAttemptId: string;
+  operationId: string;
+  foregroundRequestId: string;
+  conversationThreadId: string;
+  foregroundEpochId: string;
+  triggeringMessageId: string;
+  inputRef: string;
+  driverExecutionId: string;
+  eventId: string;
+  threadVersion: number;
+  requestStatus: string;
+  attemptStatus: string;
+}
+
+export interface InteractiveCompleteInput extends InteractiveAttemptPrepareInput {
+  eventId: string;
+  output: unknown;
+  resolvedModelId: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface InteractiveTerminalInput extends InteractiveAttemptPrepareInput {
+  status: "failed" | "cancelled";
+  errorCode: string;
+  errorDetail: string;
+}
+
+export interface InteractiveFrozenContextInput {
   tenantId: string;
   operationId: string;
-  eventId: string;
-  outputRef: string;
+  inputRef: string;
+  conversationThreadId: string;
+  foregroundEpochId: string;
+  triggeringMessageId: string;
 }
 
-export interface ForegroundResponseCommitResult {
+export interface InteractiveResponseCommitResult {
   responseMessageId: string;
   threadVersion: number;
   created: boolean;
@@ -469,6 +506,4 @@ export interface LearningNextActivities {
     operationId: string;
     replacementOperationId: string;
   }): Promise<void>;
-  commitForegroundResponse(input: CommitForegroundResponseInput): Promise<ForegroundResponseCommitResult>;
 }
-export const MAXIMUM_WORKSPACE_PROJECTION_BYTES = 64 * 1024 * 1024;

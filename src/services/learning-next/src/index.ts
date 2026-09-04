@@ -10,6 +10,8 @@ import { PostgresRuntimeStore } from "./runtime-store.ts";
 import { PostgresSelectionStore } from "./selection-store.ts";
 import { PostgresDreamStore } from "./dream-store.ts";
 import { PostgresForegroundStore } from "./foreground-store.ts";
+import { startFastifyService } from "@mathpilot/internal-service/fastify";
+import { interactiveEpochProblem, registerInteractiveEpochRoutes } from "./interactive-epoch-routes.ts";
 import { ensureDreamSchedules } from "./schedules.ts";
 import { loadLearningTenantIds } from "./production-config.ts";
 
@@ -42,7 +44,9 @@ async function main(): Promise<void> {
   const dreamStore = new PostgresDreamStore(databaseUrl);
   const foregroundStore = new PostgresForegroundStore(databaseUrl);
   const relayStore = new PostgresOutboxRelayStore(databaseUrl);
-  const connection = await NativeConnection.connect({ address: temporalAddress });
+  let connection: NativeConnection | undefined;
+  let internalApp: Awaited<ReturnType<typeof startFastifyService>> | undefined;
+  let serviceReady = false;
   const controller = new AbortController();
   let worker: Worker | undefined;
   const stop = () => controller.abort(new Error("learning-next is stopping"));
@@ -50,23 +54,36 @@ async function main(): Promise<void> {
   process.once("SIGTERM", stop);
 
   try {
+    internalApp = await startFastifyService({
+      name: "learning-next-internal",
+      port: positiveInteger("LEARNING_NEXT_INTERNAL_PORT", 3018),
+      bodyLimit: 2 * 1024 * 1024,
+      mapError: interactiveEpochProblem,
+      readiness: () => serviceReady,
+      register(server) {
+        registerInteractiveEpochRoutes(server, foregroundStore, runtimeStore, internalService);
+      },
+    });
+    connection = await NativeConnection.connect({ address: temporalAddress });
+    const activeConnection = connection;
     const executor = await createPiSdkTaskExecutorFromEnvironment(internalService);
-    const activities = createActivities({ store: runtimeStore, questionStore, selectionStore, dreamStore, foregroundStore, executor });
+    const activities = createActivities({ store: runtimeStore, questionStore, selectionStore, dreamStore, executor });
     worker = await Worker.create({
-      connection,
+      connection: activeConnection,
       namespace: temporalNamespace,
       taskQueue,
       workflowsPath: fileURLToPath(new URL("./workflows.ts", import.meta.url)),
       activities,
       shutdownGraceTime: "30s",
     });
-    const client = new Client({ connection, namespace: temporalNamespace });
+    const client = new Client({ connection: activeConnection, namespace: temporalNamespace });
     await ensureDreamSchedules(client, tenantIds, taskQueue);
     const relay = new OutboxRelay(client.workflow, relayStore, {
       taskQueue,
       batchSize: positiveInteger("OUTBOX_BATCH_SIZE", 32),
       pollIntervalMs: positiveInteger("OUTBOX_POLL_INTERVAL_MS", 1_000),
     });
+    serviceReady = true;
 
     console.info(JSON.stringify({
       event: "learning_next_started",
@@ -85,13 +102,15 @@ async function main(): Promise<void> {
       await Promise.allSettled([workerRun, relayRun]);
     }
   } finally {
+    serviceReady = false;
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
     await Promise.allSettled([
+      internalApp?.close(),
       runtimeStore.close(), questionStore.close(), selectionStore.close(), dreamStore.close(),
       foregroundStore.close(), relayStore.close(),
     ]);
-    await connection.close();
+    await connection?.close();
   }
 }
 

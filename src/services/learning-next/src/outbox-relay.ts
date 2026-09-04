@@ -121,6 +121,13 @@ export class OutboxRelay {
     const events = await this.store.pending(this.batchSize);
     const result: OutboxPollResult = { selected: events.length, started: 0, duplicates: 0, deferred: 0, failed: 0 };
     for (const event of events) {
+      if (event.eventType === "foreground.message_submitted") {
+        // Foreground admission atomically claims this row for Pi's
+        // Interactive Epoch. It must never be translated into a Temporal
+        // Workflow, even if an old relay implementation returns a stale row.
+        result.deferred += 1;
+        continue;
+      }
       const route = directWorkflowRoute(event.eventType);
       if (!route) {
         result.deferred += 1;

@@ -114,6 +114,7 @@ export async function startFastifyService(options: {
   port: number;
   bodyLimit?: number;
   mapError?: FastifyProblemMapper;
+  readiness?: () => boolean | Promise<boolean>;
   register: (app: FastifyInstance) => void | Promise<void>;
 }, dependencies: FastifyServiceRuntimeDependencies = productionFastifyServiceRuntime): Promise<FastifyInstance> {
   const app = await dependencies.createApp(
@@ -122,7 +123,13 @@ export async function startFastifyService(options: {
   try {
     installProblemDetails(app, options.mapError);
     app.get("/healthz", async () => ({ status: "ok", service: options.name }));
-    app.get("/readyz", async () => ({ status: "ready", service: options.name }));
+    app.get("/readyz", async (_request, reply) => {
+      const ready = (await options.readiness?.()) ?? true;
+      return reply.code(ready ? 200 : 503).send({
+        status: ready ? "ready" : "not_ready",
+        service: options.name,
+      });
+    });
     await options.register(app);
     await app.listen({ host: "0.0.0.0", port: options.port });
     return app;

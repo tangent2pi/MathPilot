@@ -42,8 +42,8 @@ test("learning_action rejects authority fields and scientific writes", () => {
     action: "request_cut",
     reason: "student_switch",
     tenant_id: "tnt_other0001",
-  }), /unsupported fields/);
-  assert.throws(() => parseBoundedLearningAction({ action: "set_mastery", value: 1 }), /not allowed/);
+  }), /learning_action is invalid/);
+  assert.throws(() => parseBoundedLearningAction({ action: "set_mastery", value: 1 }), /learning_action is invalid/);
 });
 
 test("learning_action accepts only the validated math derivation artifact", () => {
@@ -77,7 +77,7 @@ test("learning_action accepts only the validated math derivation artifact", () =
     artifact_schema: "mathpilot.teaching-artifact/arbitrary/v1",
     summary: "任意内容",
     content: { html: "<script>bad()</script>" },
-  }), /artifact_schema is invalid/);
+  }), /learning_action is invalid/);
   assert.throws(() => parseBoundedLearningAction({
     action: "present_validated_artifact",
     artifact_schema: "mathpilot.teaching-artifact/math-derivation/v1",
@@ -86,5 +86,5 @@ test("learning_action accepts only the validated math derivation artifact", () =
       schema: "mathpilot.teaching-artifact/math-derivation/v1",
       steps: [{ expression: "x=1", mastery: 1 }],
     },
-  }), /unsupported fields/);
+  }), /learning_action is invalid/);
 });

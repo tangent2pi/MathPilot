@@ -1,228 +1,518 @@
+diff --git a/dist/client/eventSource.js b/dist/client/eventSource.js
+index 28bdb28..711cb9a 100644
+--- a/dist/client/eventSource.js
++++ b/dist/client/eventSource.js
+@@ -103 +103 @@ const openPiEventStream = (options) => {
+-	let needsSnapshotRecovery = false;
++	let reconnecting = false;
+@@ -141 +141 @@ const openPiEventStream = (options) => {
+-				const requestUrl = needsSnapshotRecovery && snapshotRecoveryUrl ? snapshotRecoveryUrl : url;
++				const requestUrl = reconnecting && snapshotRecoveryUrl ? snapshotRecoveryUrl : url;
+@@ -165,4 +165 @@ const openPiEventStream = (options) => {
+-						if (error instanceof InvalidKnownEventStreamPayloadError) {
+-							needsSnapshotRecovery = true;
+-							throw error;
+-						}
++						if (error instanceof InvalidKnownEventStreamPayloadError) throw error;
+@@ -172 +168,0 @@ const openPiEventStream = (options) => {
+-					if (requestUrl === snapshotRecoveryUrl && parsed.type === "snapshot") needsSnapshotRecovery = false;
+@@ -212,3 +208,4 @@ const openPiEventStream = (options) => {
+-				reportError(error);
++				reportError(error);
+-			}
++			}
+-			if (closed) break;
++			if (closed) break;
++			reconnecting = true;
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index f9d4ec4..d4179f0 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -6 +6 @@ import { PiLoadState, PiRunStatus, PiThreadState, PiToolExecutionState, createPi
+-import { PiProjectedContentPart as ContentPart, PiProjectionInput, projectPiThreadMessages, projectPiThreadRepository } from "./runtime/messageProjection.js";
++import { PiProjectedContentPart as ContentPart, PiCustomMessageProjector, PiProjectionInput, projectPiThreadMessages, projectPiThreadRepository } from "./runtime/messageProjection.js";
+@@ -12 +12 @@ import { usePiHostUiRequests, usePiRuntimeExtras, usePiSession, usePiThreadState
+-export { PiAgentMessage, PiAnyClientEvent, PiAnySessionEntry, PiAssistantContent, PiAssistantMessage, PiAssistantMessageDelta, PiBashExecutionMessage, PiBranchSummaryMessage, PiClient, PiClientEvent, PiClientEventBody, PiClientEventEnvelope, PiCompactionSummaryMessage, PiContextUsage, PiCustomMessage, type PiEventStreamOptions, PiHostUiRequest, PiHostUiRequestKind, PiHostUiResponse, type PiHttpClientOptions, PiImageContent, PiInputAttachment, type PiInterruptAnswer, PiKnownAgentMessage, type PiLoadState, PiModelInfo, type ContentPart as PiProjectedContentPart, type PiProjectionInput, type PiQueueMode, PiQueuedMessage, type PiRunStatus, type PiRuntimeExtras, type PiRuntimeOptions, PiRuntimeReadiness, PiSendMessageInput, type PiSendOptions, PiSessionEntry, PiStopReason, PiTextContent, PiThinkingContent, PiThinkingLevel, PiThreadController, type PiThreadControllerLike, PiThreadMetadata, PiThreadSnapshot, type PiThreadState, PiThreadStatus, PiToolCall, type PiToolExecutionState, PiToolResultContent, PiToolResultMessage, PiTranscriptMessage, PiUnknownAgentMessage, PiUnknownClientEventBody, PiUnknownSessionEntry, PiUsage, PiUserContent, PiUserMessage, type SplitHostUiRequests, type SseFrame, createPiHttpClient, createPiThreadState, createSseDecoder, isKnownPiSessionEntry, isPiSteerQueueItemId, openPiEventStream, piQueueItemId, projectPiThreadMessages, projectPiThreadRepository, reducePiThreadState, responseForApproval, responseForInterrupt, responseForRequest, splitHostUiRequests, usePiHostUiRequests, usePiRuntime, usePiRuntimeExtras, usePiSession, usePiThreadState };
+\ No newline at end of file
++export { PiAgentMessage, PiAnyClientEvent, PiAnySessionEntry, PiAssistantContent, PiAssistantMessage, PiAssistantMessageDelta, PiBashExecutionMessage, PiBranchSummaryMessage, PiClient, PiClientEvent, PiClientEventBody, PiClientEventEnvelope, PiCompactionSummaryMessage, PiContextUsage, PiCustomMessage, type PiEventStreamOptions, PiHostUiRequest, PiHostUiRequestKind, PiHostUiResponse, type PiHttpClientOptions, PiImageContent, PiInputAttachment, type PiInterruptAnswer, PiKnownAgentMessage, type PiLoadState, PiModelInfo, type ContentPart as PiProjectedContentPart, type PiCustomMessageProjector, type PiProjectionInput, type PiQueueMode, PiQueuedMessage, type PiRunStatus, type PiRuntimeExtras, type PiRuntimeOptions, PiRuntimeReadiness, PiSendMessageInput, type PiSendOptions, PiSessionEntry, PiStopReason, PiTextContent, PiThinkingContent, PiThinkingLevel, PiThreadController, type PiThreadControllerLike, PiThreadMetadata, PiThreadSnapshot, type PiThreadState, PiThreadStatus, PiToolCall, type PiToolExecutionState, PiToolResultContent, PiToolResultMessage, PiTranscriptMessage, PiUnknownAgentMessage, PiUnknownClientEventBody, PiUnknownSessionEntry, PiUsage, PiUserContent, PiUserMessage, type SplitHostUiRequests, type SseFrame, createPiHttpClient, createPiThreadState, createSseDecoder, isKnownPiSessionEntry, isPiSteerQueueItemId, openPiEventStream, piQueueItemId, projectPiThreadMessages, projectPiThreadRepository, reducePiThreadState, responseForApproval, responseForInterrupt, responseForRequest, splitHostUiRequests, usePiHostUiRequests, usePiRuntime, usePiRuntimeExtras, usePiSession, usePiThreadState };
+diff --git a/dist/runtime/ThreadController.d.ts b/dist/runtime/ThreadController.d.ts
+index dc6c2b2..0274303 100644
+--- a/dist/runtime/ThreadController.d.ts
++++ b/dist/runtime/ThreadController.d.ts
+@@ -1,3 +1,4 @@ import { AppendMessage, ExportedMessageRepository, ThreadMessageLike } from "@as
+-import { PiClient, PiHostUiResponse, PiSendMessageInput, PiThinkingLevel } from "../types.js";
++import { PiClient, PiHostUiResponse, PiSendMessageInput, PiThinkingLevel } from "../types.js";
+-import { PiThreadState } from "./threadState.js";
++import { PiThreadState } from "./threadState.js";
+-import { AppendMessage, ExportedMessageRepository, ThreadMessageLike } from "@assistant-ui/react";
++import { AppendMessage, ExportedMessageRepository, ThreadMessageLike } from "@assistant-ui/react";
++import { PiCustomMessageProjector } from "./messageProjection.js";
+@@ -48,3 +49,4 @@ interface PiThreadControllerLike {
+-  resumeToolCall(toolCallId: string, payload: unknown): Promise<void>;
++  resumeToolCall(toolCallId: string, payload: unknown): Promise<void>;
+-  /** Answer a side-channel (free-standing) host-UI request directly. */
++  /** Answer a side-channel (free-standing) host-UI request directly. */
+-  respondToHostUiRequest(response: PiHostUiResponse): Promise<void>;
++  respondToHostUiRequest(response: PiHostUiResponse): Promise<void>;
++  setCustomMessageProjector(customMessageProjector: PiCustomMessageProjector | undefined): void;
+@@ -94,3 +96,4 @@ declare class PiThreadController implements PiThreadControllerLike {
+-  private readonly options;
++  private readonly options;
+-  constructor(client: PiClient, threadId: string, options?: {
++  constructor(client: PiClient, threadId: string, options?: {
+-    scheduleNotify?: PiNotificationScheduler;
++    scheduleNotify?: PiNotificationScheduler;
++    customMessageProjector?: PiCustomMessageProjector;
+@@ -100,3 +103,4 @@ declare class PiThreadController implements PiThreadControllerLike {
+-  getProjectedMessages(): readonly ThreadMessageLike[];
++  getProjectedMessages(): readonly ThreadMessageLike[];
+-  getMessageRepository(): ExportedMessageRepository;
++  getMessageRepository(): ExportedMessageRepository;
+-  getVersion(): number;
++  getVersion(): number;
++  setCustomMessageProjector(customMessageProjector: PiCustomMessageProjector | undefined): void;
+diff --git a/dist/runtime/ThreadController.js b/dist/runtime/ThreadController.js
+index 59c58ef..38bd312 100644
+--- a/dist/runtime/ThreadController.js
++++ b/dist/runtime/ThreadController.js
+@@ -169,3 +169,8 @@ var PiThreadController = class {
+-	getVersion() {
++	getVersion() {
+-		return this.version;
++		return this.version;
+-	}
++	}
++	setCustomMessageProjector(customMessageProjector) {
++		if (this.options.customMessageProjector === customMessageProjector) return;
++		this.options.customMessageProjector = customMessageProjector;
++		this.recomputeProjectedMessagesAndNotify();
++	}
+@@ -444 +449,2 @@ var PiThreadController = class {
+-			hostUiRequests: this.state.hostUiRequests
++			hostUiRequests: this.state.hostUiRequests,
++			customMessageProjector: this.options.customMessageProjector
+diff --git a/dist/runtime/messageProjection.d.ts b/dist/runtime/messageProjection.d.ts
+index ad9d6cb..3d031e8 100644
+--- a/dist/runtime/messageProjection.d.ts
++++ b/dist/runtime/messageProjection.d.ts
+@@ -1 +1 @@
+-import { PiAgentMessage, PiHostUiRequest, PiToolResultContent } from "../types.js";
++import { PiAgentMessage, PiCustomMessage, PiHostUiRequest, PiToolResultContent } from "../types.js";
+@@ -3,3 +3,4 @@ type ContentPart = Exclude<ThreadMessageLike["content"], string>[number];
+-import { ExportedMessageRepository, ThreadMessageLike } from "@assistant-ui/react";
++import { ExportedMessageRepository, ThreadMessageLike } from "@assistant-ui/react";
+-//#region src/runtime/messageProjection.d.ts
++//#region src/runtime/messageProjection.d.ts
+-type ContentPart = Exclude<ThreadMessageLike["content"], string>[number];
++type ContentPart = Exclude<ThreadMessageLike["content"], string>[number];
++type PiCustomMessageProjector = (message: PiCustomMessage, projectedMessages: readonly ThreadMessageLike[]) => readonly ThreadMessageLike[] | undefined;
+@@ -8,3 +9,4 @@ interface PiProjectionInput {
+-  toolExecutions: PiThreadState["toolExecutions"];
++  toolExecutions: PiThreadState["toolExecutions"];
+-  runStatus: PiThreadState["runStatus"];
++  runStatus: PiThreadState["runStatus"];
+-  hostUiRequests: readonly PiHostUiRequest[];
++  hostUiRequests: readonly PiHostUiRequest[];
++  customMessageProjector?: PiCustomMessageProjector;
+@@ -17 +19 @@ declare const projectPiThreadRepository: (input: PiProjectionInput) => ExportedM
+-export { type ContentPart as PiProjectedContentPart, PiProjectionInput, type PiToolResultContent, projectPiThreadMessages, projectPiThreadMessagesShared, projectPiThreadRepository, shareProjectedThreadMessages };
++export { type ContentPart as PiProjectedContentPart, type PiCustomMessageProjector, PiProjectionInput, type PiToolResultContent, projectPiThreadMessages, projectPiThreadMessagesShared, projectPiThreadRepository, shareProjectedThreadMessages };
 diff --git a/dist/runtime/messageProjection.js b/dist/runtime/messageProjection.js
-index 6455b1e3d078ece39f5b9248af0972e72e66b899..f280f388dad4a9ae1a2541b321442a9280fa4d57 100644
+index 6455b1e..6e42236 100644
 --- a/dist/runtime/messageProjection.js
 +++ b/dist/runtime/messageProjection.js
-@@ -51,6 +51,31 @@ const projectUserContent = (content) => {
- 		};
- 	});
- };
-+const workspaceAttachmentsOf = (message) => {
-+	if (message.customType !== "mathpilot.turn-attachments" || message.display) return;
-+	const details = message.details;
-+	if (!Array.isArray(details?.attachments)) return;
-+	const files = details.attachments.filter((value) => {
-+		if (typeof value !== "object" || value === null) return false;
-+		const file = value;
-+		return typeof file.id === "string" && typeof file.originalName === "string" && typeof file.workspacePath === "string" && file.workspacePath.startsWith("input/original/") && typeof file.mimeType === "string" && !file.mimeType.toLowerCase().startsWith("image/");
-+	});
-+	if (files.length === 0) return;
-+	return files.map((file) => ({
-+		id: file.id,
-+		type: "document",
-+		name: file.originalName,
-+		contentType: file.mimeType,
-+		status: { type: "complete" },
-+		content: [{
-+			type: "file",
-+			data: file.workspacePath,
-+			sourceType: "id",
-+			mimeType: file.mimeType,
-+			filename: file.originalName
-+		}]
-+	}));
-+};
- const dataPart = (name, data) => ({
- 	type: "data",
- 	name,
-@@ -225,7 +250,15 @@ const projectPiThreadMessages = (input) => {
- 			case "custom": {
- 				flush(false);
- 				const m = message;
--				if (!m.display) break;
-+				if (!m.display) {
-+					const attachments = workspaceAttachmentsOf(m);
-+					const previous = out.at(-1);
-+					if (attachments && previous?.role === "user") out[out.length - 1] = {
-+						...previous,
-+						attachments: [...previous.attachments ?? [], ...attachments]
-+					};
+@@ -225,3 +225,8 @@ const projectPiThreadMessages = (input) => {
+-			case "custom": {
++			case "custom": {
+-				flush(false);
++				flush(false);
+-				const m = message;
++				const m = message;
++				const projected = input.customMessageProjector?.(m, out);
++				if (projected !== void 0) {
++					out.splice(0, out.length, ...projected);
 +					break;
 +				}
- 				out.push({
- 					id: messageId(index),
- 					role: "assistant",
-@@ -297,7 +330,7 @@ const deepEqual = (a, b) => {
- 	}
- 	return false;
- };
--const sameThreadMessageLike = (a, b) => a.id === b.id && a.role === b.role && deepEqual(a.createdAt, b.createdAt) && deepEqual(a.content, b.content) && deepEqual(a.status, b.status) && deepEqual(a.metadata, b.metadata);
-+const sameThreadMessageLike = (a, b) => a.id === b.id && a.role === b.role && deepEqual(a.createdAt, b.createdAt) && deepEqual(a.content, b.content) && deepEqual(a.attachments, b.attachments) && deepEqual(a.status, b.status) && deepEqual(a.metadata, b.metadata);
- const shareProjectedThreadMessages = (next, previous) => {
- 	let changed = next.length !== previous.length;
- 	const shared = next.map((message, index) => {
-diff --git a/src/runtime/messageProjection.test.ts b/src/runtime/messageProjection.test.ts
-index ac9b0c162deeb89364addf6ef936df7c8067b5da..c004153fbd2209511e690983ff4e6afc677e26d4 100644
---- a/src/runtime/messageProjection.test.ts
-+++ b/src/runtime/messageProjection.test.ts
-@@ -79,6 +79,61 @@ describe("messageProjection", () => {
-     });
-   });
- 
-+  it("attaches hidden MathPilot workspace files to the preceding user message", () => {
-+    const out = projectPiThreadMessages(
-+      input([
-+        { role: "user", content: "请分析", timestamp: 1 },
-+        {
-+          role: "custom",
-+          customType: "mathpilot.turn-attachments",
-+          content: "hidden model context",
-+          display: false,
-+          details: {
-+            version: 1,
-+            turnId: "turn-1",
-+            attachments: [
-+              {
-+                id: "file-1",
-+                originalName: "作业.pdf",
-+                workspacePath: "input/original/作业.pdf",
-+                mimeType: "application/pdf",
-+                byteSize: 42,
-+              },
-+              {
-+                id: "image-1",
-+                originalName: "题目.png",
-+                workspacePath: "input/original/题目.png",
-+                mimeType: "image/png",
-+                byteSize: 24,
-+              },
-+            ],
-+          },
-+          timestamp: 2,
-+        },
-+      ]),
-+    );
+diff --git a/dist/runtime/runtimeTypes.d.ts b/dist/runtime/runtimeTypes.d.ts
+index 491dff2..fad82da 100644
+--- a/dist/runtime/runtimeTypes.d.ts
++++ b/dist/runtime/runtimeTypes.d.ts
+@@ -2,3 +2,4 @@ import { PiThreadControllerLike } from "./ThreadController.js";
+-import { PiThreadState } from "./threadState.js";
++import { PiThreadState } from "./threadState.js";
+-import { PiInterruptAnswer } from "./hostUi.js";
++import { PiInterruptAnswer } from "./hostUi.js";
+-import { PiThreadControllerLike } from "./ThreadController.js";
++import { PiThreadControllerLike } from "./ThreadController.js";
++import { PiCustomMessageProjector } from "./messageProjection.js";
+@@ -15,3 +16,4 @@ type PiRuntimeOptions = ExternalStoreSharedOptions & {
+-  /** Notified when the active thread's settled remote ID changes; `undefined` while still optimistic. */
++  /** Notified when the active thread's settled remote ID changes; `undefined` while still optimistic. */
+-  onThreadIdChange?: ((threadId: string | undefined) => void) | undefined;
++  onThreadIdChange?: ((threadId: string | undefined) => void) | undefined;
+-  onError?: (error: unknown) => void;
++  onError?: (error: unknown) => void;
++  customMessageProjector?: PiCustomMessageProjector;
+diff --git a/dist/runtime/usePiRuntime.js b/dist/runtime/usePiRuntime.js
+index 569b849..6e69a3f 100644
+--- a/dist/runtime/usePiRuntime.js
++++ b/dist/runtime/usePiRuntime.js
+@@ -24 +24 @@ const createRegistry = (client) => {
+-const getController = (registry, threadId) => {
++const getController = (registry, threadId, customMessageProjector) => {
+@@ -27 +27 @@ const getController = (registry, threadId) => {
+-	const controller = new PiThreadController(registry.client, threadId);
++	const controller = new PiThreadController(registry.client, threadId, { customMessageProjector });
+@@ -50,3 +50,4 @@ const NOOP_CONTROLLER = {
+-	respondToToolApproval: async () => {},
++	respondToToolApproval: async () => {},
+-	resumeToolCall: async () => {},
++	resumeToolCall: async () => {},
+-	respondToHostUiRequest: async () => {},
++	respondToHostUiRequest: async () => {},
++	setCustomMessageProjector: () => {},
+@@ -108,3 +109,6 @@ const usePiThreadStore = (controller, options) => {
+-		if (controller === NOOP_CONTROLLER) return;
++		if (controller === NOOP_CONTROLLER) return;
+-		controller.load().catch(onLoadError);
++		controller.load().catch(onLoadError);
+-	}, [controller]);
++	}, [controller]);
++	useEffect(() => {
++		controller.setCustomMessageProjector(options.customMessageProjector);
++	}, [controller, options.customMessageProjector]);
+@@ -232 +236 @@ const useNewPiThreadStore = (registry, options) => {
+-				await getController(registry, externalId ?? remoteId).sendMessage(message);
++				await getController(registry, externalId ?? remoteId, options.customMessageProjector).sendMessage(message);
+@@ -249 +253,2 @@ const useNewPiThreadStore = (registry, options) => {
+-		unstable_capabilities
++		unstable_capabilities,
++		options.customMessageProjector
+@@ -256 +261 @@ const useRuntimeHook = (registry, options) => {
+-	const controller = threadId ? getController(registry, threadId) : NOOP_CONTROLLER;
++	const controller = threadId ? getController(registry, threadId, options.customMessageProjector) : NOOP_CONTROLLER;
+diff --git a/src/client/eventSource.test.ts b/src/client/eventSource.test.ts
+index 47700d8..ec8f8a6 100644
+--- a/src/client/eventSource.test.ts
++++ b/src/client/eventSource.test.ts
+@@ -1143,3 +1143,53 @@ describe("openPiEventStream", () => {
+-    ]);
++    ]);
+-  });
++  });
+-
 +
-+    expect(out).toHaveLength(1);
-+    expect(out[0]!.attachments).toEqual([
-+      {
-+        id: "file-1",
-+        type: "document",
-+        name: "作业.pdf",
-+        contentType: "application/pdf",
-+        status: { type: "complete" },
-+        content: [
-+          {
-+            type: "file",
-+            data: "input/original/作业.pdf",
-+            sourceType: "id",
-+            mimeType: "application/pdf",
-+            filename: "作业.pdf",
-+          },
-+        ],
-+      },
++  it("recovers a dropped live-only stream from a snapshot before accepting more deltas", async () => {
++    const fetchImpl = vi
++      .fn()
++      .mockResolvedValueOnce(
++        sseResponse([
++          sseFrame({ type: "agent_start", threadId: "t1", seq: 1 }),
++        ]),
++      )
++      .mockResolvedValueOnce(
++        sseResponse([
++          sseFrame({
++            type: "snapshot",
++            threadId: "t1",
++            seq: 3,
++            snapshot: {
++              metadata: { id: "t1", status: "running" },
++              messages: [assistantMessage],
++            },
++          }),
++        ]),
++      ) as unknown as typeof fetch;
++    const events: PiAnyClientEvent[] = [];
++
++    await new Promise<void>((resolve) => {
++      const close = openPiEventStream({
++        url: "/events?snapshot=false",
++        snapshotRecoveryUrl: "/events",
++        expectedThreadId: "t1",
++        fetchImpl,
++        reconnectDelay: () => Promise.resolve(),
++        onEvent: (event) => {
++          events.push(event);
++          if (event.type === "snapshot") {
++            close();
++            resolve();
++          }
++        },
++      });
++    });
++
++    expect(fetchImpl.mock.calls.map(([requestUrl]) => requestUrl)).toEqual([
++      "/events?snapshot=false",
++      "/events",
++    ]);
++    expect(events).toEqual([
++      { type: "agent_start", threadId: "t1", seq: 1 },
++      expect.objectContaining({ type: "snapshot", seq: 3 }),
 +    ]);
 +  });
 +
-   it("does not re-wrap image data that is already an uppercase-scheme data URL", () => {
-     const out = projectPiThreadMessages(
-       input([
+diff --git a/src/client/eventSource.ts b/src/client/eventSource.ts
+index 3d91e7a..078c3a1 100644
+--- a/src/client/eventSource.ts
++++ b/src/client/eventSource.ts
+@@ -75 +75 @@ export interface PiEventStreamOptions {
+-  /** Snapshot-enabled URL used to recover after a malformed known event. */
++  /** Snapshot-enabled URL used for every reconnect after the initial stream. */
+@@ -253 +253,4 @@ export const openPiEventStream = (
+-  let needsSnapshotRecovery = false;
++  // A live-only subscription has no cursor. Once the first request has ended,
++  // the next connection must therefore start from a snapshot: deltas that
++  // arrived while disconnected cannot safely be replayed from the live URL.
++  let reconnecting = false;
+@@ -296,3 +299 @@ export const openPiEventStream = (
+-          needsSnapshotRecovery && snapshotRecoveryUrl
+-            ? snapshotRecoveryUrl
+-            : url;
++          reconnecting && snapshotRecoveryUrl ? snapshotRecoveryUrl : url;
+@@ -320,4 +321 @@ export const openPiEventStream = (
+-            if (error instanceof InvalidKnownEventStreamPayloadError) {
+-              needsSnapshotRecovery = true;
+-              throw error;
+-            }
++            if (error instanceof InvalidKnownEventStreamPayloadError) throw error;
+@@ -327,6 +324,0 @@ export const openPiEventStream = (
+-          if (
+-            requestUrl === snapshotRecoveryUrl &&
+-            parsed.type === "snapshot"
+-          ) {
+-            needsSnapshotRecovery = false;
+-          }
+@@ -378,3 +370,7 @@ export const openPiEventStream = (
+-        reportError(error);
++        reportError(error);
+-      }
++      }
+-      if (closed) break;
++      if (closed) break;
++      // Every later attempt is a recovery attempt, even when the first live
++      // response simply ended cleanly. `httpClient` rebases/deduplicates the
++      // snapshot for existing listeners before resuming its native seq stream.
++      reconnecting = true;
+diff --git a/src/index.ts b/src/index.ts
+index b4c5127..6e9cbe8 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -22,3 +22,4 @@ export type {
+-} from "./runtime/messageProjection";
++} from "./runtime/messageProjection";
+-export type {
++export type {
+-  PiProjectionInput,
++  PiProjectionInput,
++  PiCustomMessageProjector,
+diff --git a/src/runtime/ThreadController.ts b/src/runtime/ThreadController.ts
+index 4409a65..f9384e6 100644
+--- a/src/runtime/ThreadController.ts
++++ b/src/runtime/ThreadController.ts
+@@ -25 +25,4 @@ import { isKnownPiClientEventType } from "../eventTypes";
+-import { projectPiThreadMessagesShared } from "./messageProjection";
++import {
++  projectPiThreadMessagesShared,
++  type PiCustomMessageProjector,
++} from "./messageProjection";
+@@ -81,3 +84,6 @@ export interface PiThreadControllerLike {
+-  resumeToolCall(toolCallId: string, payload: unknown): Promise<void>;
++  resumeToolCall(toolCallId: string, payload: unknown): Promise<void>;
+-  /** Answer a side-channel (free-standing) host-UI request directly. */
++  /** Answer a side-channel (free-standing) host-UI request directly. */
+-  respondToHostUiRequest(response: PiHostUiResponse): Promise<void>;
++  respondToHostUiRequest(response: PiHostUiResponse): Promise<void>;
++  setCustomMessageProjector(
++    customMessageProjector: PiCustomMessageProjector | undefined,
++  ): void;
+@@ -258,3 +264,4 @@ export class PiThreadController implements PiThreadControllerLike {
+-  private readonly threadId: string;
++  private readonly threadId: string;
+-  private readonly options: {
++  private readonly options: {
+-    scheduleNotify?: PiNotificationScheduler;
++    scheduleNotify?: PiNotificationScheduler;
++    customMessageProjector?: PiCustomMessageProjector;
+@@ -265,3 +272,4 @@ export class PiThreadController implements PiThreadControllerLike {
+-    threadId: string,
++    threadId: string,
+-    options: {
++    options: {
+-      scheduleNotify?: PiNotificationScheduler;
++      scheduleNotify?: PiNotificationScheduler;
++      customMessageProjector?: PiCustomMessageProjector;
+@@ -294,3 +302,11 @@ export class PiThreadController implements PiThreadControllerLike {
+-    return this.version;
++    return this.version;
+-  }
++  }
+-
++
++  public setCustomMessageProjector(
++    customMessageProjector: PiCustomMessageProjector | undefined,
++  ) {
++    if (this.options.customMessageProjector === customMessageProjector) return;
++    this.options.customMessageProjector = customMessageProjector;
++    this.recomputeProjectedMessagesAndNotify();
++  }
++
+@@ -662,3 +678,4 @@ export class PiThreadController implements PiThreadControllerLike {
+-        toolExecutions: this.state.toolExecutions,
++        toolExecutions: this.state.toolExecutions,
+-        runStatus: this.state.runStatus,
++        runStatus: this.state.runStatus,
+-        hostUiRequests: this.state.hostUiRequests,
++        hostUiRequests: this.state.hostUiRequests,
++        customMessageProjector: this.options.customMessageProjector,
+diff --git a/src/runtime/messageProjection.test.ts b/src/runtime/messageProjection.test.ts
+index ac9b0c1..315f84b 100644
+--- a/src/runtime/messageProjection.test.ts
++++ b/src/runtime/messageProjection.test.ts
+@@ -1,3 +1,4 @@ import {
+-import { describe, expect, it } from "vitest";
++import { describe, expect, it } from "vitest";
+-import {
++import {
+-  projectPiThreadMessages,
++  projectPiThreadMessages,
++  type PiCustomMessageProjector,
+@@ -79,3 +80,17 @@ describe("messageProjection", () => {
+-    });
++    });
+-  });
++  });
+-
++
++  it("lets an optional custom-message projector replace only handled messages", () => {
++    const projector: PiCustomMessageProjector = (message, projected) =>
++      message.customType === "example/handled"
++        ? [{ id: `custom:${projected.length + 1}`, role: "assistant", createdAt: new Date(1), content: [{ type: "text", text: "handled" }] }]
++        : undefined;
++    const out = projectPiThreadMessages(input([
++      { role: "custom", customType: "example/handled", content: "", display: true, details: {}, timestamp: 1 },
++    ], { customMessageProjector: projector }));
++
++    expect(out).toEqual([
++      { id: "custom:1", role: "assistant", createdAt: new Date(1), content: [{ type: "text", text: "handled" }] },
++    ]);
++  });
++
 diff --git a/src/runtime/messageProjection.ts b/src/runtime/messageProjection.ts
-index adcb5bbe82ccddaf39dc49ed51d66f992f824f10..12d7d005b52154b459e4bd866e3f3612c9dcf26b 100644
+index adcb5bb..d93ce6d 100644
 --- a/src/runtime/messageProjection.ts
 +++ b/src/runtime/messageProjection.ts
-@@ -41,6 +41,7 @@ import type {
- } from "../types";
- 
- type ContentPart = Exclude<ThreadMessageLike["content"], string>[number];
-+type MessageAttachment = NonNullable<ThreadMessageLike["attachments"]>[number];
- type ToolCallPart = Extract<ContentPart, { type: "tool-call" }>;
- type Step = NonNullable<
-   NonNullable<ThreadMessageLike["metadata"]>["steps"]
-@@ -94,6 +95,56 @@ const projectUserContent = (
-   });
- };
- 
-+type WorkspaceAttachmentDetails = {
-+  id: string;
-+  originalName: string;
-+  workspacePath: string;
-+  mimeType: string;
-+};
+@@ -51,5 +51,14 @@ export interface PiProjectionInput {
+-  toolExecutions: PiThreadState["toolExecutions"];
++  toolExecutions: PiThreadState["toolExecutions"];
+-  runStatus: PiThreadState["runStatus"];
++  runStatus: PiThreadState["runStatus"];
+-  hostUiRequests: readonly PiHostUiRequest[];
++  hostUiRequests: readonly PiHostUiRequest[];
++  /** Optional product projection for custom transcript messages. Return a new
++   * projected sequence to handle the message, or `undefined` for Pi's default
++   * generic/hidden behavior. */
++  customMessageProjector?: PiCustomMessageProjector;
+-}
++}
+-
 +
-+const workspaceAttachmentsOf = (
++export type PiCustomMessageProjector = (
 +  message: PiCustomMessage,
-+): MessageAttachment[] | undefined => {
-+  if (message.customType !== "mathpilot.turn-attachments" || message.display) {
-+    return undefined;
-+  }
-+  const details = message.details as { attachments?: unknown } | undefined;
-+  if (!Array.isArray(details?.attachments)) return undefined;
++  projectedMessages: readonly ThreadMessageLike[],
++) => readonly ThreadMessageLike[] | undefined;
 +
-+  const files = details.attachments.filter(
-+    (value): value is WorkspaceAttachmentDetails => {
-+      if (typeof value !== "object" || value === null) return false;
-+      const file = value as Partial<WorkspaceAttachmentDetails>;
-+      return (
-+        typeof file.id === "string" &&
-+        typeof file.originalName === "string" &&
-+        typeof file.workspacePath === "string" &&
-+        file.workspacePath.startsWith("input/original/") &&
-+        typeof file.mimeType === "string" &&
-+        !file.mimeType.toLowerCase().startsWith("image/")
-+      );
-+    },
-+  );
-+  if (files.length === 0) return undefined;
-+
-+  return files.map((file) => ({
-+    id: file.id,
-+    type: "document",
-+    name: file.originalName,
-+    contentType: file.mimeType,
-+    status: { type: "complete" },
-+    content: [
-+      {
-+        type: "file",
-+        data: file.workspacePath,
-+        sourceType: "id",
-+        mimeType: file.mimeType,
-+        filename: file.originalName,
-+      },
-+    ],
-+  }));
-+};
-+
- const dataPart = (
-   name: string,
-   data: Record<string, unknown>,
-@@ -343,7 +394,21 @@ export const projectPiThreadMessages = (
-       case "custom": {
-         flush(false);
-         const m = message as PiCustomMessage;
--        if (!m.display) break; // hidden from UI, still in LLM context
-+        if (!m.display) {
-+          // A hidden per-turn attachment context follows its canonical user
-+          // message in Pi's transcript. Keep it hidden from the message flow,
-+          // but expose ordinary files through assistant-ui's native attachment
-+          // collection so MessagePrimitive.Attachments can render them.
-+          const attachments = workspaceAttachmentsOf(m);
-+          const previous = out.at(-1);
-+          if (attachments && previous?.role === "user") {
-+            out[out.length - 1] = {
-+              ...previous,
-+              attachments: [...(previous.attachments ?? []), ...attachments],
-+            };
-+          }
+@@ -343,3 +352,8 @@ export const projectPiThreadMessages = (
+-      case "custom": {
++      case "custom": {
+-        flush(false);
++        flush(false);
+-        const m = message as PiCustomMessage;
++        const m = message as PiCustomMessage;
++        const projected = input.customMessageProjector?.(m, out);
++        if (projected !== undefined) {
++          out.splice(0, out.length, ...projected);
 +          break;
 +        }
-         out.push({
-           id: messageId(index),
-           role: "assistant",
-@@ -461,6 +526,7 @@ const sameThreadMessageLike = (
-   a.role === b.role &&
-   deepEqual(a.createdAt, b.createdAt) &&
-   deepEqual(a.content, b.content) &&
+@@ -461,3 +475,4 @@ const sameThreadMessageLike = (
+-  a.role === b.role &&
++  a.role === b.role &&
+-  deepEqual(a.createdAt, b.createdAt) &&
++  deepEqual(a.createdAt, b.createdAt) &&
+-  deepEqual(a.content, b.content) &&
++  deepEqual(a.content, b.content) &&
 +  deepEqual(a.attachments, b.attachments) &&
-   deepEqual(a.status, b.status) &&
-   deepEqual(a.metadata, b.metadata);
- 
+diff --git a/src/runtime/runtimeTypes.ts b/src/runtime/runtimeTypes.ts
+index a3167e5..208644d 100644
+--- a/src/runtime/runtimeTypes.ts
++++ b/src/runtime/runtimeTypes.ts
+@@ -4,3 +4,4 @@ import type { PiThreadControllerLike } from "./ThreadController";
+-  ThreadMessageLike,
++  ThreadMessageLike,
+-} from "@assistant-ui/react";
++} from "@assistant-ui/react";
+-import type { PiThreadControllerLike } from "./ThreadController";
++import type { PiThreadControllerLike } from "./ThreadController";
++import type { PiCustomMessageProjector } from "./messageProjection";
+@@ -28,3 +29,5 @@ export type PiRuntimeOptions = ExternalStoreSharedOptions & {
+-  /** Notified when the active thread's settled remote ID changes; `undefined` while still optimistic. */
++  /** Notified when the active thread's settled remote ID changes; `undefined` while still optimistic. */
+-  onThreadIdChange?: ((threadId: string | undefined) => void) | undefined;
++  onThreadIdChange?: ((threadId: string | undefined) => void) | undefined;
+-  onError?: (error: unknown) => void;
++  onError?: (error: unknown) => void;
++  /** Optional product projection for Pi custom transcript messages. */
++  customMessageProjector?: PiCustomMessageProjector;
+diff --git a/src/runtime/usePiRuntime.ts b/src/runtime/usePiRuntime.ts
+index 23ef323..43d0986 100644
+--- a/src/runtime/usePiRuntime.ts
++++ b/src/runtime/usePiRuntime.ts
+@@ -67 +67,5 @@ const createRegistry = (client: PiClient): PiControllerRegistry => {
+-const getController = (registry: PiControllerRegistry, threadId: string) => {
++const getController = (
++  registry: PiControllerRegistry,
++  threadId: string,
++  customMessageProjector?: PiRuntimeOptions["customMessageProjector"],
++) => {
+@@ -70 +74,3 @@ const getController = (registry: PiControllerRegistry, threadId: string) => {
+-  const controller = new PiThreadController(registry.client, threadId);
++  const controller = new PiThreadController(registry.client, threadId, {
++    customMessageProjector,
++  });
+@@ -91,3 +97,4 @@ export const NOOP_CONTROLLER: PiThreadControllerLike = {
+-  respondToToolApproval: async () => {},
++  respondToToolApproval: async () => {},
+-  resumeToolCall: async () => {},
++  resumeToolCall: async () => {},
+-  respondToHostUiRequest: async () => {},
++  respondToHostUiRequest: async () => {},
++  setCustomMessageProjector: () => {},
+@@ -219,3 +226,7 @@ const usePiThreadStore = (
+-    void controller.load().catch(onLoadError);
++    void controller.load().catch(onLoadError);
+-  }, [controller]);
++  }, [controller]);
+-
++
++  useEffect(() => {
++    controller.setCustomMessageProjector(options.customMessageProjector);
++  }, [controller, options.customMessageProjector]);
++
+@@ -398 +409,5 @@ const useNewPiThreadStore = (
+-          await getController(registry, externalId ?? remoteId).sendMessage(
++          await getController(
++            registry,
++            externalId ?? remoteId,
++            options.customMessageProjector,
++          ).sendMessage(
+@@ -420,3 +435,4 @@ const useNewPiThreadStore = (
+-      onError,
++      onError,
+-      suggestions,
++      suggestions,
+-      unstable_capabilities,
++      unstable_capabilities,
++      options.customMessageProjector,
+@@ -442 +458 @@ const useRuntimeHook = (
+-    ? getController(registry, threadId)
++    ? getController(registry, threadId, options.customMessageProjector)

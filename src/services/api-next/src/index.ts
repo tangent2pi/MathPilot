@@ -14,6 +14,7 @@ import { forwardBetterAuthResponse } from "./auth-http.ts";
 import { relayContent, relayStorage } from "./internal-relay.ts";
 import { createPool, withPrincipal, withTenant } from "./lib.ts";
 import { learningProblemFromError, registerLearningHttp } from "./learning-http.ts";
+import { registerPiGateway } from "./pi-gateway.ts";
 
 const internalService = configureInternalService("api-next", process.env);
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
@@ -64,6 +65,7 @@ await startFastifyService({
         { installNotFound:false },
       );
       registerLearningHttp(learningApp, pool, principalOf);
+      registerPiGateway(learningApp, pool, internalService, principalOf);
     });
 
     app.route({

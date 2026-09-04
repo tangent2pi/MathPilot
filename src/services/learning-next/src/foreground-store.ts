@@ -4,9 +4,12 @@ import pg from "pg";
 import { digestJson, encodeArtifact, verifiedArtifactPayload } from "./artifact-integrity.ts";
 import { parseForegroundTeachingOutput } from "./foreground-core.ts";
 import type {
-  CommitForegroundResponseInput,
   ExecuteLearningActionInput,
-  ForegroundResponseCommitResult,
+  InteractiveAttemptPrepareInput,
+  InteractiveAttemptPreparation,
+  InteractiveCompleteInput,
+  InteractiveResponseCommitResult,
+  InteractiveTerminalInput,
   LearningActionResult,
 } from "./runtime-types.ts";
 
@@ -26,6 +29,13 @@ interface ForegroundContext {
   thread_version: string;
   active_question_session_id: string | null;
   attempt_status: string;
+  error_code: string | null;
+  error_detail: string | null;
+  operation_status: string;
+  event_id: string;
+  input_artifact_id: string;
+  execution_driver: string;
+  driver_execution_id: string;
 }
 
 interface StoredAction {
@@ -36,9 +46,18 @@ interface StoredAction {
   rejection_code: LearningActionResult["rejection_code"] | null;
 }
 
+interface CanonicalForegroundCommitInput {
+  tenantId: string;
+  operationId: string;
+  eventId: string;
+  outputRef: string;
+}
+
 export interface ForegroundStore {
   executeAction(input: ExecuteLearningActionInput): Promise<LearningActionResult>;
-  commitResponse(input: CommitForegroundResponseInput): Promise<ForegroundResponseCommitResult>;
+  prepareInteractiveEpoch(input: InteractiveAttemptPrepareInput): Promise<InteractiveAttemptPreparation>;
+  completeInteractiveEpoch(input: InteractiveCompleteInput): Promise<InteractiveResponseCommitResult & { outputRef: string }>;
+  terminateInteractiveEpoch(input: InteractiveTerminalInput): Promise<{ status: "failed" | "cancelled"; requestStatus: string }>;
   close(): Promise<void>;
 }
 
@@ -73,6 +92,12 @@ export class PostgresForegroundStore implements ForegroundStore {
     const payloadHash = digestJson(input.action);
     const actionId = idFrom("lna", `${input.agentAttemptId}\0${input.toolCallId}`);
     return this.withTenant(input.tenantId, async (client) => {
+      // Serialize concurrent deliveries for the same tool call before any
+      // read or domain write. The unique key remains the integrity backstop.
+      await client.query(
+        "select pg_advisory_xact_lock(hashtextextended($1 || E'\\0' || $2, 0))",
+        [input.agentAttemptId, input.toolCallId],
+      );
       const context = await this.context(client, input, true);
       const existing = (await client.query<StoredAction>(
         `select action_type,payload_sha256,accepted,result_resource_ref,rejection_code
@@ -86,7 +111,7 @@ export class PostgresForegroundStore implements ForegroundStore {
         }
         return actionResult(existing.action_type, existing.accepted, existing.result_resource_ref, existing.rejection_code);
       }
-      if (context.request_status !== "running" || context.attempt_status !== "started") {
+      if (context.request_status !== "running" || !["started", "succeeded"].includes(context.attempt_status)) {
         throw new Error("foreground request is no longer writable");
       }
 
@@ -173,8 +198,156 @@ export class PostgresForegroundStore implements ForegroundStore {
     });
   }
 
-  async commitResponse(input: CommitForegroundResponseInput): Promise<ForegroundResponseCommitResult> {
+  async prepareInteractiveEpoch(input: InteractiveAttemptPrepareInput): Promise<InteractiveAttemptPreparation> {
     return this.withTenant(input.tenantId, async (client) => {
+      const context = await this.context(client, input, true);
+      if (context.execution_driver !== "interactive_epoch"
+        || context.driver_execution_id !== input.driverExecutionId
+        || context.input_artifact_id !== input.inputRef.slice("agent-artifact:".length)) {
+        throw new Error("interactive attempt receipt does not match the admitted request");
+      }
+      if (context.request_status !== "running" || context.attempt_status !== "started") {
+        throw new Error("interactive foreground request is no longer writable");
+      }
+      return {
+        agentAttemptId: input.agentAttemptId,
+        operationId: input.operationId,
+        foregroundRequestId: context.foreground_request_id,
+        conversationThreadId: context.conversation_thread_id,
+        foregroundEpochId: context.foreground_epoch_id,
+        triggeringMessageId: context.triggering_message_id,
+        inputRef: input.inputRef,
+        driverExecutionId: context.driver_execution_id,
+        eventId: context.event_id,
+        threadVersion: Number(context.thread_version),
+        requestStatus: context.request_status,
+        attemptStatus: context.attempt_status,
+      };
+    });
+  }
+
+  async completeInteractiveEpoch(input: InteractiveCompleteInput): Promise<InteractiveResponseCommitResult & { outputRef: string }> {
+    if (!input.resolvedModelId || input.resolvedModelId.length > 255) throw new Error("resolved model ID is invalid");
+    if (!Number.isSafeInteger(input.inputTokens) || input.inputTokens < 0
+      || !Number.isSafeInteger(input.outputTokens) || input.outputTokens < 0) {
+      throw new Error("token counts are invalid");
+    }
+    const committed = await this.withTenant(input.tenantId, async (client) => {
+      const context = await this.context(client, input, true, false);
+      if (context.event_id !== input.eventId) throw new Error("interactive completion event does not match the request");
+      if (context.execution_driver !== "interactive_epoch") throw new Error("AgentAttempt is not owned by interactive epoch");
+      if (context.request_status === "running" && context.operation_status !== "running") {
+        throw new Error("interactive operation is not writable");
+      }
+      const output = parseForegroundTeachingOutput(input.output, {
+        conversationThreadId: context.conversation_thread_id,
+        foregroundEpochId: context.foreground_epoch_id,
+        replyToMessageId: context.triggering_message_id,
+      });
+      const artifact = encodeArtifact(output);
+      const artifactId = idFrom("art", `${input.agentAttemptId}\0${artifact.sha256}`);
+      const outputRef = `agent-artifact:${artifactId}`;
+      await client.query(
+        `insert into science_v3_agent_artifact(
+           artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256
+         ) values($1,$2,$3,'structured_output',$4,$5::jsonb,$6)
+         on conflict (artifact_id) do nothing`,
+        [artifactId, input.tenantId, input.operationId,
+          "https://schemas.mathpilot.dev/science-v3/foreground-teaching-output/v1", artifact.json, artifact.sha256],
+      );
+      const stored = (await client.query<{ payload: unknown; sha256: string; schema_uri: string }>(
+        `select payload,sha256,schema_uri from science_v3_agent_artifact
+          where tenant_id=$1 and operation_id=$2 and artifact_id=$3 and artifact_kind='structured_output'`,
+        [input.tenantId, input.operationId, artifactId],
+      )).rows[0];
+      if (!stored || stored.sha256 !== artifact.sha256
+        || stored.schema_uri !== "https://schemas.mathpilot.dev/science-v3/foreground-teaching-output/v1") {
+        throw new Error("interactive output artifact conflicts with an existing value");
+      }
+      verifiedArtifactPayload(stored, "interactive foreground output");
+      const attempt = (await client.query<{ status: string; output_ref: string | null; resolved_model_id: string | null; input_tokens: number | null; output_tokens: number | null }>(
+        `select status,output_ref,resolved_model_id,input_tokens,output_tokens from science_v3_agent_attempt
+          where tenant_id=$1 and agent_attempt_id=$2 for update`,
+        [input.tenantId, input.agentAttemptId],
+      )).rows[0];
+      if (!attempt) throw new Error("interactive AgentAttempt does not exist");
+      if (attempt.status === "succeeded") {
+        if (attempt.output_ref !== outputRef || attempt.resolved_model_id !== input.resolvedModelId
+          || Number(attempt.input_tokens) !== input.inputTokens || Number(attempt.output_tokens) !== input.outputTokens) {
+          throw new Error("interactive completion is already bound to another output");
+        }
+      } else if (attempt.status === "started") {
+        await client.query(
+          `update science_v3_agent_attempt
+              set status='succeeded',output_ref=$3,resolved_model_id=$4,
+                  input_tokens=$5,output_tokens=$6,completed_at=clock_timestamp()
+            where tenant_id=$1 and agent_attempt_id=$2 and status='started'`,
+          [input.tenantId, input.agentAttemptId, outputRef, input.resolvedModelId, input.inputTokens, input.outputTokens],
+        );
+      } else {
+        throw new Error("interactive AgentAttempt is already terminal");
+      }
+      const response = await this.commitResponseWithClient(client, {
+        tenantId: input.tenantId,
+        operationId: input.operationId,
+        eventId: input.eventId,
+        outputRef,
+      });
+      return { ...response, outputRef };
+    });
+    return committed;
+  }
+
+  async terminateInteractiveEpoch(input: InteractiveTerminalInput): Promise<{ status: "failed" | "cancelled"; requestStatus: string }> {
+    return this.withTenant(input.tenantId, async (client) => {
+      const context = await this.context(client, input, true, false);
+      if (context.execution_driver !== "interactive_epoch") throw new Error("AgentAttempt is not owned by interactive epoch");
+      const status = input.status;
+      if (["failed", "cancelled"].includes(context.attempt_status)) {
+        const recordedDetail = context.error_detail ?? "";
+        if (context.attempt_status !== status
+          || context.error_code !== input.errorCode.slice(0, 160)
+          || recordedDetail !== input.errorDetail.slice(0, 2000)) {
+          throw new Error("interactive terminal replay conflicts with the recorded terminal state");
+        }
+        return { status: context.attempt_status as "failed" | "cancelled", requestStatus: context.request_status };
+      }
+      if (context.attempt_status === "succeeded" || context.request_status === "succeeded") {
+        throw new Error("interactive terminal cannot overwrite a succeeded attempt");
+      }
+      if (context.attempt_status === "started") {
+        await client.query(
+          `update science_v3_agent_attempt
+              set status=$3,error_code=$4,error_detail=$5,completed_at=clock_timestamp()
+            where tenant_id=$1 and agent_attempt_id=$2 and status='started'`,
+          [input.tenantId, input.agentAttemptId, status, input.errorCode.slice(0, 160), input.errorDetail.slice(0, 2000)],
+        );
+      }
+      if (["accepted", "running", "needs_input"].includes(context.operation_status)) {
+        await client.query(
+          `update science_v3_operation
+              set status=$3,user_message=$4,retryable=$5,updated_at=clock_timestamp(),version=version+1
+            where tenant_id=$1 and operation_id=$2 and status=$6`,
+          [input.tenantId, input.operationId, status, input.errorDetail.slice(0, 1000) || (status === "cancelled" ? "已取消" : "处理失败"),
+            status === "failed", context.operation_status],
+        );
+      }
+      if (["queued", "running"].includes(context.request_status)) {
+        await client.query(
+          `update science_v3_foreground_request
+              set status=$3,completed_at=clock_timestamp(),updated_at=clock_timestamp()
+            where tenant_id=$1 and foreground_request_id=$2 and status=$4`,
+          [input.tenantId, input.foregroundRequestId, status, context.request_status],
+        );
+      }
+      return { status, requestStatus: status };
+    });
+  }
+
+  private async commitResponseWithClient(
+    client: pg.PoolClient,
+    input: CanonicalForegroundCommitInput,
+  ): Promise<InteractiveResponseCommitResult> {
       const request = (await client.query<{
         foreground_request_id: string; conversation_thread_id: string; foreground_epoch_id: string;
         triggering_message_id: string; status: string;
@@ -184,7 +357,7 @@ export class PostgresForegroundStore implements ForegroundStore {
           where tenant_id=$1 and operation_id=$2 and event_id=$3 for update`,
         [input.tenantId, input.operationId, input.eventId],
       )).rows[0];
-      if (!request) throw new Error("foreground request does not match its Workflow envelope");
+      if (!request) throw new Error("foreground request does not match its interactive receipt");
       const artifactId = /^agent-artifact:(art_[A-Za-z0-9]{8,})$/.exec(input.outputRef)?.[1];
       if (!artifactId) throw new Error("foreground outputRef is invalid");
       const artifact = (await client.query<{ payload: unknown; schema_uri: string; sha256: string }>(
@@ -234,21 +407,38 @@ export class PostgresForegroundStore implements ForegroundStore {
         threadVersion: Number(committed.thread_version),
         created: committed.created,
       };
-    });
   }
 
   private async context(
     client: pg.PoolClient,
-    input: ExecuteLearningActionInput,
+    input: {
+      tenantId: string;
+      operationId: string;
+      agentAttemptId: string;
+      actorUserId?: string;
+      foregroundRequestId?: string;
+      conversationThreadId?: string;
+      foregroundEpochId?: string;
+      triggeringMessageId?: string;
+      inputRef?: string;
+      driverExecutionId?: string;
+    },
     lock: boolean,
+    requireActiveThread = true,
   ): Promise<ForegroundContext> {
     const row = (await client.query<ForegroundContext>(
       `select request.foreground_request_id,request.status request_status,
               request.conversation_thread_id,request.foreground_epoch_id,
-              request.triggering_message_id,request.student_id,student.user_id,
+              request.triggering_message_id,request.event_id,request.input_artifact_id,
+              request.student_id,student.user_id,
+              operation.status operation_status,
               thread.status thread_status,thread.version thread_version,
-              epoch.active_question_session_id,attempt.status attempt_status
+              epoch.active_question_session_id,attempt.status attempt_status,
+              attempt.error_code,attempt.error_detail,
+              attempt.execution_driver,attempt.driver_execution_id
          from science_v3_foreground_request request
+         join science_v3_operation operation
+           on operation.tenant_id=request.tenant_id and operation.operation_id=request.operation_id
          join science_v3_student student
            on student.tenant_id=request.tenant_id and student.student_id=request.student_id
          join science_v3_conversation_thread thread
@@ -259,10 +449,27 @@ export class PostgresForegroundStore implements ForegroundStore {
            on attempt.tenant_id=request.tenant_id and attempt.operation_id=request.operation_id
           and attempt.agent_attempt_id=$3 and attempt.task_type='foreground_teaching'
         where request.tenant_id=$1 and request.operation_id=$2
-        ${lock ? "for update of request,thread" : ""}`,
+        ${lock ? "for update of request,thread,attempt,operation" : ""}`,
       [input.tenantId, input.operationId, input.agentAttemptId],
     )).rows[0];
-    if (!row || row.thread_status !== "active") throw new Error("foreground action authorization is no longer valid");
+    if (!row || (requireActiveThread && row.thread_status !== "active")) {
+      throw new Error("foreground action authorization is no longer valid");
+    }
+    if (input.actorUserId !== undefined && row.user_id !== input.actorUserId) {
+      throw new Error("foreground action authorization is no longer valid");
+    }
+    if (input.foregroundRequestId !== undefined && row.foreground_request_id !== input.foregroundRequestId
+      || input.conversationThreadId !== undefined && row.conversation_thread_id !== input.conversationThreadId
+      || input.foregroundEpochId !== undefined && row.foreground_epoch_id !== input.foregroundEpochId
+      || input.triggeringMessageId !== undefined && row.triggering_message_id !== input.triggeringMessageId
+      || input.inputRef !== undefined && `agent-artifact:${row.input_artifact_id}` !== input.inputRef
+      || input.driverExecutionId !== undefined && row.driver_execution_id !== input.driverExecutionId) {
+      throw new Error("interactive receipt binding mismatch");
+    }
+    if ((input.foregroundRequestId !== undefined || input.driverExecutionId !== undefined)
+      && row.execution_driver !== "interactive_epoch") {
+      throw new Error("AgentAttempt is not owned by interactive epoch");
+    }
     return row;
   }
 

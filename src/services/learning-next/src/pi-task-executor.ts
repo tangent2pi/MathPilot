@@ -10,14 +10,13 @@ import {
   defineTool,
   ModelRuntime,
   SessionManager,
+  SettingsManager,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { MATH_DERIVATION_ARTIFACT_SCHEMA } from "@mathpilot/contracts";
 import type { InternalServiceRuntime } from "@mathpilot/internal-service";
 import { Type } from "typebox";
 import { parseSelectionDecision } from "./selection-core.ts";
 import { parseAnnotationChangeSet, parseLightAtomProposal, parseRemOutput } from "./dream-core.ts";
-import { parseBoundedLearningAction, parseForegroundTeachingOutput } from "./foreground-core.ts";
 import {
   MAXIMUM_WORKSPACE_PROJECTION_BYTES,
   type PiExecutorRequest,
@@ -29,14 +28,14 @@ import { StorageNextObjectReader } from "./storage-object-reader.ts";
 
 const PROVIDER = "mathpilot-deepseek";
 
-const mathDerivationContent = Type.Object({
-  schema: Type.Literal(MATH_DERIVATION_ARTIFACT_SCHEMA),
-  label: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
-  steps: Type.Array(Type.Object({
-    expression: Type.String({ minLength: 1, maxLength: 2000 }),
-    note: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
-  }, { additionalProperties: false }), { minItems: 1, maxItems: 16 }),
-}, { additionalProperties: false });
+export const createAgentAttemptSettings = (): SettingsManager => SettingsManager.inMemory({
+  // Each AgentAttempt starts from one frozen bundle and has a bounded output;
+  // compaction would add an unrelated model call and another recovery path.
+  compaction: { enabled: false },
+  // Temporal owns durable retries for AgentAttempts. Pi must surface provider
+  // failures to the Activity instead of retrying invisibly inside one attempt.
+  retry: { enabled: false, provider: { maxRetries: 0 } },
+});
 
 const requiredModelSetting = (name: "MODEL_API_BASE" | "MODEL_API_KEY" | "MODEL_ID_MAIN" | "MODEL_ID_AUX"): string => {
   const value = process.env[name]?.trim();
@@ -167,15 +166,15 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
   constructor(private readonly options: PiSdkTaskExecutorOptions) {}
 
   async execute(request: PiExecutorRequest): Promise<PiExecutorResult> {
+    if (request.taskSpec.task_type === "foreground_teaching") {
+      throw new Error("foreground_teaching is Interactive Epoch only and cannot run in Temporal");
+    }
     if (jsonSize(request.inputBundle) > 1024 * 1024) throw new Error("frozen task bundle exceeds 1 MiB");
     const unsupported = request.taskSpec.allowed_capability_tools
-      .filter((name) => !["question_catalog", "read", "grep", "learning_action"].includes(name));
+      .filter((name) => !["question_catalog", "read", "grep"].includes(name));
     if (unsupported.length) throw new Error(`PiTaskExecutor does not host foreground/delegation capabilities: ${unsupported.join(",")}`);
     if (request.taskSpec.allowed_capability_tools.includes("question_catalog") && !request.questionCatalog) {
       throw new Error("question_catalog capability is missing for this AgentAttempt");
-    }
-    if (request.taskSpec.allowed_capability_tools.includes("learning_action") && !request.learningAction) {
-      throw new Error("learning_action capability is missing for this AgentAttempt");
     }
     const workspaceToolsRequested = request.taskSpec.allowed_capability_tools.some((name) => name === "read" || name === "grep");
     if (workspaceToolsRequested && !request.taskSpec.workspace_projection_policy.enabled) {
@@ -246,13 +245,6 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
             studentId: String(bundle.student_id ?? ""),
             annotationSetVersion: Number(bundle.expected_annotation_set_version),
           });
-        } else if (request.taskSpec.task_type === "foreground_teaching") {
-          const bundle = objectValue(request.inputBundle);
-          structuredOutput = parseForegroundTeachingOutput(params.output, {
-            conversationThreadId: String(bundle.conversation_thread_id ?? ""),
-            foregroundEpochId: String(bundle.foreground_epoch_id ?? ""),
-            replyToMessageId: String(bundle.triggering_message_id ?? ""),
-          });
         } else {
           structuredOutput = params.output;
         }
@@ -287,42 +279,8 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         };
       },
       });
-      const learningAction = defineTool({
-      name: "learning_action",
-      label: "Learning action",
-      description: "Request one bounded, host-validated learning action in the current Thread and foreground epoch. Authorization identities are supplied only by the host.",
-      parameters: Type.Union([
-        Type.Object({
-          action: Type.Literal("request_cut"),
-          reason: Type.Union([
-            Type.Literal("completed"), Type.Literal("student_switch"), Type.Literal("skipped"),
-            Type.Literal("system_policy"), Type.Literal("abandoned"),
-          ]),
-          next_natural_language_request: Type.Optional(Type.String({ minLength: 1, maxLength: 4000 })),
-        }, { additionalProperties: false }),
-        Type.Object({
-          action: Type.Literal("revise_selection_intent"),
-          natural_language_request: Type.String({ minLength: 1, maxLength: 4000 }),
-        }, { additionalProperties: false }),
-        Type.Object({
-          action: Type.Literal("present_validated_artifact"),
-          artifact_schema: Type.Literal(MATH_DERIVATION_ARTIFACT_SCHEMA),
-          summary: Type.String({ minLength: 1, maxLength: 1000 }),
-          content: mathDerivationContent,
-        }, { additionalProperties: false }),
-      ]),
-      async execute(toolCallId, params) {
-        if (!request.learningAction) throw new Error("learning_action is unavailable");
-        const result = await request.learningAction.perform(toolCallId, parseBoundedLearningAction(params));
-        return {
-          content: [{ type: "text" as const, text: result.message }],
-          details: result,
-        };
-      },
-      });
       const tools: ToolDefinition<any, any, any>[] = [respond];
       if (request.taskSpec.allowed_capability_tools.includes("question_catalog")) tools.push(catalog);
-      if (request.taskSpec.allowed_capability_tools.includes("learning_action")) tools.push(learningAction);
       if (request.taskSpec.allowed_capability_tools.includes("read")) {
         tools.push(createReadToolDefinition(projectionRoot, {
         autoResizeImages: true,
@@ -354,9 +312,11 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       const model = request.taskSpec.model_policy.model_family === "fast"
         ? this.options.auxiliaryModel
         : this.options.mainModel;
+      const settingsManager = createAgentAttemptSettings();
       const resourceLoader = new DefaultResourceLoader({
       cwd: agentCwd,
       agentDir: path.join(this.options.runtimeRoot, "agent"),
+      settingsManager,
       noExtensions: true,
       noSkills: true,
       noPromptTemplates: true,
@@ -390,8 +350,14 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       customTools: tools,
       resourceLoader,
       sessionManager: SessionManager.inMemory(agentCwd),
+      settingsManager,
       });
-      const unsubscribe = session.subscribe(() => request.heartbeat({ stage: "pi", attemptId: request.agentAttemptId }));
+      const unsubscribe = session.subscribe((event) => request.heartbeat({
+        stage: "pi",
+        attemptId: request.agentAttemptId,
+        event: event.type,
+        ...(event.type === "tool_execution_start" ? { tool: event.toolName } : {}),
+      }));
       const onAbort = () => void session.abort();
       request.signal.addEventListener("abort", onAbort, { once: true });
       try {
@@ -401,7 +367,16 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
           JSON.stringify(request.inputBundle),
           `Return a value matching ${request.taskSpec.output_schema} through respond.`,
         ].join("\n"));
-        if (structuredOutput === undefined) throw new Error("Pi AgentAttempt ended without a structured respond result");
+        if (structuredOutput === undefined) {
+          const agentError = session.agent.state.errorMessage?.trim().replace(/\s+/g, " ").slice(0, 1500);
+          const stats = session.getSessionStats();
+          const terminal = [...session.messages].reverse().map(objectValue)
+            .find((message) => message.role === "assistant");
+          const stopReason = typeof terminal?.stopReason === "string" ? terminal.stopReason : "unknown";
+          throw new Error(agentError
+            ? `Pi AgentAttempt failed before structured respond: ${agentError}`
+            : `Pi AgentAttempt ended without a structured respond result (stop_reason=${stopReason}, turns=${stats.assistantMessages}, tool_calls=${stats.toolCalls})`);
+        }
         const usage = usageFromMessages(session.messages);
         return {
           output: structuredOutput,
