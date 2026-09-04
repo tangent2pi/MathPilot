@@ -356,6 +356,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.1
         version: 0.84.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)(ws@8.21.3)(zod@4.4.3)
+      '@mathpilot/content-integrity':
+        specifier: workspace:*
+        version: link:../../packages/content-integrity
       '@mathpilot/internal-service':
         specifier: workspace:*
         version: link:../../packages/internal-service
@@ -384,6 +387,9 @@ importers:
 
   src/services/storage-next:
     dependencies:
+      '@mathpilot/content-integrity':
+        specifier: workspace:*
+        version: link:../../packages/content-integrity
       '@mathpilot/internal-service':
         specifier: workspace:*
         version: link:../../packages/internal-service
@@ -399,9 +405,15 @@ importers:
       '@temporalio/workflow':
         specifier: 1.23.0
         version: 1.23.0
+      content-disposition:
+        specifier: 1.1.0
+        version: 1.1.0
       fastify:
         specifier: ^5.2.0
         version: 5.12.0
+      mime-types:
+        specifier: 3.0.2
+        version: 3.0.2
       minio:
         specifier: ^8.0.7
         version: 8.0.7
@@ -412,6 +424,12 @@ importers:
         specifier: 4.20.6
         version: 4.20.6
     devDependencies:
+      '@types/content-disposition':
+        specifier: 0.5.9
+        version: 0.5.9
+      '@types/mime-types':
+        specifier: 3.0.1
+        version: 3.0.1
       '@types/pg':
         specifier: ^8.11.10
         version: 8.21.0
@@ -2840,6 +2858,9 @@ packages:
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
+  '@types/content-disposition@0.5.9':
+    resolution: {integrity: sha512-8uYXI3Gw35MhiVYhG3s295oihrxRyytcRHjSjqnqZVDDy/xcGBRny7+Xj1Wgfhv5QzRtN2hB2dVRBUX9XW3UcQ==}
+
   '@types/debug@4.1.13':
     resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
 
@@ -2863,6 +2884,9 @@ packages:
 
   '@types/mdast@4.0.4':
     resolution: {integrity: sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==}
+
+  '@types/mime-types@3.0.1':
+    resolution: {integrity: sha512-xRMsfuQbnRq1Ef+C+RKaENOxXX87Ygl38W1vDfPHRku02TgQr+Qd8iivLtAMcR0KF5/29xlnFihkTlbqFrGOVQ==}
 
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
@@ -7782,6 +7806,8 @@ snapshots:
       assertion-error: 2.0.1
     optional: true
 
+  '@types/content-disposition@0.5.9': {}
+
   '@types/debug@4.1.13':
     dependencies:
       '@types/ms': 2.1.0
@@ -7806,6 +7832,8 @@ snapshots:
   '@types/mdast@4.0.4':
     dependencies:
       '@types/unist': 3.0.3
+
+  '@types/mime-types@3.0.1': {}
 
   '@types/ms@2.1.0': {}
 

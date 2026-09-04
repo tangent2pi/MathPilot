@@ -1,9 +1,30 @@
 import { createHash } from "node:crypto";
+import { basename, parse, win32 } from "node:path";
 import type { Readable } from "node:stream";
+import type { StorageObjectDownloadIntent } from "@mathpilot/content-integrity";
+import contentDisposition from "content-disposition";
+import { extension } from "mime-types";
 import { Client as MinioClient, type BucketItemStat } from "minio";
 
 export const BUCKETS = ["mathpilot-content", "mathpilot-working", "mathpilot-session"] as const;
 export type BucketName = (typeof BUCKETS)[number];
+
+function canonicalDownloadName(originalName: string, mimeType: string): string {
+  if (mimeType !== "image/webp") return originalName;
+  const canonicalExtension = extension(mimeType);
+  if (!canonicalExtension) throw new Error(`no filename extension is registered for ${mimeType}`);
+  const leaf = win32.basename(basename(originalName));
+  const stem = parse(leaf).name || "object";
+  return `${stem}.${canonicalExtension}`;
+}
+
+export function objectContentDisposition(
+  intent: StorageObjectDownloadIntent,
+  originalName: string,
+  mimeType: string,
+): string {
+  return contentDisposition(canonicalDownloadName(originalName, mimeType), { type: intent });
+}
 
 type Endpoint = { client: MinioClient; origin: string };
 export type PresignAudience = "public" | "internal";

@@ -32,6 +32,7 @@ test("configuration is production-default, explicit, edge-local, and rotation-aw
     MATHPILOT_INTERNAL_CONTENT_URL: "http://content-next:3016",
     MATHPILOT_INTERNAL_PI_URL: "http://pi-chat-runtime:3105",
     MATHPILOT_INTERNAL_STORAGE_URL: "http://storage-next:3017",
+    MATHPILOT_INTERNAL_GROUP_URL: "http://group-next:3018",
   });
   assert.equal(development.keyrings.get("api-to-content")?.activeKeyId, "dev-v1");
   assert.throws(() => loadInternalServiceConfiguration("api-next", {

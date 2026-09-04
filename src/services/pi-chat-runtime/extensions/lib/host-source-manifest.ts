@@ -153,7 +153,7 @@ export async function materializeHostSourceManifest(input: {
         descriptor: item.descriptor,
         destination: path.join(staging, path.basename(item.workspace_path)),
       })),
-      resolve: (objectRefs, signal) => input.internalService.request(
+      resolve: (objectRefs: readonly string[], signal: AbortSignal) => input.internalService.request(
         "pi-to-storage",
         input.actor,
         "/internal/objects/resolve",

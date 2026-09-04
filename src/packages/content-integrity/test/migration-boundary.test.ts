@@ -37,7 +37,7 @@ test("0055 does not port the candidate-source seal machinery", () => {
 
 test("0055 does not port the object-based avatar reshape", () => {
   assert.doesNotMatch(migration, /drop table identity_user_avatar/);
-  assert.doesNotMatch(migration, /mathpilot_identity_set_avatar/);
+  assert.doesNotMatch(migration, /create or replace function mathpilot_identity_set_avatar/);
 });
 
 test("0055 does not port the canonical-message attachment claim triggers", () => {

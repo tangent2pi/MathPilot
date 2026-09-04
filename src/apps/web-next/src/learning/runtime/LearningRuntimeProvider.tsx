@@ -135,7 +135,13 @@ function AuthenticatedLearningRuntime({
           createdAt: new Date(activeOperation.started_at),
           content: [{ type: "text", text: streaming.text }],
           status: { type: "running" },
-          metadata: { custom: { streamingDelta: true, operationId: activeOperation.operation_id } },
+          metadata: {
+            unstable_state: null,
+            unstable_annotations: [],
+            unstable_data: [],
+            steps: [],
+            custom: { streamingDelta: true, operationId: activeOperation.operation_id },
+          },
         });
       }
     }

@@ -29,6 +29,7 @@ export function internalServiceTestEnvironment(
     MATHPILOT_INTERNAL_CONTENT_URL: "http://content-next.test:3016",
     MATHPILOT_INTERNAL_PI_URL: "http://pi-chat-runtime.test:3105",
     MATHPILOT_INTERNAL_STORAGE_URL: "http://storage-next.test:3017",
+    MATHPILOT_INTERNAL_GROUP_URL: "http://group-next.test:3018",
   };
   for (const edge of Object.values(INTERNAL_EDGES)) source[edge.keyringEnv] = testKeyringForEdge(edge.id);
   return { ...source, ...overrides };

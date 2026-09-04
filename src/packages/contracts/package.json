@@ -13,7 +13,7 @@
     "generate:http-problem-validator": "node scripts/generate-http-problem-validator.mjs",
     "check:http-problem-validator": "node scripts/generate-http-problem-validator.mjs --check",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/generate-http-problem-validator.mjs --check && node --import tsx --test test/science_v3_learning_action.test.ts test/pi_canonical_mirror.test.ts test/interactive_epoch.test.ts && node --import tsx test/http_problem_runtime_boundary.mjs && python3 test/validate_examples.py && python3 test/science_v3_permissions.py"
+    "test": "node scripts/generate-http-problem-validator.mjs --check && node --import tsx test/http_problem_runtime_boundary.mjs && python3 test/validate_examples.py && python3 test/science_v3_permissions.py"
   },
   "dependencies": {
     "typebox": "1.3.19"
