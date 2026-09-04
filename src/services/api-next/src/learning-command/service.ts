@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CanonicalMessagePart, DomainUIPart } from "@mathpilot/contracts";
+import { canonicalJson } from "@mathpilot/content-integrity/node";
 import type pg from "pg";
 import type { Principal } from "../auth.ts";
 import { withPrincipal } from "../lib.ts";
@@ -51,7 +52,9 @@ const requestedAt = (body: Record<string, unknown>): string => {
   return new Date(value).toISOString();
 };
 
-const sha256 = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+// 规范化的 canonical digest：与 learning-next artifact 校验端同算法，
+// 保证写入 science_v3_agent_artifact 的 sha256 能通过 canonical 完整性验证。
+const sha256 = (value: unknown): string => canonicalJson(value).sha256;
 const deterministicId = (prefix: string, ...values: string[]): string =>
   `${prefix}_${createHash("sha256").update(values.join("\0")).digest("hex").slice(0, 24)}`;
 

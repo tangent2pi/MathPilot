@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@mathpilot/contracts": "workspace:*",
+    "@mathpilot/content-integrity": "workspace:*",
     "@mathpilot/internal-service": "workspace:*",
     "better-auth": "1.6.23",
     "fastify": "^5.2.0",

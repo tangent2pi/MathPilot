@@ -217,6 +217,9 @@ importers:
 
   src/services/api-next:
     dependencies:
+      '@mathpilot/content-integrity':
+        specifier: workspace:*
+        version: link:../../packages/content-integrity
       '@mathpilot/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
