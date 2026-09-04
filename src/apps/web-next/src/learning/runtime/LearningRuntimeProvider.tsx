@@ -198,12 +198,28 @@ function AuthenticatedLearningRuntime({
   const messages = useMemo(() => {
     const canonical = view?.data.messages ?? [];
     const supersededJudgments = judgmentSupersessions(canonical);
+    const streamedCanonicalReplies = new Map<string, LearningThreadMessage>();
+    for (const operation of operations) {
+      const streaming = streamingByOperation.get(operation.operation_id);
+      if (operation.kind !== "foreground_teaching" || !streaming?.content.length) continue;
+      const linkedMessages = new Set(operation.related_resource_refs
+        .filter((ref) => ref.startsWith("canonical-message:"))
+        .map((ref) => ref.slice("canonical-message:".length)));
+      const reply = canonical.find((message) =>
+        message.author_kind === "assistant" && linkedMessages.has(message.message_id));
+      if (reply) streamedCanonicalReplies.set(operation.operation_id, reply);
+    }
+    const streamedCanonicalMessageIds = new Set(
+      [...streamedCanonicalReplies.values()].map((message) => message.message_id),
+    );
     // 前台教学（foreground_teaching）不渲染占位操作卡：实时内容由流式
     // 增量气泡呈现，终态与失败由权威 canonical 消息呈现；其余后台任务
     // （选题/收口/记忆整理）保留占位卡作为运行指示。
     const visibleOperations = operations.filter((operation) => operation.kind !== "foreground_teaching");
     const items: ThreadMessage[] = [
-      ...canonical.map((message) => canonicalMessage(message, supersededJudgments)),
+      ...canonical
+        .filter((message) => !streamedCanonicalMessageIds.has(message.message_id))
+        .map((message) => canonicalMessage(message, supersededJudgments)),
       ...visibleOperations.map(operationMessage),
     ];
     const canonicalHasPending = pending?.canonicalMessageId
@@ -212,20 +228,13 @@ function AuthenticatedLearningRuntime({
     if (pending && !canonicalHasPending && (!pending.threadId || pending.threadId === threadId)) {
       items.push(pending.message);
     }
-    // 保留流式消息，直到同一 operation 关联的 assistant canonical 消息已在
-    // 当前快照中出现。这样 operation 先结束、canonical 查询稍后返回时不会闪空。
+    // 当前页已有 live 轨迹时始终复用它；canonical 只校准最终正文和结束
+    // 状态。避免结束时用另一套“工具+正文”整体替换，导致思考轨迹消失。
     for (const operation of operations) {
       if (operation.kind !== "foreground_teaching") continue;
       const streaming = streamingByOperation.get(operation.operation_id);
       if (!streaming?.content.length) continue;
-      const linkedMessages = new Set(operation.related_resource_refs
-        .filter((ref) => ref.startsWith("canonical-message:"))
-        .map((ref) => ref.slice("canonical-message:".length)));
-      const canonicalReplyVisible = canonical.some((message) =>
-        message.author_kind === "assistant" && linkedMessages.has(message.message_id));
-      if (!canonicalReplyVisible) {
-        items.push(streamingTimelineMessage(operation, streaming));
-      }
+      items.push(streamingTimelineMessage(operation, streaming, streamedCanonicalReplies.get(operation.operation_id)));
     }
     return items.sort((left, right) => {
       const time = left.createdAt.getTime() - right.createdAt.getTime();
@@ -307,9 +316,15 @@ function useLearningEvents(
   useEffect(() => {
     if (!enabled) return;
     const events = new EventSource("/api/learning/events");
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const refresh = () => {
-      void queryClient.invalidateQueries({ queryKey: learningKeys.all });
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        void queryClient.invalidateQueries({ queryKey: learningKeys.all });
+      }, 25);
     };
+    events.addEventListener("open", refresh);
     for (const type of [
       "canonical_message.appended",
       "canonical_message.updated",
@@ -330,7 +345,10 @@ function useLearningEvents(
         // 增量是展示投影；解析失败不影响权威消息刷新。
       }
     });
-    return () => events.close();
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      events.close();
+    };
   }, [enabled, onForegroundDelta, queryClient]);
 }
 
@@ -574,9 +592,35 @@ function GuestRuntimeProvider({ children }: { children: ReactNode }) {
   return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
 }
 
-function streamingTimelineMessage(operation: ThreadOperation, streaming: StreamingState): ThreadMessage {
+function streamingTimelineMessage(
+  operation: ThreadOperation,
+  streaming: StreamingState,
+  canonicalReply?: LearningThreadMessage,
+): ThreadMessage {
   const active = ACTIVE_OPERATION_STATUSES.has(operation.status);
-  const content = active ? streaming.content : closeTrailingReasoning(streaming.content);
+  const content = active ? [...streaming.content] : closeTrailingReasoning(streaming.content);
+  if (canonicalReply) {
+    const finalText = canonicalReply.parts
+      .filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+    if (finalText) {
+      let lastTextIndex = -1;
+      for (let index = content.length - 1; index >= 0; index -= 1) {
+        if (content[index]?.type === "text") {
+          lastTextIndex = index;
+          break;
+        }
+      }
+      if (lastTextIndex >= 0) content[lastTextIndex] = { type: "text", text: finalText };
+      else content.push({ type: "text", text: finalText });
+    }
+    for (const part of canonicalReply.parts) {
+      if (part.type === "teaching_artifact") {
+        content.push({ type: "data", name: "mathpilot-teaching-artifact", data: part });
+      }
+    }
+  }
   return {
     id: `delta:${operation.operation_id}`,
     role: "assistant",

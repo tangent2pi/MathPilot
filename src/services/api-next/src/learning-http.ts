@@ -259,11 +259,12 @@ export function registerLearningHttp(
     let after: number;
     try {
       const supplied = query(request).after ?? request.headers["last-event-id"];
-      // An initial EventSource connection must not replay the tenant's entire
-      // client-event history. Reconnects still resume from Last-Event-ID.
-      after = supplied === undefined
-        ? await reads.clientEventWatermark(principal)
-        : decodeCursor(supplied);
+      // These events only invalidate canonical read models; they are not the
+      // facts themselves. Validate any supplied cursor, then start every fresh
+      // HTTP connection at the current watermark so a stale EventSource
+      // Last-Event-ID cannot create a long replay/refetch storm.
+      if (supplied !== undefined) decodeCursor(supplied);
+      after = await reads.clientEventWatermark(principal);
     } catch (error) { return problem(reply, error); }
     const deltaWatermark = await reads.foregroundDeltaWatermark(principal);
     reply.hijack();
