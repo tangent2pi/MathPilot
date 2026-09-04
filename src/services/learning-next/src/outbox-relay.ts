@@ -29,6 +29,7 @@ interface PendingWorkflowRow {
 
 export interface OutboxRelayStore {
   pending(limit: number): Promise<OutboxWorkflowStart[]>;
+  pendingCancellations?(limit: number): Promise<Array<{ operationId: string; workflowId: string }>>;
   markStarted(eventId: string, workflowId: string, taskQueue: string): Promise<void>;
   markFailed(eventId: string, error: string): Promise<void>;
   close(): Promise<void>;
@@ -66,6 +67,14 @@ export class PostgresOutboxRelayStore implements OutboxRelayStore {
       [limit],
     );
     return result.rows.map(asOutboxStart);
+  }
+
+  async pendingCancellations(limit: number): Promise<Array<{ operationId: string; workflowId: string }>> {
+    const result = await this.pool.query<{ operation_id: string; workflow_id: string }>(
+      "select * from mathpilot_science_v3_pending_workflow_cancellations($1)",
+      [limit],
+    );
+    return result.rows.map((row) => ({ operationId: row.operation_id, workflowId: row.workflow_id }));
   }
 
   async markStarted(eventId: string, workflowId: string, taskQueue: string): Promise<void> {
@@ -107,6 +116,7 @@ const errorText = (error: unknown): string => error instanceof Error ? error.mes
 export class OutboxRelay {
   private readonly batchSize: number;
   private readonly pollIntervalMs: number;
+  private readonly cancellationRequested = new Set<string>();
 
   constructor(
     private readonly client: WorkflowClient,
@@ -118,6 +128,18 @@ export class OutboxRelay {
   }
 
   async pollOnce(): Promise<OutboxPollResult> {
+    const cancellations = this.store.pendingCancellations
+      ? await this.store.pendingCancellations(this.batchSize)
+      : [];
+    for (const cancellation of cancellations) {
+      if (this.cancellationRequested.has(cancellation.operationId)) continue;
+      try {
+        await this.client.getHandle(cancellation.workflowId).cancel();
+        this.cancellationRequested.add(cancellation.operationId);
+      } catch (error) {
+        console.error(`[learning-next] failed to cancel Workflow ${cancellation.workflowId}`, error);
+      }
+    }
     const events = await this.store.pending(this.batchSize);
     const result: OutboxPollResult = { selected: events.length, started: 0, duplicates: 0, deferred: 0, failed: 0 };
     for (const event of events) {

@@ -639,14 +639,20 @@ export class LearningCommandService {
       if (!operation || operation.requested_by_user_id !== principal.userId) throw new LearningCommandError(404, "operation_not_found", "操作不存在");
       if (operation.status === "cancelled") return { operation_id: operationId, status: "cancelled", version: Number(operation.version) };
       if (!["accepted", "running", "needs_input"].includes(operation.status)) throw new LearningCommandError(409, "operation_terminal", "该操作已经结束");
-      if (Number(operation.version) !== version) throw new LearningCommandError(409, "version_conflict", `当前操作版本为 ${operation.version}`, Number(operation.version));
+      const currentVersion = Number(operation.version);
+      // Cancellation is a monotonic terminal command. Internal accepted -> running
+      // transitions may advance the version before the browser sees them, so a
+      // stale owner version is safe; only an impossible future version conflicts.
+      if (version > currentVersion) {
+        throw new LearningCommandError(409, "version_conflict", `当前操作版本为 ${operation.version}`, currentVersion);
+      }
       const row = (await client.query<{ version: string }>(
         `update science_v3_operation
             set status='cancelled',user_message='操作已取消',retryable=false,
                 updated_at=clock_timestamp(),version=version+1
           where tenant_id=$1 and operation_id=$2 and version=$3
         returning version`,
-        [principal.tenantId, operationId, version],
+        [principal.tenantId, operationId, currentVersion],
       )).rows[0];
       await client.query(
         `update science_v3_foreground_request

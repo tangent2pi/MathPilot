@@ -280,6 +280,7 @@ export function registerLearningHttp(
     try {
       let deltaAfter = BigInt(deltaWatermark);
       let pollCount = 0;
+      let hotPollsRemaining = 0;
       while (!closed) {
         const events = await reads.accessibleClientEvents(principal, after);
         for (const event of events) {
@@ -311,8 +312,14 @@ export function registerLearningHttp(
         if (pollCount % 60 === 0) {
           await reads.purgeExpiredForegroundDeltas().catch(() => undefined);
         }
-        if (!events.length && !deltas.length) reply.raw.write(`: keepalive ${Date.now()}\n\n`);
-        await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
+        if (events.length || deltas.length) hotPollsRemaining = 10;
+        else hotPollsRemaining = Math.max(0, hotPollsRemaining - 1);
+        if (!events.length && !deltas.length && hotPollsRemaining === 0) {
+          reply.raw.write(`: keepalive ${Date.now()}\n\n`);
+        }
+        // Stay hot for one second after the last delta so the terminal
+        // operation/canonical event is delivered without a visible pause.
+        await new Promise<void>((resolve) => setTimeout(resolve, hotPollsRemaining > 0 ? 100 : 1_000));
       }
     } catch {
       if (!closed) reply.raw.write("event: stream-error\ndata: {\"retryable\":true}\n\n");
