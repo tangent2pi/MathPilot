@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production
+# Workspace read/grep 工具与 OCR 图像预处理依赖 ripgrep/poppler。
+RUN apt-get update -q && apt-get install -y --no-install-recommends ripgrep poppler-utils ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
