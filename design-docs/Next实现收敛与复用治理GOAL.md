@@ -643,12 +643,22 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 
 ### G4：可靠 Agent Runtime 与执行内核收敛
 
+当前前台架构裁决（2026-09-02，后续 Goal 不得以“统一 runtime”为由逆转）：
+
+- 规范 `ConversationThread`、消息、学习动作、领域 UI 与最终结果以 PostgreSQL ledger 为唯一事实源；同一个 `thr_*` 同时作为 Pi AgentSession ID，不创建浏览器拥有的第二线程身份；
+- React Pi 官方 runtime/controller 负责前台文本、reasoning、工具事件、取消、snapshot 与 SSE 断线重连。浏览器不重写 token reducer，不把 token 增量写入 PostgreSQL；
+- API 先原子 admission，再经独立 `api-to-pi` 签名边交给 Pi；Pi 只经 `pi-to-learning` 签名边 prepare/action/complete/terminal，Learning 原子提交规范结果；
+- 前台 `AgentAttempt.execution_driver='interactive_epoch'`，不伪造 Temporal workflow/activity 身份。前台不进入 Temporal；Dream、选题、判定等后台任务仍由 Temporal 管理；
+- 前台为未知 dispatch、回包丢失和 callback crash 保留最小持久 turn marker/lease；它不是第二份业务 transcript，终态后必须清除 actor capability。G4 中“删除 Pi marker/Map/transcript recovery”只针对被替代的 Content durable-job 手写恢复，不得删除这条前台可靠性边界；
+- foreground/background 可复用 model、skill、capability、workspace、output policy 与 attempt audit 抽象，但不得为了表面统一而合并 Session/stream/retry 生命周期。抽象服从职责与故障语义，禁止再次过度切碎或把前台塞回后台工作流；
+- 对 `@assistant-ui/react-pi` 的补丁只能包含可上游化的通用扩展点/重连修复；MathPilot canonical/foreground 协议必须留在产品源码。
+
 交付：
 
 - 先按用户最新 steering 修订 KTQ/ER owning 设计，明确旧 5 秒 poller 不再是目标架构；
 - 再迁一个 Content task 到现有 Temporal Task Runtime，证明 TaskSpec + domain commit adapter；
 - 迁移其余 KTQ/ER/revision/review durable jobs，删除 Content `setInterval` dispatcher、手写 backoff/无限 pending 和 Pi marker/Map/transcript recovery；
-- 抽取 foreground/background 共享 agent-execution kernel，保留 InteractiveEpochDriver 与 TemporalActivityDriver；
+- 抽取上述真正共享的 agent-execution primitives，保留 React Pi Interactive Epoch 与 Temporal Activity 两种独立生命周期；
 - 统一取消、终态、attempt audit、workspace/capability/output policy；
 - 用 Temporal test environment 验证 Activity retry、Workflow failure、cancel、duplicate start、crash/recovery；明确普通 workflow bug 的 failure policy，不添加未经设计的 Workflow retry。
 
