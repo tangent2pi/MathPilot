@@ -204,8 +204,8 @@ services:
       MODEL_ID_AUX: ${PI_MODEL_ID_AUX:-${MODEL_ID_AUX:?MODEL_ID_AUX is required}}
     volumes:
       - learning_next_runtime:/var/lib/mathpilot/learning-next
-      - ../../src/services/learning-next/skills:/app/src/services/learning-next/skills:ro
-      - ../../src/services/learning-next/src:/app/src/services/learning-next/src:ro
+      # 源码直挂：改代码只需同步文件 + restart，不重建镜像。
+      - ../../src:/app/src:ro
     depends_on:
       official-content-import:
         condition: service_completed_successfully
@@ -263,6 +263,8 @@ services:
       PORT: "3105"
     volumes:
       - pi_chat_runtime:/var/lib/mathpilot/pi-chat
+      # 源码直挂：改代码只需同步文件 + restart，不重建镜像。
+      - ../../src:/app/src:ro
     depends_on:
       pi-db-migrate:
         condition: service_completed_successfully
@@ -299,6 +301,8 @@ services:
       MODEL_API_KEY: ${PI_MODEL_API_KEY:-${MODEL_API_KEY:-}}
       MODEL_ID_MAIN: ${PI_MODEL_ID_MAIN:-${MODEL_ID_MAIN:-}}
       PORT: "3016"
+    volumes:
+      - ../../src:/app/src:ro
     depends_on:
       official-content-import:
         condition: service_completed_successfully
@@ -322,6 +326,8 @@ services:
       MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
       MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING:?Content to Group keyring is required}"
       PORT: "3018"
+    volumes:
+      - ../../src:/app/src:ro
     depends_on:
       internal-identity-preflight:
         condition: service_completed_successfully
@@ -347,6 +353,9 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       PORT: "3017"
+    volumes:
+      # 源码直挂：改代码只需同步文件 + restart，不重建镜像。
+      - ../../src:/app/src:ro
     depends_on:
       db-seed:
         condition: service_completed_successfully
@@ -409,7 +418,7 @@ services:
     ports:
       - "127.0.0.1:${API_PORT:-3101}:3101"
     volumes:
-      - ../../src/services/api-next/src:/app/src/services/api-next/src:ro
+      - ../../src:/app/src:ro
 
 volumes:
   pgdata:
