@@ -195,6 +195,9 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
     const agentCwd = request.workspaceProjection ? projectionRoot : workspace;
     const taskSkill = await readFile(path.join(this.options.skillsRoot, skillName(request.taskSpec.skill_ref), "SKILL.md"), "utf8");
     let structuredOutput: unknown;
+    // respond 之后模型不再有正文流（正文来自结构化结果的 parts）；
+    // respond 之前的 assistant 文本是过程性输出（思考/转述），不算正文。
+    let responded = false;
 
     const respond = defineTool({
       name: "respond",
@@ -281,6 +284,7 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         } else {
           structuredOutput = params.output;
         }
+        responded = true;
         return {
           content: [{ type: "text" as const, text: "structured result accepted" }],
           details: { accepted: true },
@@ -443,7 +447,8 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       if (event.type === "message_update" && (event as { assistantMessageEvent?: unknown }).assistantMessageEvent) {
         const ame = (event as { assistantMessageEvent: { type?: string; delta?: string; toolCall?: unknown } }).assistantMessageEvent;
         if (ame.type === "text_delta" && typeof ame.delta === "string" && ame.delta.length) {
-          chunkText("text", ame.delta);
+          // respond 前的文本是过程性输出：归入思考展示，不冒充最终正文。
+          chunkText(responded ? "text" : "thinking", ame.delta);
         } else if (ame.type === "thinking_delta" && typeof ame.delta === "string" && ame.delta.length) {
           chunkText("thinking", ame.delta);
         } else if (ame.type === "toolcall_end" && ame.toolCall && typeof ame.toolCall === "object") {
