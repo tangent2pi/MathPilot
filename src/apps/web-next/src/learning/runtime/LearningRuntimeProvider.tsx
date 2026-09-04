@@ -150,12 +150,10 @@ function AuthenticatedLearningRuntime({
   const messages = useMemo(() => {
     const canonical = view?.data.messages ?? [];
     const supersededJudgments = judgmentSupersessions(canonical);
-    // 前台教学（foreground_teaching）的正常运行不渲染占位操作卡：
-    // 实时内容由流式增量气泡呈现，终态由权威 canonical 消息呈现，
-    // 占位卡只在失败/取消时出现（携带原因）；其余后台任务保留占位卡。
-    const visibleOperations = operations.filter((operation) =>
-      !(operation.kind === "foreground_teaching" && operation.status !== "failed" && operation.status !== "cancelled"),
-    );
+    // 前台教学（foreground_teaching）不渲染占位操作卡：实时内容由流式
+    // 增量气泡呈现，终态与失败由权威 canonical 消息呈现；其余后台任务
+    // （选题/收口/记忆整理）保留占位卡作为运行指示。
+    const visibleOperations = operations.filter((operation) => operation.kind !== "foreground_teaching");
     const items: ThreadMessage[] = [
       ...canonical.map((message) => canonicalMessage(message, supersededJudgments)),
       ...visibleOperations.map(operationMessage),
