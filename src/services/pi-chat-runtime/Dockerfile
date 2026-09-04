@@ -23,10 +23,9 @@ RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_
       /etc/apt/sources.list.d/debian.sources && \
     apt_install() { local i; apt-get update -q || return 1; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do apt-get install -y -o Acquire::Retries=5 -o Acquire::http::Timeout=120 --no-install-recommends --download-only "$@" && break; echo "apt download retry $i"; done; apt-get install -y -o Acquire::Retries=3 --no-install-recommends "$@"; }; \
     apt_install \
-      bash bubblewrap ca-certificates ffmpeg findutils gawk jq \
-      libreoffice-impress libreoffice-writer fonts-noto-cjk \
-      poppler-utils python3 python3-numpy python3-pypdf2 python3-scipy \
-      python3-sympy python3-venv qpdf ripgrep socat util-linux xxd && \
+      bash bubblewrap ca-certificates ffmpeg findutils gawk jq fonts-noto-cjk \
+      poppler-utils python3 python3-numpy python3-pypdf2 python3-venv \
+      qpdf ripgrep socat util-linux xxd && \
     rm -rf /var/lib/apt/lists/*
 
 # Python venv 与插件安装拆到独立层,后续只调 pip 源/依赖时不用重跑上面的 apt。
