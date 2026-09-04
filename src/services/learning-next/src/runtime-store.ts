@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { encodeArtifact, verifiedArtifactPayload } from "./artifact-integrity.ts";
 import pg from "pg";
 import type {
   CommitOperationResultInput,
@@ -49,12 +50,7 @@ const artifactIdFromRef = (ref: string): string => {
   return match[1]!;
 };
 
-const safeJson = (value: unknown): string => {
-  const json = JSON.stringify(value);
-  if (json === undefined) throw new Error("task artifact must be JSON serializable");
-  if (Buffer.byteLength(json, "utf8") > 1024 * 1024) throw new Error("task artifact exceeds 1 MiB");
-  return json;
-};
+const safeJson = (value: unknown): string => encodeArtifact(value).json;
 
 export class PostgresRuntimeStore implements RuntimeStore {
   private readonly pool: pg.Pool;
@@ -102,8 +98,8 @@ export class PostgresRuntimeStore implements RuntimeStore {
   async loadInputBundle(input: PiTaskActivityInput, taskSpec: TaskSpec): Promise<unknown> {
     const artifactId = artifactIdFromRef(input.inputRef);
     return this.withTenant(input.tenantId, async (client) => {
-      const result = await client.query<{ payload: unknown; schema_uri: string }>(
-        `select payload,schema_uri
+      const result = await client.query<{ payload: unknown; schema_uri: string; sha256: string }>(
+        `select payload,schema_uri,sha256
            from science_v3_agent_artifact
           where tenant_id=$1 and operation_id=$2 and artifact_id=$3
             and artifact_kind='input_bundle'
@@ -113,8 +109,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
       const artifact = result.rows[0];
       if (!artifact) throw new Error("frozen task input does not exist or has expired");
       if (artifact.schema_uri !== taskSpec.input_schema) throw new Error("frozen task input schema does not match TaskSpec");
-      safeJson(artifact.payload);
-      return artifact.payload;
+      return verifiedArtifactPayload(artifact, "frozen task input");
     });
   }
 

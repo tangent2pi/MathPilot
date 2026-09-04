@@ -3,6 +3,7 @@ import { configureInternalService } from "@mathpilot/internal-service";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { auth, authenticate, bootstrapAuthUsers, requireRole, AuthError, type Principal } from "./auth.ts";
+import { forwardBetterAuthResponse } from "./auth-http.ts";
 import { relayContent, relayStorage } from "./internal-relay.ts";
 import { createPool, startService, withTenant } from "./lib.ts";
 import { registerLearningHttp } from "./learning-http.ts";
@@ -47,11 +48,7 @@ await startService({
           method: request.method, headers,
           ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {}),
         }));
-        reply.code(response.status);
-        response.headers.forEach((value, key) => { if (key !== "set-cookie") reply.header(key, value); });
-        const cookies = response.headers.getSetCookie();
-        if (cookies.length) reply.header("set-cookie", cookies);
-        return reply.send(await response.text() || null);
+        return forwardBetterAuthResponse(reply, response);
       },
     });
 

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { encodeArtifact, verifiedArtifactPayload } from "./artifact-integrity.ts";
 import pg from "pg";
 import { compileAndProjectQuestion } from "./scientific-store.ts";
 import { DEEP_GATE_POLICY_VERSION, LIGHT_COMPILER_VERSION } from "./dream-core.ts";
@@ -17,12 +18,7 @@ import type {
 const idFrom = (prefix: string, value: string, length = 24): string =>
   `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, length)}`;
 
-const jsonArtifact = (value: unknown): { json: string; sha256: string } => {
-  const json = JSON.stringify(value);
-  if (json === undefined) throw new Error("question artifact must be JSON serializable");
-  if (Buffer.byteLength(json, "utf8") > 1024 * 1024) throw new Error("question artifact exceeds 1 MiB");
-  return { json, sha256: createHash("sha256").update(json).digest("hex") };
-};
+const jsonArtifact = (value: unknown): { json: string; sha256: string } => encodeArtifact(value);
 
 const toIso = (value: Date | string): string => new Date(value).toISOString();
 
@@ -343,13 +339,14 @@ export class PostgresQuestionStore implements QuestionStore {
       }
       const source = await client.query<{
         payload: unknown;
+        sha256: string;
         resolved_model_id: string | null;
         prompt_version: string;
         skill_ref: string;
         content_refs: string[];
         frozen_measurement_contract: Record<string, unknown>;
       }>(
-        `select art.payload,agt.resolved_model_id,agt.prompt_version,agt.skill_ref,
+        `select art.payload,art.sha256,agt.resolved_model_id,agt.prompt_version,agt.skill_ref,
                 a.content_refs,q.frozen_measurement_contract
            from science_v3_agent_artifact art
            join science_v3_agent_attempt agt
@@ -367,7 +364,7 @@ export class PostgresQuestionStore implements QuestionStore {
       );
       const row = source.rows[0];
       if (!row) throw new Error("grade output is not authorized for this cut and Attempt");
-      const proposal = recordValue(row.payload, "Judgment proposal");
+      const proposal = recordValue(verifiedArtifactPayload(row, "Judgment proposal"), "Judgment proposal");
       if (proposal.schema_version !== 3 || proposal.fact_version !== 1 || proposal.fact_type !== "judgment"
         || proposal.judgment_id !== input.judgmentId || proposal.attempt_id !== input.attemptId) {
         throw new Error("Judgment proposal identity does not match its frozen task");

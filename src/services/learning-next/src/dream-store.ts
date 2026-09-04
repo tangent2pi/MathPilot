@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { digestJson, encodeArtifact, verifiedArtifactPayload } from "./artifact-integrity.ts";
 import pg from "pg";
 import {
   DEEP_COMPILER_VERSION,
@@ -34,12 +35,7 @@ const artifactIdFromRef = (ref: string): string => {
   return match[1]!;
 };
 
-const jsonArtifact = (value: unknown): { json: string; sha256: string } => {
-  const json = JSON.stringify(value);
-  if (json === undefined) throw new Error("Dream artifact must be JSON serializable");
-  if (Buffer.byteLength(json,"utf8") > 1024*1024) throw new Error("Dream artifact exceeds 1 MiB");
-  return { json,sha256: createHash("sha256").update(json).digest("hex") };
-};
+const jsonArtifact = (value: unknown): { json: string; sha256: string } => encodeArtifact(value);
 
 const objectValue = (value: unknown, name: string): Record<string,unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} must be an object`);
@@ -70,7 +66,9 @@ interface DreamRunRow {
 
 interface CommitContext extends DreamRunRow {
   input_payload: unknown;
+  input_sha256: string;
   output_payload: unknown;
+  output_sha256: string;
   agent_attempt_id: string;
   resolved_model_id: string;
   prompt_version: string;
@@ -291,7 +289,7 @@ export class PostgresDreamStore implements DreamStore {
             candidate.actionability,gate.distinctSessionCount,gate.contextDiversity,candidate.recency,
             candidate.source_trust,candidate.recommended_action],
         );
-        const digest = createHash("sha256").update(JSON.stringify({ candidate,gate })).digest("hex");
+        const digest = digestJson({ candidate,gate });
         await client.query(
           `insert into science_v3_rem_candidate_gate(
              tenant_id,rem_candidate_id,gate_status,reasons,policy_version,evidence_digest
@@ -389,7 +387,8 @@ export class PostgresDreamStore implements DreamStore {
     const inputArtifactId = artifactIdFromRef(input.inputRef);
     const outputArtifactId = artifactIdFromRef(input.outputRef);
     const row = (await client.query<CommitContext>(
-      `select run.*,input.payload as input_payload,output.payload as output_payload,
+      `select run.*,input.payload as input_payload,input.sha256 as input_sha256,
+              output.payload as output_payload,output.sha256 as output_sha256,
               attempt.agent_attempt_id,attempt.resolved_model_id,attempt.prompt_version,
               attempt.skill_ref,attempt.completed_at as attempt_completed_at
          from science_v3_dream_run run
@@ -408,6 +407,8 @@ export class PostgresDreamStore implements DreamStore {
       [input.tenantId,input.operationId,input.eventId,phase,inputArtifactId,outputArtifactId,input.outputRef],
     )).rows[0];
     if (!row || !row.resolved_model_id || !row.attempt_completed_at) throw new Error("Dream output is not bound to a completed AgentAttempt");
+    verifiedArtifactPayload({ payload: row.input_payload, sha256: row.input_sha256 }, `${phase} Dream input`);
+    verifiedArtifactPayload({ payload: row.output_payload, sha256: row.output_sha256 }, `${phase} Dream output`);
     if (row.status === "running") return row;
     if (this.isTerminal(row.status) && row.output_artifact_id === outputArtifactId) return row;
     throw new Error("DreamRun is not ready for commit");

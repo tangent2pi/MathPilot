@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { MATH_DERIVATION_ARTIFACT_SCHEMA_URI } from "@mathpilot/contracts";
+import { digestJson, encodeArtifact, verifiedArtifactPayload } from "./artifact-integrity.ts";
 import pg from "pg";
 import { parseForegroundTeachingOutput } from "./foreground-core.ts";
 import type {
@@ -9,7 +10,7 @@ import type {
   LearningActionResult,
 } from "./runtime-types.ts";
 
-const sha256 = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const sha256 = (value: unknown): string => digestJson(value);
 const idFrom = (prefix: string, value: string): string =>
   `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
 const asIso = (value: Date | string): string => new Date(value).toISOString();
@@ -99,8 +100,10 @@ export class PostgresForegroundStore implements ForegroundStore {
           summary: input.action.summary,
           content: input.action.content,
         };
-        const json = JSON.stringify(payload);
-        if (Buffer.byteLength(json, "utf8") > 1024 * 1024) {
+        let artifact: ReturnType<typeof encodeArtifact>;
+        try {
+          artifact = encodeArtifact(payload);
+        } catch {
           return this.recordAction(client, input, context, actionId, payloadHash, false, null, "invalid");
         }
         await client.query(
@@ -109,7 +112,7 @@ export class PostgresForegroundStore implements ForegroundStore {
           ) values($1,$2,$3,'structured_output',$4,$5::jsonb,$6)`,
           [artifactId, input.tenantId, input.operationId,
             MATH_DERIVATION_ARTIFACT_SCHEMA_URI,
-            json, sha256(payload)],
+            artifact.json, artifact.sha256],
         );
         return this.recordAction(client, input, context, actionId, payloadHash, true, artifactRef, null);
       }
@@ -140,6 +143,7 @@ export class PostgresForegroundStore implements ForegroundStore {
             ? { next_natural_language_request: input.action.next_natural_language_request } : {}),
           requested_at: requestedAt,
         };
+        const finalizeArtifact = encodeArtifact(finalizeInput);
         const cut = (await client.query<{
           accepted_cut_request_id: string | null;
           result_status: string;
@@ -152,7 +156,7 @@ export class PostgresForegroundStore implements ForegroundStore {
             cutRequestId, eventId, artifactId, context.conversation_thread_id,
             context.active_question_session_id, Number(session.version), input.action.reason,
             input.action.next_natural_language_request ? `learning-action:${actionId}` : null,
-            JSON.stringify(finalizeInput), sha256(finalizeInput), requestedAt],
+            finalizeArtifact.json, finalizeArtifact.sha256, requestedAt],
         )).rows[0]!;
         if (cut.result_status === "rejected" || !cut.accepted_cut_request_id) {
           return this.recordAction(client, input, context, actionId, payloadHash, false, null,
@@ -184,14 +188,15 @@ export class PostgresForegroundStore implements ForegroundStore {
       if (!request) throw new Error("foreground request does not match its Workflow envelope");
       const artifactId = /^agent-artifact:(art_[A-Za-z0-9]{8,})$/.exec(input.outputRef)?.[1];
       if (!artifactId) throw new Error("foreground outputRef is invalid");
-      const artifact = (await client.query<{ payload: unknown; schema_uri: string }>(
-        `select payload,schema_uri from science_v3_agent_artifact
+      const artifact = (await client.query<{ payload: unknown; schema_uri: string; sha256: string }>(
+        `select payload,schema_uri,sha256 from science_v3_agent_artifact
           where tenant_id=$1 and operation_id=$2 and artifact_id=$3 and artifact_kind='structured_output'`,
         [input.tenantId, input.operationId, artifactId],
       )).rows[0];
       if (!artifact || artifact.schema_uri !== "https://schemas.mathpilot.dev/science-v3/foreground-teaching-output/v1") {
         throw new Error("foreground output artifact is missing or has the wrong schema");
       }
+      verifiedArtifactPayload(artifact, "foreground output");
       const producingAttempt = (await client.query<{ agent_attempt_id: string }>(
         `select agent_attempt_id from science_v3_agent_attempt
           where tenant_id=$1 and operation_id=$2 and output_ref=$3 and status='succeeded'`,

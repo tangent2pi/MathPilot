@@ -90,4 +90,10 @@ export class ObjectStore {
     for await (const chunk of stream as Readable) hash.update(chunk as Uint8Array);
     return { stat, sha256: hash.digest("hex") };
   }
+
+  async removeVersion(bucket: BucketName, key: string, versionId: string, signal: AbortSignal): Promise<void> {
+    await this.ensureBuckets();
+    if (signal.aborted) throw new Error("storage deletion was aborted");
+    await this.internal.client.removeObject(bucket, key, { versionId });
+  }
 }

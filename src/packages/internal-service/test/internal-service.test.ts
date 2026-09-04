@@ -15,7 +15,7 @@ import {
   serviceIssuer,
   validateInternalDeploymentConfiguration,
 } from "../src/index.ts";
-import { internalServiceContext, internalServiceGuard } from "../src/fastify.ts";
+import { internalServiceContext, internalServiceGuard, isProblemDetails } from "../src/fastify.ts";
 import {
   internalServiceTestEnvironment,
   testKeyForEdge,
@@ -30,6 +30,7 @@ test("configuration is production-default, explicit, edge-local, and rotation-aw
   const development = loadInternalServiceConfiguration("api-next", {
     MATHPILOT_ENVIRONMENT: "development",
     MATHPILOT_INTERNAL_CONTENT_URL: "http://content-next:3016",
+    MATHPILOT_INTERNAL_PI_URL: "http://pi-chat-runtime:3105",
     MATHPILOT_INTERNAL_STORAGE_URL: "http://storage-next:3017",
   });
   assert.equal(development.keyrings.get("api-to-content")?.activeKeyId, "dev-v1");
@@ -246,6 +247,9 @@ test("Fastify guard maps every assertion failure once and ignores forged princip
   const rejected = await app.inject({ method: "POST", url: "/internal/check", payload: body });
   assert.equal(rejected.statusCode, 401);
   assert.match(rejected.headers["content-type"] ?? "", /^application\/problem\+json/);
+  assert.equal(rejected.headers["cache-control"], "no-store");
+  assert.equal(rejected.headers["www-authenticate"], "Bearer");
+  assert.equal(isProblemDetails(rejected.json()), true);
   assert.equal(rejected.json().code, "internal_service_authentication_failed");
   await app.close();
 });

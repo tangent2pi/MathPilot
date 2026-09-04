@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { verifiedArtifactPayload } from "./artifact-integrity.ts";
 import pg from "pg";
 import { EVIDENCE_POLICY_REF } from "./scientific-core.ts";
 import {
@@ -55,6 +56,7 @@ interface CatalogRow {
 interface DecisionSourceRow extends SelectionContextRow {
   idempotency_key: string;
   output_payload: unknown;
+  output_sha256: string;
   output_ref: string;
   resolved_model_id: string;
   prompt_version: string;
@@ -325,6 +327,7 @@ export class PostgresSelectionStore implements SelectionStore {
       `select request.operation_id,request.event_id,request.idempotency_key,request.selection_intent_id,
               intent.conversation_thread_id,intent.student_id,student.user_id as student_user_id,
               intent.revision,intent.activity_constraints,artifact.payload as output_payload,
+              artifact.sha256 as output_sha256,
               'agent-artifact:' || artifact.artifact_id as output_ref,
               attempt.agent_attempt_id,attempt.resolved_model_id,attempt.prompt_version,attempt.skill_ref
          from science_v3_selection_request request
@@ -347,6 +350,7 @@ export class PostgresSelectionStore implements SelectionStore {
     if (!row || !row.resolved_model_id || row.event_id !== input.eventId) {
       throw new Error("Selector output is not authorized for this operation");
     }
+    verifiedArtifactPayload({ payload: row.output_payload, sha256: row.output_sha256 }, "Selector output");
     return row;
   }
 
