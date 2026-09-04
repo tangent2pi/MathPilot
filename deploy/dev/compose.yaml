@@ -403,7 +403,8 @@ services:
       # 后续前端迭代 = 更新 ./web-dist 即可，无需重建镜像。
       - ./web-dist:/usr/share/nginx/html:ro
       # nginx 配置直挂：resolver 动态解析 api 主机名，容器换 IP 不再 502。
-      - ./web-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # 镜像 entrypoint 用 envsubst 从 templates 生成 conf；覆盖 template 即可。
+      - ./web-nginx.conf:/etc/nginx/templates/default.conf.template:ro
 
   api:
     build:
