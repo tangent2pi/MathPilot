@@ -417,10 +417,15 @@ export interface PiExecutorRequest {
   signal: AbortSignal;
   heartbeat: (detail?: unknown) => void;
   /**
-   * 展示投影：助手消息文本的增量回调（仅前台教学任务使用）。
+   * 展示投影：前台任务的实时增量回调（text/thinking/tool 三通道）。
    * 增量不构成任何领域事实；调用方只把它写入 transient 投影。
+   * tool 的 delta 为 JSON：{ name, state: "start"|"done"|"error", id? }。
    */
-  onAssistantTextDelta?: (input: { sequence: number; text: string }) => Promise<void> | void;
+  onForegroundDelta?: (input: {
+    sequence: number;
+    kind: "text" | "thinking" | "tool";
+    delta: string;
+  }) => Promise<void> | void;
 }
 
 export interface PiExecutorResult {

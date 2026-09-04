@@ -296,6 +296,7 @@ export function registerLearningHttp(
             cursor: delta.cursor,
             operation_id: delta.operation_id,
             sequence: Number(delta.sequence),
+            kind: delta.kind,
             delta: delta.delta,
           })}\n\n`);
           const value = BigInt(delta.cursor);

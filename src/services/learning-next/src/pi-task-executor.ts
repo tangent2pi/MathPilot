@@ -132,13 +132,6 @@ const skillName = (skillRef: string): string => {
   return match[1]!;
 };
 
-type AgentSessionMessageLike = {
-  role?: unknown;
-  id?: unknown;
-  timestamp?: unknown;
-  content?: unknown;
-};
-
 const usageFromMessages = (messages: readonly unknown[]): { inputTokens: number; outputTokens: number } => {
   let inputTokens = 0;
   let outputTokens = 0;
@@ -426,44 +419,42 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       resourceLoader,
       sessionManager: SessionManager.inMemory(agentCwd),
     });
-    // 展示投影：把助手消息的文本增量转发给宿主（前台教学任务的流式展示）。
+    // 展示投影：把实时增量（text/thinking/tool）转发给宿主（前台教学任务）。
     // 增量不构成领域事实；回调失败只记日志，绝不影响 AgentAttempt 本身。
+    // 增量源为事件级通道：message_update.assistantMessageEvent 的
+    // text_delta/thinking_delta/toolcall_end，以及 tool_execution_end。
     let deltaSequence = 0;
-    const emittedTextByMessage = new Map<string, string>();
-    const assistantText = (content: unknown): string => {
-      if (typeof content === "string") return content;
-      if (!Array.isArray(content)) return "";
-      return content
-        .filter((part): part is { type: string; text?: unknown } =>
-          Boolean(part) && typeof part === "object" && (part as { type?: unknown }).type === "text")
-        .map((part) => typeof part.text === "string" ? part.text : "")
-        .join("");
+    const onDelta = (kind: "text" | "thinking" | "tool", delta: string): void => {
+      if (!request.onForegroundDelta) return;
+      const sequence = deltaSequence++;
+      void Promise.resolve(request.onForegroundDelta({ sequence, kind, delta })).catch((error) => {
+        console.error("[pi-debug] foreground delta projection failed", error);
+      });
     };
-    const emitDelta = (message: AgentSessionMessageLike, terminal: boolean): void => {
-      if (!request.onAssistantTextDelta || message.role !== "assistant") return;
-      const key = `${String(message.id ?? "")}:${String(message.timestamp ?? "")}`;
-      if (!key.trim().length || key === ":") return;
-      const total = assistantText(message.content);
-      const previous = emittedTextByMessage.get(key) ?? "";
-      if (total.length <= previous.length) {
-        if (terminal) emittedTextByMessage.delete(key);
-        return;
+    const chunkText = (kind: "text" | "thinking", text: string): void => {
+      for (let offset = 0; offset < text.length; offset += 2000) {
+        onDelta(kind, text.slice(offset, offset + 2000));
       }
-      const extra = total.slice(previous.length);
-      emittedTextByMessage.set(key, total);
-      for (let offset = 0; offset < extra.length; offset += 2000) {
-        const sequence = deltaSequence++;
-        const text = extra.slice(offset, offset + 2000);
-        void Promise.resolve(request.onAssistantTextDelta({ sequence, text })).catch((error) => {
-          console.error("[pi-debug] foreground delta projection failed", error);
-        });
-      }
-      if (terminal) emittedTextByMessage.delete(key);
     };
     const unsubscribe = session.subscribe((event) => {
       request.heartbeat({ stage: "pi", attemptId: request.agentAttemptId });
-      if (event.type === "message_start" || event.type === "message_update" || event.type === "message_end") {
-        emitDelta(event.message as AgentSessionMessageLike, event.type === "message_end");
+      if (event.type === "message_update" && (event as { assistantMessageEvent?: unknown }).assistantMessageEvent) {
+        const ame = (event as { assistantMessageEvent: { type?: string; delta?: string; toolCall?: unknown } }).assistantMessageEvent;
+        if (ame.type === "text_delta" && typeof ame.delta === "string" && ame.delta.length) {
+          chunkText("text", ame.delta);
+        } else if (ame.type === "thinking_delta" && typeof ame.delta === "string" && ame.delta.length) {
+          chunkText("thinking", ame.delta);
+        } else if (ame.type === "toolcall_end" && ame.toolCall && typeof ame.toolCall === "object") {
+          const tool = ame.toolCall as { name?: unknown; id?: unknown };
+          const name = typeof tool.name === "string" ? tool.name : "tool";
+          const id = typeof tool.id === "string" ? tool.id : name;
+          onDelta("tool", JSON.stringify({ name, state: "start", id }));
+        }
+      } else if (event.type === "tool_execution_end") {
+        const toolEvent = event as unknown as { toolCallId?: unknown; toolName?: unknown; isError?: unknown };
+        const name = typeof toolEvent.toolName === "string" ? toolEvent.toolName : "tool";
+        const id = typeof toolEvent.toolCallId === "string" ? toolEvent.toolCallId : name;
+        onDelta("tool", JSON.stringify({ name, state: toolEvent.isError ? "error" : "done", id }));
       }
     });
     const onAbort = () => void session.abort();

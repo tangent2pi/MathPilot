@@ -43,6 +43,15 @@ type PendingMessage = {
   message: ThreadMessage;
 };
 
+type StreamingToolState = { name: string; state: "start" | "done" | "error" };
+
+type StreamingState = {
+  sequence: number;
+  text: string;
+  thinking: string;
+  tools: ReadonlyMap<string, StreamingToolState>;
+};
+
 export function LearningRuntimeProvider({
   threadId,
   children,
@@ -76,7 +85,7 @@ function AuthenticatedLearningRuntime({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<PendingMessage | null>(null);
-  const [streamingByOperation, setStreamingByOperation] = useState<ReadonlyMap<string, { sequence: number; text: string }>>(new Map());
+  const [streamingByOperation, setStreamingByOperation] = useState<ReadonlyMap<string, StreamingState>>(new Map());
   const attachmentAdapter = useMemo(() => new UnifiedAttachmentAdapter(), []);
   const query = useQuery({
     queryKey: threadId ? learningKeys.thread(threadId) : ["learning", "thread", "new"],
@@ -89,13 +98,40 @@ function AuthenticatedLearningRuntime({
   const operations = view?.data.operations ?? [];
   const activeOperation = [...operations].find((operation) => ACTIVE_OPERATION_STATUSES.has(operation.status));
 
-  const onForegroundDelta = useCallback((operationId: string, sequence: number, delta: string) => {
+  const onForegroundDelta = useCallback((
+    operationId: string,
+    sequence: number,
+    kind: "text" | "thinking" | "tool",
+    delta: string,
+  ) => {
     setStreamingByOperation((current) => {
       const existing = current.get(operationId);
       if (existing && sequence <= existing.sequence) return current;
-      const next = new Map(current);
-      next.set(operationId, { sequence, text: `${existing?.text ?? ""}${delta}` });
-      return next;
+      const base: StreamingState = existing ?? { sequence: 0, text: "", thinking: "", tools: new Map() };
+      if (kind === "text") {
+        const next = new Map(current);
+        next.set(operationId, { ...base, sequence, text: `${base.text}${delta}` });
+        return next;
+      }
+      if (kind === "thinking") {
+        const next = new Map(current);
+        next.set(operationId, { ...base, sequence, thinking: `${base.thinking}${delta}` });
+        return next;
+      }
+      // kind === "tool": delta 为 { name, state, id? }
+      try {
+        const tool = JSON.parse(delta) as { name?: unknown; state?: unknown; id?: unknown };
+        const name = typeof tool.name === "string" ? tool.name : "tool";
+        const id = typeof tool.id === "string" && tool.id ? tool.id : `${name}:${sequence}`;
+        const state = tool.state === "done" || tool.state === "error" ? tool.state : "start";
+        const tools = new Map(base.tools);
+        tools.set(id, { name, state });
+        const next = new Map(current);
+        next.set(operationId, { ...base, sequence, tools });
+        return next;
+      } catch {
+        return current;
+      }
     });
   }, []);
   useLearningEvents(Boolean(threadId), onForegroundDelta);
@@ -124,16 +160,39 @@ function AuthenticatedLearningRuntime({
     if (pending && !canonicalHasPending && (!pending.threadId || pending.threadId === threadId)) {
       items.push(pending.message);
     }
-    // 前台教学的流式展示投影：操作仍活跃时叠加增量气泡；
-    // 权威消息落库后操作离开活跃集，气泡随之消失（以权威投影为准）。
+    // 前台教学的流式展示投影：操作仍活跃时叠加增量气泡（工具/推理/正文
+    // 三通道实时可见）；权威消息落库后操作离开活跃集，气泡随之消失。
     if (activeOperation?.kind === "foreground_teaching") {
       const streaming = streamingByOperation.get(activeOperation.operation_id);
-      if (streaming && streaming.text.length > 0) {
+      if (streaming && (streaming.text.length > 0 || streaming.thinking.length > 0 || streaming.tools.size > 0)) {
+        const content: ThreadAssistantMessagePart[] = [];
+        for (const [id, tool] of streaming.tools) {
+          content.push({
+            type: "tool-call",
+            toolCallId: id,
+            toolName: `mathpilot.workspace.${tool.name}`,
+            args: {},
+            argsText: "",
+            ...(tool.state === "done" ? { result: { status: "done" as const } }
+              : tool.state === "error" ? { result: { status: "error" as const }, isError: true }
+              : { status: { type: "running" as const } }),
+          });
+        }
+        if (streaming.thinking.length > 0) {
+          content.push({
+            type: "reasoning",
+            text: streaming.thinking,
+            status: { type: "running" },
+          });
+        }
+        if (streaming.text.length > 0) {
+          content.push({ type: "text", text: streaming.text });
+        }
         items.push({
           id: `delta:${activeOperation.operation_id}`,
           role: "assistant",
           createdAt: new Date(activeOperation.started_at),
-          content: [{ type: "text", text: streaming.text }],
+          content,
           status: { type: "running" },
           metadata: {
             unstable_state: null,
@@ -217,7 +276,10 @@ function AuthenticatedLearningRuntime({
   );
 }
 
-function useLearningEvents(enabled: boolean, onForegroundDelta: (operationId: string, sequence: number, delta: string) => void) {
+function useLearningEvents(
+  enabled: boolean,
+  onForegroundDelta: (operationId: string, sequence: number, kind: "text" | "thinking" | "tool", delta: string) => void,
+) {
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!enabled) return;
@@ -234,12 +296,13 @@ function useLearningEvents(enabled: boolean, onForegroundDelta: (operationId: st
     events.addEventListener("foreground.delta", (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data) as {
-          operation_id?: unknown; sequence?: unknown; delta?: unknown;
+          operation_id?: unknown; sequence?: unknown; kind?: unknown; delta?: unknown;
         };
         if (typeof data.operation_id !== "string" || typeof data.delta !== "string") return;
         const sequence = Number(data.sequence);
         if (!Number.isInteger(sequence) || sequence < 0) return;
-        onForegroundDelta(data.operation_id, sequence, data.delta);
+        const kind = data.kind === "thinking" || data.kind === "tool" ? data.kind : "text";
+        onForegroundDelta(data.operation_id, sequence, kind, data.delta);
       } catch {
         // 增量是展示投影；解析失败不影响权威消息刷新。
       }

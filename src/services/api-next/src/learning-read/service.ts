@@ -1061,10 +1061,10 @@ export class LearningReadService {
   // 前台教学流式展示投影：只读最近 5 分钟的增量；客户端按
   // (operation_id, sequence) 去重，权威消息落库后的全量刷新兜底。
   async accessibleForegroundDeltas(principal: Principal, afterId: number, limit = 100): Promise<Array<{
-    cursor: string; operation_id: string; sequence: number; delta: string;
+    cursor: string; operation_id: string; sequence: number; kind: string; delta: string;
   }>> {
     return withPrincipal(this.pool, principal, async (client) => (await client.query(
-      `select id::text as cursor,operation_id,sequence,delta
+      `select id::text as cursor,operation_id,sequence,kind,delta
          from science_v3_foreground_live_delta
         where tenant_id=$1 and id>$2 and created_at > now() - interval '5 minutes'
         order by id limit $3`,

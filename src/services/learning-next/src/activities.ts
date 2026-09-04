@@ -78,11 +78,12 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
                 action,
               }),
             },
-            onAssistantTextDelta: ({ sequence, text }) => store.appendForegroundLiveDelta({
+            onForegroundDelta: ({ sequence, kind, delta }) => store.appendForegroundLiveDelta({
               tenantId: input.tenantId,
               operationId: input.operationId,
               sequence,
-              delta: text,
+              kind,
+              delta,
             }),
           } : {}),
           signal: context.cancellationSignal,

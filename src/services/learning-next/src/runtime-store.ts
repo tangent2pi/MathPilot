@@ -38,7 +38,7 @@ export interface RuntimeStore {
   failAttempt(agentAttemptId: string, tenantId: string, error: { code: string; detail: string; cancelled: boolean }): Promise<void>;
   commitOperationResult(input: CommitOperationResultInput): Promise<PersistedOperationResult>;
   markOperationFailed(input: { tenantId: string; operationId: string; cancelled: boolean; message: string }): Promise<void>;
-  appendForegroundLiveDelta(input: { tenantId: string; operationId: string; sequence: number; delta: string }): Promise<void>;
+  appendForegroundLiveDelta(input: { tenantId: string; operationId: string; sequence: number; kind: "text" | "thinking" | "tool"; delta: string }): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -338,12 +338,12 @@ export class PostgresRuntimeStore implements RuntimeStore {
     });
   }
 
-  async appendForegroundLiveDelta(input: { tenantId: string; operationId: string; sequence: number; delta: string }): Promise<void> {
+  async appendForegroundLiveDelta(input: { tenantId: string; operationId: string; sequence: number; kind: "text" | "thinking" | "tool"; delta: string }): Promise<void> {
     await this.withTenant(input.tenantId, (client) => client.query(
-      `insert into science_v3_foreground_live_delta(tenant_id,operation_id,sequence,delta)
-       values ($1,$2,$3,$4)
+      `insert into science_v3_foreground_live_delta(tenant_id,operation_id,sequence,kind,delta)
+       values ($1,$2,$3,$4,$5)
        on conflict do nothing`,
-      [input.tenantId, input.operationId, input.sequence, input.delta],
+      [input.tenantId, input.operationId, input.sequence, input.kind, input.delta],
     ));
   }
 
