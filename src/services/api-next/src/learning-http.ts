@@ -273,6 +273,8 @@ export function registerLearningHttp(
     const close = () => { closed = true; };
     request.raw.once("close", close);
     try {
+      let deltaAfter = 0n;
+      let pollCount = 0;
       while (!closed) {
         const events = await reads.accessibleClientEvents(principal, after);
         for (const event of events) {
@@ -287,7 +289,23 @@ export function registerLearningHttp(
           })}\n\n`);
           after = Number(event.cursor);
         }
-        if (!events.length) reply.raw.write(`: keepalive ${Date.now()}\n\n`);
+        // 前台教学流式展示投影：增量只做展示，权威消息到达后的刷新兜底。
+        const deltas = await reads.accessibleForegroundDeltas(principal, Number(deltaAfter));
+        for (const delta of deltas) {
+          reply.raw.write(`event: foreground.delta\ndata: ${JSON.stringify({
+            cursor: delta.cursor,
+            operation_id: delta.operation_id,
+            sequence: Number(delta.sequence),
+            delta: delta.delta,
+          })}\n\n`);
+          const value = BigInt(delta.cursor);
+          if (value > deltaAfter) deltaAfter = value;
+        }
+        pollCount += 1;
+        if (pollCount % 60 === 0) {
+          await reads.purgeExpiredForegroundDeltas().catch(() => undefined);
+        }
+        if (!events.length && !deltas.length) reply.raw.write(`: keepalive ${Date.now()}\n\n`);
         await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
       }
     } catch {

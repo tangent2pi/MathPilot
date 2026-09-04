@@ -1058,6 +1058,26 @@ export class LearningReadService {
     )).rows);
   }
 
+  // 前台教学流式展示投影：只读最近 5 分钟的增量；客户端按
+  // (operation_id, sequence) 去重，权威消息落库后的全量刷新兜底。
+  async accessibleForegroundDeltas(principal: Principal, afterId: number, limit = 100): Promise<Array<{
+    cursor: string; operation_id: string; sequence: number; delta: string;
+  }>> {
+    return withPrincipal(this.pool, principal, async (client) => (await client.query(
+      `select id::text as cursor,operation_id,sequence,delta
+         from science_v3_foreground_live_delta
+        where tenant_id=$1 and id>$2 and created_at > now() - interval '5 minutes'
+        order by id limit $3`,
+      [principal.tenantId, afterId, Math.min(Math.max(limit, 1), 100)],
+    )).rows);
+  }
+
+  async purgeExpiredForegroundDeltas(): Promise<void> {
+    await this.pool.query(
+      `delete from science_v3_foreground_live_delta where created_at < now() - interval '30 minutes'`,
+    );
+  }
+
   private async threadOperations(client: pg.PoolClient, tenantId: string, threadId: string): Promise<OperationRow[]> {
     return (await client.query<OperationRow>(
       `select distinct operation.operation_id,operation.kind,operation.status,operation.user_message,

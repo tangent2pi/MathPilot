@@ -78,6 +78,12 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
                 action,
               }),
             },
+            onAssistantTextDelta: ({ sequence, text }) => store.appendForegroundLiveDelta({
+              tenantId: input.tenantId,
+              operationId: input.operationId,
+              sequence,
+              delta: text,
+            }),
           } : {}),
           signal: context.cancellationSignal,
           heartbeat: (detail) => context.heartbeat(detail ?? { stage: "model", attemptId }),

@@ -416,6 +416,11 @@ export interface PiExecutorRequest {
   workspaceProjection?: WorkspaceProjection;
   signal: AbortSignal;
   heartbeat: (detail?: unknown) => void;
+  /**
+   * 展示投影：助手消息文本的增量回调（仅前台教学任务使用）。
+   * 增量不构成任何领域事实；调用方只把它写入 transient 投影。
+   */
+  onAssistantTextDelta?: (input: { sequence: number; text: string }) => Promise<void> | void;
 }
 
 export interface PiExecutorResult {

@@ -76,6 +76,7 @@ function AuthenticatedLearningRuntime({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<PendingMessage | null>(null);
+  const [streamingByOperation, setStreamingByOperation] = useState<ReadonlyMap<string, { sequence: number; text: string }>>(new Map());
   const attachmentAdapter = useMemo(() => new UnifiedAttachmentAdapter(), []);
   const query = useQuery({
     queryKey: threadId ? learningKeys.thread(threadId) : ["learning", "thread", "new"],
@@ -88,7 +89,16 @@ function AuthenticatedLearningRuntime({
   const operations = view?.data.operations ?? [];
   const activeOperation = [...operations].find((operation) => ACTIVE_OPERATION_STATUSES.has(operation.status));
 
-  useLearningEvents(Boolean(threadId));
+  const onForegroundDelta = useCallback((operationId: string, sequence: number, delta: string) => {
+    setStreamingByOperation((current) => {
+      const existing = current.get(operationId);
+      if (existing && sequence <= existing.sequence) return current;
+      const next = new Map(current);
+      next.set(operationId, { sequence, text: `${existing?.text ?? ""}${delta}` });
+      return next;
+    });
+  }, []);
+  useLearningEvents(Boolean(threadId), onForegroundDelta);
 
   useEffect(() => {
     if (!pending || !threadId || pending.threadId === threadId) return;
@@ -114,12 +124,27 @@ function AuthenticatedLearningRuntime({
     if (pending && !canonicalHasPending && (!pending.threadId || pending.threadId === threadId)) {
       items.push(pending.message);
     }
+    // 前台教学的流式展示投影：操作仍活跃时叠加增量气泡；
+    // 权威消息落库后操作离开活跃集，气泡随之消失（以权威投影为准）。
+    if (activeOperation?.kind === "foreground_teaching") {
+      const streaming = streamingByOperation.get(activeOperation.operation_id);
+      if (streaming && streaming.text.length > 0) {
+        items.push({
+          id: `delta:${activeOperation.operation_id}`,
+          role: "assistant",
+          createdAt: new Date(activeOperation.started_at),
+          content: [{ type: "text", text: streaming.text }],
+          status: { type: "running" },
+          metadata: { custom: { streamingDelta: true, operationId: activeOperation.operation_id } },
+        });
+      }
+    }
     return items.sort((left, right) => {
       const time = left.createdAt.getTime() - right.createdAt.getTime();
       if (time !== 0) return time;
       return left.role === "user" && right.role !== "user" ? -1 : 1;
     });
-  }, [operations, pending, threadId, view?.data.messages]);
+  }, [activeOperation, operations, pending, streamingByOperation, threadId, view?.data.messages]);
 
   const onNew = useCallback(async (message: AppendMessage) => {
     const key = newIdempotencyKey("message");
@@ -186,7 +211,7 @@ function AuthenticatedLearningRuntime({
   );
 }
 
-function useLearningEvents(enabled: boolean) {
+function useLearningEvents(enabled: boolean, onForegroundDelta: (operationId: string, sequence: number, delta: string) => void) {
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!enabled) return;
@@ -200,8 +225,21 @@ function useLearningEvents(enabled: boolean) {
       "learning_resource.changed",
       "learning_operation.changed",
     ]) events.addEventListener(type, refresh);
+    events.addEventListener("foreground.delta", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data) as {
+          operation_id?: unknown; sequence?: unknown; delta?: unknown;
+        };
+        if (typeof data.operation_id !== "string" || typeof data.delta !== "string") return;
+        const sequence = Number(data.sequence);
+        if (!Number.isInteger(sequence) || sequence < 0) return;
+        onForegroundDelta(data.operation_id, sequence, data.delta);
+      } catch {
+        // 增量是展示投影；解析失败不影响权威消息刷新。
+      }
+    });
     return () => events.close();
-  }, [enabled, queryClient]);
+  }, [enabled, onForegroundDelta, queryClient]);
 }
 
 function hasActiveOperation(view: ThreadMessagesView | undefined): boolean {

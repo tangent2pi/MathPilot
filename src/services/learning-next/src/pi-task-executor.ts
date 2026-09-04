@@ -132,6 +132,13 @@ const skillName = (skillRef: string): string => {
   return match[1]!;
 };
 
+type AgentSessionMessageLike = {
+  role?: unknown;
+  id?: unknown;
+  timestamp?: unknown;
+  content?: unknown;
+};
+
 const usageFromMessages = (messages: readonly unknown[]): { inputTokens: number; outputTokens: number } => {
   let inputTokens = 0;
   let outputTokens = 0;
@@ -419,7 +426,46 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       resourceLoader,
       sessionManager: SessionManager.inMemory(agentCwd),
     });
-    const unsubscribe = session.subscribe(() => request.heartbeat({ stage: "pi", attemptId: request.agentAttemptId }));
+    // 展示投影：把助手消息的文本增量转发给宿主（前台教学任务的流式展示）。
+    // 增量不构成领域事实；回调失败只记日志，绝不影响 AgentAttempt 本身。
+    let deltaSequence = 0;
+    const emittedTextByMessage = new Map<string, string>();
+    const assistantText = (content: unknown): string => {
+      if (typeof content === "string") return content;
+      if (!Array.isArray(content)) return "";
+      return content
+        .filter((part): part is { type: string; text?: unknown } =>
+          Boolean(part) && typeof part === "object" && (part as { type?: unknown }).type === "text")
+        .map((part) => typeof part.text === "string" ? part.text : "")
+        .join("");
+    };
+    const emitDelta = (message: AgentSessionMessageLike, terminal: boolean): void => {
+      if (!request.onAssistantTextDelta || message.role !== "assistant") return;
+      const key = `${String(message.id ?? "")}:${String(message.timestamp ?? "")}`;
+      if (!key.trim().length || key === ":") return;
+      const total = assistantText(message.content);
+      const previous = emittedTextByMessage.get(key) ?? "";
+      if (total.length <= previous.length) {
+        if (terminal) emittedTextByMessage.delete(key);
+        return;
+      }
+      const extra = total.slice(previous.length);
+      emittedTextByMessage.set(key, total);
+      for (let offset = 0; offset < extra.length; offset += 2000) {
+        const sequence = deltaSequence++;
+        const text = extra.slice(offset, offset + 2000);
+        void Promise.resolve(request.onAssistantTextDelta({ sequence, text })).catch((error) => {
+          console.error("[pi-debug] foreground delta projection failed", error);
+        });
+      }
+      if (terminal) emittedTextByMessage.delete(key);
+    };
+    const unsubscribe = session.subscribe((event) => {
+      request.heartbeat({ stage: "pi", attemptId: request.agentAttemptId });
+      if (event.type === "message_start" || event.type === "message_update" || event.type === "message_end") {
+        emitDelta(event.message as AgentSessionMessageLike, event.type === "message_end");
+      }
+    });
     const onAbort = () => void session.abort();
     request.signal.addEventListener("abort", onAbort, { once: true });
     try {
