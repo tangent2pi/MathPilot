@@ -1058,6 +1058,19 @@ export class LearningReadService {
     )).rows);
   }
 
+  /** Initial SSE subscriptions observe only events created after they connect. */
+  async clientEventWatermark(principal: Principal): Promise<number> {
+    return withPrincipal(this.pool, principal, async (client) => {
+      const row = (await client.query<{ cursor: string }>(
+        `select coalesce(max(cursor),0)::text as cursor
+           from science_v3_client_event
+          where tenant_id=$1`,
+        [principal.tenantId],
+      )).rows[0];
+      return Number(row?.cursor ?? 0);
+    });
+  }
+
   // 前台教学流式展示投影：只读最近 5 分钟的增量；客户端按
   // (operation_id, sequence) 去重，权威消息落库后的全量刷新兜底。
   async accessibleForegroundDeltas(principal: Principal, afterId: number, limit = 100): Promise<Array<{
@@ -1070,6 +1083,22 @@ export class LearningReadService {
         order by id limit $3`,
       [principal.tenantId, afterId, Math.min(Math.max(limit, 1), 100)],
     )).rows);
+  }
+
+  /**
+   * Streaming deltas are transient. A new SSE connection starts at the current
+   * tenant watermark instead of replaying thousands of stale token fragments.
+   */
+  async foregroundDeltaWatermark(principal: Principal): Promise<string> {
+    return withPrincipal(this.pool, principal, async (client) => {
+      const row = (await client.query<{ cursor: string }>(
+        `select coalesce(max(id),0)::text as cursor
+           from science_v3_foreground_live_delta
+          where tenant_id=$1`,
+        [principal.tenantId],
+      )).rows[0];
+      return row?.cursor ?? "0";
+    });
   }
 
   async purgeExpiredForegroundDeltas(): Promise<void> {

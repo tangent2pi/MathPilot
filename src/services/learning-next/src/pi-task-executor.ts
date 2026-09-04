@@ -448,14 +448,44 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
     // 增量源为事件级通道：message_update.assistantMessageEvent 的
     // text_delta/thinking_delta/toolcall_end，以及 tool_execution_end。
     let deltaSequence = 0;
+    let deltaProjectionTail = Promise.resolve();
+    let bufferedDelta: { kind: "text" | "thinking"; delta: string } | undefined;
+    let deltaFlushTimer: ReturnType<typeof setTimeout> | undefined;
     // 工具轨迹（权威展示事实）：真实执行结束的工具 → 随结果返回、随回复落 canonical。
     const executedTools = new Map<string, { name: string; state: "done" | "error" }>();
-    const onDelta = (kind: "text" | "thinking" | "tool", delta: string): void => {
+    const projectDelta = (kind: "text" | "thinking" | "tool", delta: string): void => {
       if (!request.onForegroundDelta) return;
       const sequence = deltaSequence++;
-      void Promise.resolve(request.onForegroundDelta({ sequence, kind, delta })).catch((error) => {
-        console.error("[pi-debug] foreground delta projection failed", error);
-      });
+      // DB cursor order must match model event order. Concurrent inserts can commit out
+      // of order, causing the client sequence guard to discard otherwise valid text.
+      deltaProjectionTail = deltaProjectionTail
+        .then(() => request.onForegroundDelta!({ sequence, kind, delta }))
+        .catch((error) => {
+          console.error("[pi-debug] foreground delta projection failed", error);
+        });
+    };
+    const flushBufferedDelta = (): void => {
+      if (deltaFlushTimer) clearTimeout(deltaFlushTimer);
+      deltaFlushTimer = undefined;
+      if (!bufferedDelta) return;
+      const pending = bufferedDelta;
+      bufferedDelta = undefined;
+      projectDelta(pending.kind, pending.delta);
+    };
+    const onDelta = (kind: "text" | "thinking" | "tool", delta: string): void => {
+      if (!request.onForegroundDelta || !delta) return;
+      if (kind === "tool") {
+        flushBufferedDelta();
+        projectDelta(kind, delta);
+        return;
+      }
+      if (bufferedDelta && (bufferedDelta.kind !== kind || bufferedDelta.delta.length + delta.length > 2000)) {
+        flushBufferedDelta();
+      }
+      bufferedDelta = bufferedDelta?.kind === kind
+        ? { kind, delta: `${bufferedDelta.delta}${delta}` }
+        : { kind, delta };
+      if (!deltaFlushTimer) deltaFlushTimer = setTimeout(flushBufferedDelta, 50);
     };
     const chunkText = (kind: "text" | "thinking", text: string): void => {
       for (let offset = 0; offset < text.length; offset += 2000) {
@@ -518,6 +548,8 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       } finally {
         if (respondWatchdog) clearTimeout(respondWatchdog);
       }
+      flushBufferedDelta();
+      await deltaProjectionTail;
       if (hostFinalizesForeground) {
         const bundle = objectValue(request.inputBundle);
         structuredOutput = foregroundTeachingOutputFromAgentMessages(
@@ -551,6 +583,7 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         ...(executedTools.size > 0 ? { toolTrace: [...executedTools.values()] } : {}),
       };
     } finally {
+      if (deltaFlushTimer) clearTimeout(deltaFlushTimer);
       request.signal.removeEventListener("abort", onAbort);
       unsubscribe();
       session.dispose();

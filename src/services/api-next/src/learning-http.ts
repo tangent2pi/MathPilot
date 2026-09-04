@@ -259,8 +259,13 @@ export function registerLearningHttp(
     let after: number;
     try {
       const supplied = query(request).after ?? request.headers["last-event-id"];
-      after = decodeCursor(supplied);
+      // An initial EventSource connection must not replay the tenant's entire
+      // client-event history. Reconnects still resume from Last-Event-ID.
+      after = supplied === undefined
+        ? await reads.clientEventWatermark(principal)
+        : decodeCursor(supplied);
     } catch (error) { return problem(reply, error); }
+    const deltaWatermark = await reads.foregroundDeltaWatermark(principal);
     reply.hijack();
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
@@ -273,7 +278,7 @@ export function registerLearningHttp(
     const close = () => { closed = true; };
     request.raw.once("close", close);
     try {
-      let deltaAfter = 0n;
+      let deltaAfter = BigInt(deltaWatermark);
       let pollCount = 0;
       while (!closed) {
         const events = await reads.accessibleClientEvents(principal, after);
