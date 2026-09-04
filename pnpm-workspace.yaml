@@ -19,3 +19,6 @@ minimumReleaseAgeExclude:
   - ai@7.0.84
 patchedDependencies:
   '@assistant-ui/react-pi@0.0.20': patches/@assistant-ui__react-pi@0.0.20.patch
+# 源码直挂部署下，容器内 pnpm run 前不做依赖自检重装（镜像已含完整依赖；
+# 依赖变更走显式 rebuild）。
+verifyDepsBeforeRun: false
