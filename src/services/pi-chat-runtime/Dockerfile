@@ -41,6 +41,7 @@ RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY patches ./patches
+COPY src/packages/contracts/package.json ./src/packages/contracts/package.json
 COPY src/packages/content-integrity/package.json ./src/packages/content-integrity/package.json
 COPY src/packages/internal-service/package.json ./src/packages/internal-service/package.json
 COPY src/services/pi-chat-runtime/package.json ./src/services/pi-chat-runtime/package.json
@@ -59,6 +60,7 @@ RUN --mount=type=cache,id=mathpilot-next-pnpm-store,target=/root/.local/share/pn
 
 # Copy only the new Pi runtime. Legacy services, local agent state and .env
 # files never enter this image, so the model cannot discover an old runtime.
+COPY src/packages/contracts ./src/packages/contracts
 COPY src/packages/content-integrity ./src/packages/content-integrity
 COPY src/packages/internal-service ./src/packages/internal-service
 COPY src/services/pi-chat-runtime ./src/services/pi-chat-runtime
