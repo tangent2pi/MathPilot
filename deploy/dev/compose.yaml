@@ -368,6 +368,10 @@ services:
       - api
     ports:
       - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-18080}:80"
+    volumes:
+      # 前端产物目录直挂：镜像只负责首次产物与 nginx 配置；
+      # 后续前端迭代 = 更新 ./web-dist 即可，无需重建镜像。
+      - ./web-dist:/usr/share/nginx/html:ro
 
   api:
     build:
