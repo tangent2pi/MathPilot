@@ -208,15 +208,15 @@ export class PostgresForegroundStore implements ForegroundStore {
         foregroundEpochId: request.foreground_epoch_id,
         replyToMessageId: request.triggering_message_id,
       });
-      // 真实工具轨迹（权威展示事实）作为消息一部分随回复落库；
-      // 前端按 assistant-ui 消息模型渲染 tool-call parts。
+      // 真实工具轨迹（权威展示事实）作为消息一部分随回复落库。前台教学
+      // 现在由 host 取 loop 结束时的最终正文，因此完成态应按“工具 → 最终正文”渲染。
       const toolTrace = Array.isArray(producingAttempt.tool_trace)
         ? producingAttempt.tool_trace.filter((tool): tool is { name: string; state: "done" | "error" } =>
             Boolean(tool) && typeof tool === "object" && typeof (tool as { name?: unknown }).name === "string"
             && ((tool as { state?: unknown }).state === "done" || (tool as { state?: unknown }).state === "error"))
         : [];
       const messageParts = toolTrace.length > 0
-        ? [...output.parts, { type: "tool_trace", items: toolTrace }]
+        ? [{ type: "tool_trace", items: toolTrace }, ...output.parts]
         : output.parts;
 
       const presented = (await client.query<{

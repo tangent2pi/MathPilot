@@ -43,14 +43,82 @@ type PendingMessage = {
   message: ThreadMessage;
 };
 
-type StreamingToolState = { name: string; state: "start" | "done" | "error" };
-
 type StreamingState = {
   sequence: number;
-  text: string;
-  thinking: string;
-  tools: ReadonlyMap<string, StreamingToolState>;
+  content: ThreadAssistantMessagePart[];
 };
+
+type StreamingToolState = "start" | "done" | "error";
+
+const streamingToolPart = (id: string, name: string, state: StreamingToolState): ThreadAssistantMessagePart => ({
+  type: "tool-call",
+  toolCallId: id,
+  toolName: `mathpilot.workspace.${name}`,
+  args: {},
+  argsText: `tool ${name}`,
+  ...(state === "done"
+    ? { result: { status: "done" as const }, status: { type: "complete" as const } }
+    : state === "error"
+      ? { result: { status: "error" as const }, isError: true, status: { type: "complete" as const } }
+      : { status: { type: "running" as const } }),
+});
+
+const closeTrailingReasoning = (content: readonly ThreadAssistantMessagePart[]): ThreadAssistantMessagePart[] => {
+  const next = [...content];
+  const last = next.at(-1);
+  if (last?.type === "reasoning" && last.status?.type === "running") {
+    next[next.length - 1] = { ...last, status: { type: "complete" } };
+  }
+  return next;
+};
+
+export function applyForegroundDelta(
+  current: StreamingState | undefined,
+  sequence: number,
+  kind: "text" | "thinking" | "tool",
+  delta: string,
+): StreamingState {
+  const base = current ?? { sequence: -1, content: [] };
+  if (sequence <= base.sequence) return base;
+
+  if (kind === "thinking") {
+    const content = [...base.content];
+    const last = content.at(-1);
+    if (last?.type === "reasoning") {
+      content[content.length - 1] = { ...last, text: `${last.text}${delta}`, status: { type: "running" } };
+    } else {
+      content.push({ type: "reasoning", text: delta, status: { type: "running" } });
+    }
+    return { sequence, content };
+  }
+
+  if (kind === "text") {
+    const content = closeTrailingReasoning(base.content);
+    const last = content.at(-1);
+    if (last?.type === "text") {
+      content[content.length - 1] = { ...last, text: `${last.text}${delta}` };
+    } else {
+      content.push({ type: "text", text: delta });
+    }
+    return { sequence, content };
+  }
+
+  try {
+    const tool = JSON.parse(delta) as { name?: unknown; state?: unknown; id?: unknown };
+    const name = typeof tool.name === "string" ? tool.name : "tool";
+    if (name === "respond") return { ...base, sequence };
+    const id = typeof tool.id === "string" && tool.id ? tool.id : `${name}:${sequence}`;
+    const state: StreamingToolState = tool.state === "done" || tool.state === "error" ? tool.state : "start";
+    const content = closeTrailingReasoning(base.content);
+    const existing = content.findIndex((part) => part.type === "tool-call" && part.toolCallId === id);
+    const nextPart = streamingToolPart(id, name, state);
+    if (existing >= 0) content[existing] = nextPart;
+    else content.push(nextPart);
+    return { sequence, content };
+  } catch {
+    return { ...base, sequence };
+  }
+}
 
 export function LearningRuntimeProvider({
   threadId,
@@ -109,31 +177,9 @@ function AuthenticatedLearningRuntime({
     setStreamingByOperation((current) => {
       const existing = current.get(operationId);
       if (existing && sequence <= existing.sequence) return current;
-      const base: StreamingState = existing ?? { sequence: 0, text: "", thinking: "", tools: new Map() };
-      if (kind === "text") {
-        const next = new Map(current);
-        next.set(operationId, { ...base, sequence, text: `${base.text}${delta}` });
-        return next;
-      }
-      if (kind === "thinking") {
-        const next = new Map(current);
-        next.set(operationId, { ...base, sequence, thinking: `${base.thinking}${delta}` });
-        return next;
-      }
-      // kind === "tool": delta 为 { name, state, id? }
-      try {
-        const tool = JSON.parse(delta) as { name?: unknown; state?: unknown; id?: unknown };
-        const name = typeof tool.name === "string" ? tool.name : "tool";
-        const id = typeof tool.id === "string" && tool.id ? tool.id : `${name}:${sequence}`;
-        const state = tool.state === "done" || tool.state === "error" ? tool.state : "start";
-        const tools = new Map(base.tools);
-        tools.set(id, { name, state });
-        const next = new Map(current);
-        next.set(operationId, { ...base, sequence, tools });
-        return next;
-      } catch {
-        return current;
-      }
+      const next = new Map(current);
+      next.set(operationId, applyForegroundDelta(existing, sequence, kind, delta));
+      return next;
     });
   }, []);
   useLearningEvents(Boolean(threadId), onForegroundDelta);
@@ -166,12 +212,19 @@ function AuthenticatedLearningRuntime({
     if (pending && !canonicalHasPending && (!pending.threadId || pending.threadId === threadId)) {
       items.push(pending.message);
     }
-    // 前台教学的流式展示投影：操作仍活跃时叠加增量气泡（工具/推理/正文
-    // 三通道实时可见）。
-    if (activeOperation?.kind === "foreground_teaching") {
-      const streaming = streamingByOperation.get(activeOperation.operation_id);
-      if (streaming && (streaming.text.length > 0 || streaming.thinking.length > 0 || streaming.tools.size > 0)) {
-        items.push(streamingTimelineMessage(activeOperation.operation_id, new Date(activeOperation.started_at), streaming));
+    // 保留流式消息，直到同一 operation 关联的 assistant canonical 消息已在
+    // 当前快照中出现。这样 operation 先结束、canonical 查询稍后返回时不会闪空。
+    for (const operation of operations) {
+      if (operation.kind !== "foreground_teaching") continue;
+      const streaming = streamingByOperation.get(operation.operation_id);
+      if (!streaming?.content.length) continue;
+      const linkedMessages = new Set(operation.related_resource_refs
+        .filter((ref) => ref.startsWith("canonical-message:"))
+        .map((ref) => ref.slice("canonical-message:".length)));
+      const canonicalReplyVisible = canonical.some((message) =>
+        message.author_kind === "assistant" && linkedMessages.has(message.message_id));
+      if (!canonicalReplyVisible) {
+        items.push(streamingTimelineMessage(operation, streaming));
       }
     }
     return items.sort((left, right) => {
@@ -521,44 +574,27 @@ function GuestRuntimeProvider({ children }: { children: ReactNode }) {
   return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
 }
 
-function streamingTimelineMessage(
-  operationId: string,
-  createdAt: Date,
-  streaming: StreamingState,
-): ThreadMessage {
-  const content: ThreadAssistantMessagePart[] = [];
-  for (const [id, tool] of streaming.tools) {
-    content.push({
-      type: "tool-call",
-      toolCallId: id,
-      toolName: `mathpilot.workspace.${tool.name}`,
-      args: {},
-      argsText: `tool ${tool.name}`,
-      ...(tool.state === "done"
-        ? { result: { status: "done" as const }, status: { type: "complete" as const } }
-        : tool.state === "error"
-          ? { result: { status: "error" as const }, isError: true, status: { type: "complete" as const } }
-          : { status: { type: "running" as const } }),
-    });
-  }
-  if (streaming.thinking.length > 0) {
-    content.push({ type: "reasoning", text: streaming.thinking, status: { type: "running" } });
-  }
-  if (streaming.text.length > 0) {
-    content.push({ type: "text", text: streaming.text });
-  }
+function streamingTimelineMessage(operation: ThreadOperation, streaming: StreamingState): ThreadMessage {
+  const active = ACTIVE_OPERATION_STATUSES.has(operation.status);
+  const content = active ? streaming.content : closeTrailingReasoning(streaming.content);
   return {
-    id: `delta:${operationId}`,
+    id: `delta:${operation.operation_id}`,
     role: "assistant",
-    createdAt,
+    createdAt: new Date(operation.started_at),
     content,
-    status: { type: "running" },
+    status: active
+      ? { type: "running" }
+      : operation.status === "failed"
+        ? { type: "incomplete", reason: "error", error: operation.user_message }
+        : operation.status === "cancelled"
+          ? { type: "incomplete", reason: "cancelled" }
+          : { type: "complete", reason: "stop" },
     metadata: {
       unstable_state: null,
       unstable_annotations: [],
       unstable_data: [],
       steps: [],
-      custom: { streamingDelta: true, operationId },
+      custom: { streamingDelta: true, operationId: operation.operation_id },
     },
   };
 }

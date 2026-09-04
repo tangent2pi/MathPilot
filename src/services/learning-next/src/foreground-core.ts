@@ -103,6 +103,44 @@ export interface ForegroundOutputBinding {
   replyToMessageId: string;
 }
 
+type AcceptedTeachingArtifactPart = Extract<ForegroundResponsePart, { type: "teaching_artifact" }>;
+
+/** Build the foreground envelope from Pi's final normal assistant message. */
+export function foregroundTeachingOutputFromAgentMessages(
+  messages: readonly unknown[],
+  binding: ForegroundOutputBinding,
+  acceptedArtifacts: readonly AcceptedTeachingArtifactPart[] = [],
+): ForegroundTeachingOutput {
+  const finalAssistant = [...messages].reverse().find((message) => {
+    if (!message || typeof message !== "object" || Array.isArray(message)) return false;
+    const candidate = message as Record<string, unknown>;
+    return candidate.role === "assistant" && candidate.stopReason === "stop";
+  });
+  if (!finalAssistant || typeof finalAssistant !== "object" || Array.isArray(finalAssistant)) {
+    throw new Error("foreground teaching loop ended without a completed assistant reply");
+  }
+  const content = (finalAssistant as Record<string, unknown>).content;
+  if (!Array.isArray(content)) {
+    throw new Error("foreground teaching final assistant reply has no content");
+  }
+  const text = content.flatMap((part) => {
+    if (!part || typeof part !== "object" || Array.isArray(part)) return [];
+    const candidate = part as Record<string, unknown>;
+    return candidate.type === "text" && typeof candidate.text === "string" && candidate.text.trim()
+      ? [candidate.text]
+      : [];
+  }).join("");
+  if (!text.trim()) throw new Error("foreground teaching final assistant reply has no visible text");
+
+  return parseForegroundTeachingOutput({
+    schema_version: 3,
+    conversation_thread_id: binding.conversationThreadId,
+    foreground_epoch_id: binding.foregroundEpochId,
+    reply_to_message_id: binding.replyToMessageId,
+    parts: [{ type: "text", text }, ...acceptedArtifacts],
+  }, binding);
+}
+
 export function parseForegroundTeachingOutput(value: unknown, binding: ForegroundOutputBinding): ForegroundTeachingOutput {
   const raw = objectValue(value, "foreground teaching output");
   exactKeys(raw, ["schema_version", "conversation_thread_id", "foreground_epoch_id", "reply_to_message_id", "parts"], "foreground teaching output");

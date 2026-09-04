@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseBoundedLearningAction, parseForegroundTeachingOutput } from "../src/foreground-core.ts";
+import {
+  foregroundTeachingOutputFromAgentMessages,
+  parseBoundedLearningAction,
+  parseForegroundTeachingOutput,
+} from "../src/foreground-core.ts";
 
 const binding = {
   conversationThreadId: "thr_foreground01",
@@ -31,6 +35,52 @@ test("foreground output cannot forge authoritative domain UI", () => {
     reply_to_message_id: binding.replyToMessageId,
     parts: [{ type: "domain_ui", part: { view_kind: "judgment" } }],
   }, binding), /cannot contain authoritative domain UI/);
+});
+
+test("foreground output is host-built from the final completed assistant reply", () => {
+  const output = foregroundTeachingOutputFromAgentMessages([
+    { role: "assistant", stopReason: "toolUse", content: [{ type: "text", text: "先检查一下" }, { type: "toolCall" }] },
+    { role: "toolResult", content: [{ type: "text", text: "done" }] },
+    {
+      role: "assistant",
+      stopReason: "stop",
+      content: [
+        { type: "thinking", thinking: "内部推理" },
+        { type: "text", text: "最终" },
+        { type: "text", text: "回复" },
+      ],
+    },
+  ], binding, [{
+    type: "teaching_artifact",
+    artifact_ref: "agent-artifact:art_12345678",
+    artifact_schema: "mathpilot.teaching-artifact/math-derivation/v1",
+    summary: "推导过程",
+  }]);
+
+  assert.deepEqual(output.parts, [
+    { type: "text", text: "最终回复" },
+    {
+      type: "teaching_artifact",
+      artifact_ref: "agent-artifact:art_12345678",
+      artifact_schema: "mathpilot.teaching-artifact/math-derivation/v1",
+      summary: "推导过程",
+    },
+  ]);
+});
+
+test("foreground host finalizer rejects missing or empty final replies", () => {
+  assert.throws(
+    () => foregroundTeachingOutputFromAgentMessages([
+      { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall" }] },
+    ], binding),
+    /without a completed assistant reply/,
+  );
+  assert.throws(
+    () => foregroundTeachingOutputFromAgentMessages([
+      { role: "assistant", stopReason: "stop", content: [{ type: "thinking", thinking: "only thinking" }] },
+    ], binding),
+    /no visible text/,
+  );
 });
 
 test("learning_action rejects authority fields and scientific writes", () => {
