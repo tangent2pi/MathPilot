@@ -2,29 +2,66 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("0041 refuses legacy avatar and object bytes before any schema mutation", async () => {
-  const migration = await readFile(
-    new URL("../../../../db/migrations/0041_content_integrity.sql", import.meta.url),
-    "utf8",
-  );
-  const avatarGuard = migration.indexOf("if exists (select 1 from identity_user_avatar)");
-  const objectGuard = migration.indexOf("if exists (select 1 from storage_object)");
-  const attachmentGuard = migration.indexOf("pre-integrity message attachments require a fresh Next database");
-  const firstMutation = migration.indexOf("alter table storage_object");
-  const avatarDrop = migration.indexOf("drop table identity_user_avatar");
-  assert.ok(avatarGuard > 0);
-  assert.ok(avatarGuard < firstMutation);
-  assert.ok(objectGuard > avatarGuard);
-  assert.ok(objectGuard < firstMutation);
-  assert.ok(attachmentGuard > objectGuard);
-  assert.ok(attachmentGuard < firstMutation);
-  assert.ok(avatarGuard < avatarDrop);
-  assert.match(migration, /0041 did not modify identity_user_avatar/);
-  assert.match(migration, /0041 did not infer source versions or retire pending storage objects/);
-  assert.match(migration, /0041 did not rewrite attachment parts or synthesize immutable claims/);
-  assert.doesNotMatch(migration, /pre_integrity_object_retired/);
-  assert.doesNotMatch(migration, /Strictly upgrade current Next messages/);
-  assert.doesNotMatch(migration, /disable trigger science_v3_canonical_message/);
-  assert.doesNotMatch(migration, /with upgraded as/);
-  assert.doesNotMatch(migration, /with bound as/);
+// 0055 is the merged-line adaptation of the local 0041_content_integrity
+// migration (applied after teammate 0041-0054). This test pins the boundary
+// decisions that keep the teammate product flows working:
+//   - purpose enum extends with the teammate 'paper' purpose
+//   - the storage guard permits the teammate pending->ready transition
+//   - candidate-source seal, audit claim trigger, avatar reshape and
+//     message-attachment claim triggers are NOT ported
+//   - the additive claim/lease/FK machinery IS ported
+
+const migration = await readFile(
+  new URL("../../../../db/migrations/0055_content_integrity.sql", import.meta.url),
+  "utf8",
+);
+
+test("0055 keeps the teammate paper purpose in the storage enum", () => {
+  assert.match(migration, /purpose in \('source','candidate','package','thread','derived','paper','avatar'\)/);
+});
+
+test("0055 permits the teammate pending->ready storage transition", () => {
+  assert.match(migration, /old\.state='pending' and new\.state in \('verifying','ready','failed','deleting'\)/);
+});
+
+test("0055 keeps storage object rows as lifecycle facts", () => {
+  assert.match(migration, /storage object rows are lifecycle facts and cannot be deleted/);
+});
+
+test("0055 does not port the candidate-source seal machinery", () => {
+  assert.doesNotMatch(migration, /content_candidate_source_object/);
+  assert.doesNotMatch(migration, /content_candidate_set_requires_sources/);
+  assert.doesNotMatch(migration, /mathpilot_content_bind_candidate_source_object/);
+  assert.doesNotMatch(migration, /mathpilot_content_claim_candidate_audit_object/);
+});
+
+test("0055 does not port the object-based avatar reshape", () => {
+  assert.doesNotMatch(migration, /drop table identity_user_avatar/);
+  assert.doesNotMatch(migration, /mathpilot_identity_set_avatar/);
+});
+
+test("0055 does not port the canonical-message attachment claim triggers", () => {
+  assert.doesNotMatch(migration, /science_v3_message_attachment/);
+  assert.doesNotMatch(migration, /mathpilot_science_v3_claim_message_attachments/);
+});
+
+test("0055 does not carry fresh-cutover refusal guards", () => {
+  assert.doesNotMatch(migration, /fresh Next database/);
+});
+
+test("0055 keeps the additive claim and deletion-lease machinery", () => {
+  assert.match(migration, /create table storage_object_claim/);
+  assert.match(migration, /mathpilot_storage_begin_deletions/);
+  assert.match(migration, /mathpilot_storage_finish_deletion/);
+  assert.match(migration, /mathpilot_storage_retry_deletion/);
+});
+
+test("0055 keeps tenant-composite object foreign keys", () => {
+  assert.match(migration, /content_source_storage_object_tenant_fk/);
+  assert.match(migration, /content_package_manifest_object_tenant_fk/);
+  assert.match(migration, /content_candidate_set_result_object_tenant_fk/);
+});
+
+test("0055 records its own version", () => {
+  assert.match(migration, /values \('0055_content_integrity'\)/);
 });
