@@ -4,10 +4,10 @@ import { internalServiceContext, internalServiceGuard } from "@mathpilot/interna
 import type { BucketName } from "./object-store.ts";
 import { finiteInteger, newId, stringValue, type Principal } from "./lib.ts";
 
-const PURPOSES = new Set(["source", "candidate", "package", "thread", "derived"]);
+const PURPOSES = new Set(["source", "candidate", "package", "thread", "derived", "paper"]);
 const MIME = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*(?:\s*;.*)?$/i;
-const WRITE_EDGES = ["api-to-storage", "pi-to-storage"] as const;
-const READ_EDGES = ["api-to-storage", "pi-to-storage", "learning-to-storage"] as const;
+const WRITE_EDGES = ["api-to-storage", "pi-to-storage", "content-to-storage"] as const;
+const READ_EDGES = ["api-to-storage", "pi-to-storage", "learning-to-storage", "content-to-storage"] as const;
 
 export interface StorageQueryClient {
   query<Row>(text: string, values?: readonly unknown[]): Promise<{ rows: Row[] }>;

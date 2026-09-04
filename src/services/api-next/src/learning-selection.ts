@@ -197,7 +197,7 @@ export async function reviseSelectionIntent(
          from science_v3_conversation_thread thread
          join science_v3_student student
            on student.tenant_id=thread.tenant_id and student.student_id=thread.student_id
-        where thread.tenant_id=$1 and thread.conversation_thread_id=$2
+        where thread.tenant_id=$1 and thread.conversation_thread_id=$2 and thread.deleted_at is null
         for update of thread`,
       [principal.tenantId,command.conversation_thread_id],
     )).rows[0];

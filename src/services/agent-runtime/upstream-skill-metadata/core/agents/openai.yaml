@@ -1,6 +1,0 @@
-interface:
-  display_name: "本地多模态查看"
-  short_description: "查看、渲染、裁剪和标注工作区内的媒体与文档"
-  default_prompt: "Use $qwen-mm-plugins-core to inspect the original workspace file locally."
-policy:
-  allow_implicit_invocation: true

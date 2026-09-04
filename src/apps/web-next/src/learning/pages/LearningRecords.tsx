@@ -1,6 +1,6 @@
 "use client";
 
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeftIcon,
   BookOpenCheckIcon,
@@ -15,13 +15,16 @@ import {
   UsersIcon,
 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { Link, Outlet, useNavigate, useParams } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/auth";
 import { Button } from "@/components/ui/button";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import type { CommandCapability, LearningView } from "../contracts";
 import { LearningSidebar } from "../components/LearningSidebar";
+import { SelfTestMarkdown } from "@/components/assistant-ui/self-test/SelfTestMarkdown";
+import { ReportDetail } from "@/components/assistant-ui/self-test/SelfTestReportView";
+import { SelfTestApiError, selfTestApi } from "../data/selfTestClient";
 import { learningApi, learningKeys } from "../data/client";
 
 export function LearningRecordsLayout() {
@@ -78,18 +81,112 @@ export function AnnotationPage() {
   );
 }
 
-type StudentPageKind = "overview" | "history" | "state" | "memory" | "review";
+type StudentPageKind = "overview" | "history" | "state" | "memory" | "review" | "report";
+
+/** 教师学生详情页的标签导航（含测评报告）。 */
+const studentTabs: ReadonlyArray<{ kind: StudentPageKind; label: string; suffix: string }> = [
+  { kind: "overview", label: "概览", suffix: "" },
+  { kind: "history", label: "学习历史", suffix: "history" },
+  { kind: "state", label: "科学状态", suffix: "state" },
+  { kind: "memory", label: "学习记忆", suffix: "memories" },
+  { kind: "review", label: "复习队列", suffix: "reviews" },
+  { kind: "report", label: "测评报告", suffix: "report" },
+];
+
+function TeacherStudentTabs({ studentHandle, active }: { studentHandle: string; active: StudentPageKind }) {
+  return (
+    <div className="mx-auto w-full max-w-5xl px-5 md:px-10">
+      <div className="mt-4 flex flex-wrap gap-1 border-b pb-px">
+        {studentTabs.map((tab) => (
+          <NavLink
+            key={tab.kind}
+            to={`/teacher/students/${encodeURIComponent(studentHandle)}/${tab.suffix}`.replace(/\/$/, "")}
+            className={({ isActive }) => cn(
+              "rounded-t-md px-3 py-1.5 text-sm transition-colors",
+              isActive ? "border-b-2 border-primary font-medium text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {tab.label}
+          </NavLink>
+        ))}
+        <span className="sr-only">{active}</span>
+      </div>
+    </div>
+  );
+}
 
 export function TeacherStudentPage({ kind }: { kind: StudentPageKind }) {
   const { studentHandle = "" } = useParams();
+  if (kind === "report") {
+    return <TeacherStudentReportPage studentHandle={studentHandle} />;
+  }
   const suffix = kind === "memory" ? "memories" : kind === "review" ? "reviews" : kind;
+  const page = ownPages[kind];
   return (
-    <LearningViewPage
-      title={`学生 · ${ownPages[kind].title}`}
-      description="教师视图只展示已授权、可追溯的学习事实。"
-      url={`/api/learning/students/${encodeURIComponent(studentHandle)}/${suffix}`}
-      mode={kind === "overview" ? undefined : kind}
-    />
+    <div className="flex flex-col">
+      <TeacherStudentTabs studentHandle={studentHandle} active={kind} />
+      <LearningViewPage
+        title={`学生 · ${page.title}`}
+        description="教师视图只展示已授权、可追溯的学习事实。"
+        url={`/api/learning/students/${encodeURIComponent(studentHandle)}/${suffix}`}
+        mode={kind === "overview" ? undefined : kind}
+      />
+    </div>
+  );
+}
+
+function TeacherStudentReportPage({ studentHandle }: { studentHandle: string }) {
+  const query = useQuery({
+    queryKey: ["learning", "teacher-report", studentHandle],
+    queryFn: () => selfTestApi.teacherReport(studentHandle),
+    enabled: Boolean(studentHandle),
+    retry: 1,
+  });
+  return (
+    <div className="flex flex-col">
+      <TeacherStudentTabs studentHandle={studentHandle} active="report" />
+      <div className="mx-auto w-full max-w-5xl px-5 pb-10 md:px-10">
+        <div className="mt-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">学生 · 测评报告</h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              该学生的整章自我测评汇总报告（教师视图，仅展示已授权、可追溯的学习事实）。
+            </p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={() => void query.refetch()} aria-label="刷新">
+            <RefreshCwIcon className={cn("size-4", query.isFetching && "animate-spin motion-reduce:animate-none")} />
+          </Button>
+        </div>
+
+        {query.isPending && (
+          <div className="mt-10 flex items-center justify-center gap-2 text-muted-foreground">
+            <Loader2Icon className="size-5 animate-spin motion-reduce:animate-none" />正在读取测评报告
+          </div>
+        )}
+        {query.error && (
+          <div className="mt-10 rounded-2xl border bg-muted/30 px-4 py-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              {query.error instanceof SelfTestApiError && query.error.status === 404
+                ? "该学生还没有完成整章测评（需累计至少 3 轮），暂无报告可查看。"
+                : "读取测评报告失败，请稍后重试。"}
+            </p>
+            <Button variant="outline" className="mt-4" onClick={() => void query.refetch()}>重试</Button>
+          </div>
+        )}
+        {query.data && (
+          <div className="mt-6 flex flex-col gap-4">
+            <div className="rounded-xl border bg-muted/30 px-3.5 py-2.5 text-sm">
+              最近整章测评：共 {query.data.round_no} 轮 · {query.data.student.displayName}
+            </div>
+            <div className="rounded-xl border bg-muted/30 px-3.5 py-2.5">
+              <SelfTestMarkdown text={query.data.report} />
+            </div>
+            {query.data.report_payload && <ReportDetail payload={query.data.report_payload} />}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

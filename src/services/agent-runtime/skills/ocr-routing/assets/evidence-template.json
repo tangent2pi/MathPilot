@@ -1,8 +1,0 @@
-{
-  "schema": "mathpilot.ocr-evidence/v1",
-  "original": "input/original/example.png",
-  "ocr_used": false,
-  "reason": "original_is_sufficient",
-  "derived_files": [],
-  "verified_against_original": true
-}

@@ -1,8 +1,9 @@
-import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { InternalActor, InternalServiceRuntime } from "@mathpilot/internal-service";
 import { internalServiceContext, internalServiceGuard } from "@mathpilot/internal-service/fastify";
 import type { FastifyInstance } from "fastify";
+import { createHash, randomUUID } from "node:crypto";
 import type { PiClient } from "@assistant-ui/react-pi";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiThreadStore, type PiPrincipal, type PiThreadRecord } from "./pi-thread-store.ts";
@@ -40,6 +41,59 @@ const pathIsWithin = (root: string, candidate: string): boolean => {
   const relative = path.relative(root, candidate);
   return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 };
+
+const attachmentRefPattern = /^storage-object:(obj_[A-Za-z0-9]{8,})$/;
+
+/** 从 storage-next 拉取教师私有对象并写入工作区 input/original/，返回可投喂模型的描述。 */
+async function materializeTeacherAttachment(
+  internalService: InternalServiceRuntime,
+  actor: InternalActor,
+  workspace: string,
+  attachmentRef: string,
+): Promise<{ workspacePath: string; note: string; objectId: string; originalName: string; mimeType: string; byteSize: number; sha256: string }> {
+  const objectMatch = attachmentRefPattern.exec(attachmentRef);
+  if (!objectMatch) throw new Error("invalid storage-object attachment reference");
+  const objectId = objectMatch[1]!;
+  const response = await internalService.request(
+    "pi-to-storage",
+    { tenantId: actor.tenantId, userId: actor.userId, roles: [...actor.roles] },
+    `/internal/objects/${encodeURIComponent(objectId)}/presign-get`,
+    { method: "POST", json: { audience: "runtime" }, timeoutMs: 30_000 },
+  );
+  if (!response.ok) throw new Error(`storage-next rejected an authorized object read (${response.status})`);
+  const metadata = await response.json() as Record<string, unknown>;
+  const originalName = typeof metadata.original_name === "string" ? metadata.original_name : objectId;
+  const mimeType = typeof metadata.mime_type === "string" ? metadata.mime_type : "application/octet-stream";
+  const byteSize = Number(metadata.byte_size);
+  const sha256 = typeof metadata.sha256 === "string" ? metadata.sha256 : "";
+  const downloadUrl = typeof metadata.download_url === "string" ? metadata.download_url : "";
+  if (metadata.object_id !== objectId || !downloadUrl || !Number.isSafeInteger(byteSize) || byteSize < 1 || !/^[0-9a-f]{64}$/.test(sha256)) {
+    throw new Error("storage-next object metadata does not match the attachment reference");
+  }
+  const download = await fetch(downloadUrl);
+  if (!download.ok) throw new Error(`object download failed (${download.status})`);
+  const content = Buffer.from(await download.arrayBuffer());
+  if (content.byteLength !== byteSize) throw new Error("attachment object size changed");
+  const digest = createHash("sha256").update(content).digest("hex");
+  if (digest !== sha256) throw new Error("attachment object digest changed");
+
+  const safeBase = originalName.replaceAll("\\", "/").split("/").pop() ?? "object";
+  const safe = (safeBase.replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^\.+$/, "") || "object").slice(0, 160);
+  const workspacePath = `input/original/${objectId}_${safe}`;
+  await mkdir(path.join(workspace, "input", "original"), { recursive: true, mode: 0o700 });
+  await writeFile(path.join(workspace, workspacePath), content, { flag: "wx", mode: 0o600 }).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  });
+  return {
+    workspacePath,
+    note: `- ${workspacePath}（原名：${originalName}；MIME：${mimeType}；${byteSize} 字节；SHA-256：${sha256.slice(0, 12)}…）`,
+    objectId,
+    originalName,
+    mimeType,
+    byteSize,
+    sha256,
+  };
+}
 
 export const containedLocalEntryExists = async (
   allowedRoot: string,
@@ -96,7 +150,10 @@ const ensureErThread = async (
   // The workspace name is deterministic for the command.  This is not a
   // second workflow identity; it only lets a retry find the same ordinary Pi
   // session before the mapping transaction has completed.
-  const workspaceId = `er-${targetThreadId}`;
+  const workspaceId = ((): string => {
+    const hex = createHash("sha256").update(`mathpilot-er:${targetThreadId}`).digest("hex").slice(0, 32);
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  })();
   const sessionDir = `sessions/${workspaceId}`;
   const workspacePath = path.join(runtime.sessionsRoot, workspaceId);
   await assemblePiChatWorkspace(workspacePath, runtime.skillsRoot);
@@ -104,11 +161,13 @@ const ensureErThread = async (
   await bindPiThreadWorkspace(workspacePath, targetThreadId);
 
   let sessionFileAbsolute: string | undefined;
-  const discovered = await SessionManager.list(workspacePath, runtime.agentSessionsRoot).catch(() => []);
+  // Pi 的 supervisor 只在按 cwd 编码的默认会话目录扫描会话；显式 sessionDir 会让
+  // 会话文件落在扁平根目录导致 Unknown Pi thread。
+  const discovered = await SessionManager.list(workspacePath).catch(() => []);
   const discoveredTarget = discovered.find((info) => info.id === targetThreadId);
   if (discoveredTarget) sessionFileAbsolute = discoveredTarget.path;
   if (!sessionFileAbsolute) {
-    const manager = SessionManager.create(workspacePath, runtime.agentSessionsRoot, { id: targetThreadId });
+    const manager = SessionManager.create(workspacePath, undefined, { id: targetThreadId });
     sessionFileAbsolute = manager.getSessionFile();
     const header = manager.getHeader();
     if (!sessionFileAbsolute || !header) throw new Error("Pi did not allocate a session file for ER handoff");
@@ -410,6 +469,288 @@ export function registerPiChatRoutes(
     } catch (error) {
       request.log.error({ err: error, commandId, targetThreadId }, "review feedback dispatch failed");
       return reply.code(502).send({ error: "review feedback dispatch failed" });
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // 教师对话空间：教师用自有账号发起多轮 AI 对话（问题目/讲解）。
+  // 独立会话（workspace + session + PiThreadStore 归属教师），不写入学生
+  // learning-evidence / BKT 模型。消息走 Pi 官方 sendMessage/getThread。
+  // --------------------------------------------------------------------------
+  // pi_threads.session_dir 约束为 sessions/<36 位 uuid>；由 thread_id 派生稳定
+  // uuid，使崩溃后的重试能回到同一工作区（确定性），同时不引入 DB 迁移。
+  const teacherChatWorkspaceId = (threadId: string): string => {
+    const hex = createHash("sha256").update(`mathpilot-teacher-chat:${threadId}`).digest("hex").slice(0, 32);
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  };
+  const teacherChatLocks = new Map<string, Promise<{ record: PiThreadRecord; snapshot: PiSnapshot }>>();
+
+  app.get("/internal/teacher-chat/threads", { preHandler: contentGuard }, async (request, reply) => {
+    const actor = internalServiceContext(request).actor;
+    if (!actor.roles.includes("teacher")) return reply.code(403).send({ error: "teacher principal required" });
+    const threads = await store.list(piPrincipal(actor));
+    // 教师对话空间只展示教师本人拥有的会话；ACL 授予的读权限（例如学生证据）
+    // 不能混入该列表，避免把学生学习线程误当作教师对话打开。
+    return threads
+      .filter((thread) => thread.ownerUserId === actor.userId)
+      .map((thread) => ({
+        thread_id: thread.threadId,
+        created_at: thread.createdAt,
+        archived_at: thread.archivedAt ?? null,
+      }));
+  });
+
+  const ktqStartLocks = new Map<string, Promise<{ dispatched: boolean; replayed: boolean }>>();
+
+  app.post("/internal/ktq-start", { preHandler: contentGuard }, async (request, reply) => {
+    const actor = internalServiceContext(request).actor;
+    if (!actor.roles.includes("teacher")) return reply.code(403).send({ error: "teacher principal required" });
+    const principal = piPrincipal(actor);
+    const body = (request.body ?? {}) as { command_id?: unknown; target_thread_id?: unknown; chapter_id?: unknown };
+    const commandId = typeof body.command_id === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(body.command_id) ? body.command_id : "";
+    const targetThreadId = typeof body.target_thread_id === "string" ? body.target_thread_id : "";
+    const chapterId = typeof body.chapter_id === "string" && body.chapter_id.trim() ? body.chapter_id.trim().slice(0, 127) : null;
+    if (!commandId || !targetThreadId) return reply.code(422).send({ error: "command_id and target_thread_id are required" });
+    const key = `${principal.tenantId}\u0000${commandId}`;
+    let operation = ktqStartLocks.get(key);
+    if (!operation) {
+      operation = (async () => {
+        const record = await store.deletable(principal, targetThreadId);
+        if (!record) throw new Error("ktq target teacher chat thread is not owned by this teacher");
+        if (!await localThreadAvailable(runtime, record, pi)) throw new Error("ktq target session is not recoverable");
+        const workspace = workspaceOf(runtime, record);
+        const markerPath = path.join(workspace, "input", "session", "ktq-start.json");
+        type KtqStartMarker = { schema: string; command_id: string; chapter_id: string | null; status: "starting" | "sent" };
+        const readMarker = async (): Promise<KtqStartMarker | undefined> => {
+          try {
+            const value = JSON.parse(await readFile(markerPath, "utf8")) as Partial<KtqStartMarker>;
+            if (value.schema !== "mathpilot.ktq-start/v1" || typeof value.command_id !== "string" || value.status !== "starting" && value.status !== "sent") return undefined;
+            return value as KtqStartMarker;
+          } catch {
+            return undefined;
+          }
+        };
+        const existing = await readMarker();
+        if (existing && (existing.command_id !== commandId || existing.chapter_id !== chapterId)) {
+          throw new Error("target thread already assigned to another KTQ command");
+        }
+        const releasePrincipal = reserveThread(activePrincipalByThread, targetThreadId, principal);
+        if (!releasePrincipal) throw new Error("ktq target teacher chat thread is busy");
+        try {
+          if (existing?.status === "sent") return { dispatched: true, replayed: true };
+          if (existing?.status === "starting") {
+            const snapshot = await pi.getThread(targetThreadId);
+            if (snapshotContainsUserToken(snapshot, commandId)) {
+              await writeFile(markerPath, `${JSON.stringify({ ...existing, status: "sent" }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+              return { dispatched: true, replayed: true };
+            }
+          }
+          await writeHostPrincipal(workspace, actor);
+          await mkdir(path.dirname(markerPath), { recursive: true, mode: 0o700 });
+          const marker: KtqStartMarker = {
+            schema: "mathpilot.ktq-start/v1",
+            command_id: commandId,
+            chapter_id: chapterId,
+            status: "starting",
+          };
+          await writeFile(markerPath, `${JSON.stringify(marker, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+          const sourceFiles = (await readdir(path.join(workspace, "input", "original")).catch(() => []))
+            .filter((name) => !name.startsWith("."))
+            .map((name) => `input/original/${name}`);
+          const scopeNote = chapterId ? `章节：${chapterId}` : "按源文件实际内容识别章节（默认解三角形）";
+          await pi.sendMessage(targetThreadId, {
+            content: [
+              `[MathPilot KTQ start ${commandId}]`,
+              `这是一次教师私有资料的 KTQ 抽取。来源文件：${sourceFiles.length ? sourceFiles.join("、") : "（该线程尚未绑定文件，请先上传资料再解析）"}`,
+              scopeNote,
+              "请读取 ktq-extraction Skill，只从上述源文件抽取知识点/题型/题目；不要修改源文件，也不要直接发布内容。完成后调用 respond 注册 phase=ktq 的候选集。",
+              "请全程使用简体中文回复，不要在回复中夹杂英文。",
+            ].join("\n"),
+          });
+          await writeFile(markerPath, `${JSON.stringify({ ...marker, status: "sent" }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+          const snapshot = await pi.getThread(targetThreadId);
+          return { dispatched: true, replayed: snapshot.messages.length > 0 };
+        } finally {
+          releasePrincipal();
+        }
+      })().finally(() => {
+        if (ktqStartLocks.get(key) === operation) ktqStartLocks.delete(key);
+      });
+      ktqStartLocks.set(key, operation);
+    }
+    try {
+      return await operation;
+    } catch (error) {
+      request.log.error({ err: error, commandId, targetThreadId }, "KTQ start dispatch failed");
+      return reply.code(502).send({ error: "KTQ start dispatch failed" });
+    }
+  });
+
+  app.post("/internal/teacher-chat/threads", { preHandler: contentGuard }, async (request, reply) => {
+    const actor = internalServiceContext(request).actor;
+    if (!actor.roles.includes("teacher")) return reply.code(403).send({ error: "teacher principal required" });
+    const principal = piPrincipal(actor);
+    const body = (request.body ?? {}) as { thread_id?: unknown };
+    const threadId = typeof body.thread_id === "string" && /^thr_[A-Za-z0-9]{8,}$/.test(body.thread_id)
+      ? body.thread_id
+      : `thr_${randomUUID().replaceAll("-", "")}`;
+    const key = `${principal.tenantId}\u0000${threadId}`;
+    let operation = teacherChatLocks.get(key);
+    if (!operation) {
+      operation = (async () => {
+        const existing = await store.deletable(principal, threadId);
+        if (existing) return { record: existing, snapshot: await pi.getThread(threadId) };
+        const workspaceId = teacherChatWorkspaceId(threadId);
+        const sessionDir = `sessions/${workspaceId}`;
+        const workspacePath = path.join(runtime.sessionsRoot, workspaceId);
+        await assemblePiChatWorkspace(workspacePath, runtime.skillsRoot);
+        await bindPiThreadWorkspace(workspacePath, threadId);
+        await mkdir(path.join(workspacePath, "input", "frozen"), { recursive: true });
+
+        let sessionFileAbsolute: string | undefined;
+        // Pi 的 supervisor 只在按 cwd 编码的默认会话目录（agent/sessions/<encoded>/）
+        // 中扫描会话；显式把 sessionDir 指到 agentSessionsRoot 会让会话文件落在
+        // 扁平根目录，Pi 无法发现（openCold 报 Unknown Pi thread）。
+        const discovered = await SessionManager.list(workspacePath).catch(() => []);
+        const discoveredTarget = discovered.find((info) => info.id === threadId);
+        if (discoveredTarget) sessionFileAbsolute = discoveredTarget.path;
+        if (!sessionFileAbsolute) {
+          const manager = SessionManager.create(workspacePath, undefined, { id: threadId });
+          sessionFileAbsolute = manager.getSessionFile();
+          const header = manager.getHeader();
+          if (!sessionFileAbsolute || !header) throw new Error("Pi did not allocate a teacher chat session file");
+          await writeFile(sessionFileAbsolute, `${JSON.stringify(header)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 }).catch((error) => {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+          });
+        }
+        const relativeSessionFile = path.relative(runtime.runtimeRoot, sessionFileAbsolute);
+        if (relativeSessionFile.startsWith("..") || path.isAbsolute(relativeSessionFile)) {
+          throw new Error("teacher chat session file is outside runtime root");
+        }
+        const record = await store.create(principal, { threadId, sessionDir, sessionFile: relativeSessionFile });
+        // 干净开局：只分配 workspace + 会话文件（Pi 可按 header 打开空会话），
+        // 不发送种子消息，避免一次空对话消耗一次模型调用，也让教师的第一句话
+        // 就是真正的首条 user 消息。AGENTS.md 已注入数学教学 Agent 身份。
+        await writeHostPrincipal(workspacePath, actor);
+        return {
+          record,
+          snapshot: {
+            metadata: { id: threadId, status: "idle", messageCount: 0 },
+            messages: [],
+          } as PiSnapshot,
+        };
+      })().finally(() => {
+        if (teacherChatLocks.get(key) === operation) teacherChatLocks.delete(key);
+      });
+      teacherChatLocks.set(key, operation);
+    }
+    try {
+      const result = await operation;
+      return {
+        thread_id: result.record.threadId,
+        created: true,
+        messages: result.snapshot.messages,
+      };
+    } catch (error) {
+      request.log.error({ err: error, threadId }, "teacher chat thread creation failed");
+      return reply.code(502).send({ error: "teacher chat thread creation failed" });
+    }
+  });
+
+  app.post("/internal/teacher-chat/threads/:threadId/messages", { preHandler: contentGuard }, async (request, reply) => {
+    const actor = internalServiceContext(request).actor;
+    if (!actor.roles.includes("teacher")) return reply.code(403).send({ error: "teacher principal required" });
+    const principal = piPrincipal(actor);
+    const threadId = String((request.params as Record<string, unknown>).threadId ?? "");
+    const body = (request.body ?? {}) as { content?: unknown; attachments?: unknown };
+    const content = typeof body.content === "string" && body.content.trim() ? body.content.trim() : "";
+    // 附件来自前端按 storage-object:obj_… 形式提交的对象引用，随消息一起绑定进工作区。
+    const rawAttachments = Array.isArray(body.attachments) ? body.attachments.slice(0, 5) : [];
+    const attachments: string[] = [];
+    for (const value of rawAttachments) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const attachmentRef = String((value as Record<string, unknown>).attachment_ref ?? "");
+      if (attachmentRefPattern.test(attachmentRef) && !attachments.includes(attachmentRef)) attachments.push(attachmentRef);
+    }
+    if (!content && attachments.length === 0) {
+      return reply.code(422).send({ error: "content or an attachment is required" });
+    }
+    if (content.length > 50_000) {
+      return reply.code(422).send({ error: "content is limited to 50000 characters" });
+    }
+    const key = `${principal.tenantId}\u0000${threadId}`;
+    let operation = teacherChatLocks.get(key);
+    if (!operation) {
+      operation = (async () => {
+        // 只允许教师在“自己拥有”的会话中发消息，ACL 写入（学生证据等）不适用。
+        const record = await store.deletable(principal, threadId);
+        if (!record) throw new Error("teacher chat thread is not owned by this teacher");
+        if (!await localThreadAvailable(runtime, record, pi)) throw new Error("teacher chat session is not recoverable");
+        const workspace = workspaceOf(runtime, record);
+        const releasePrincipal = reserveThread(activePrincipalByThread, threadId, principal);
+        if (!releasePrincipal) throw new Error("teacher chat thread is busy");
+        try {
+          await writeHostPrincipal(workspace, actor);
+          let prompt = content;
+          if (attachments.length > 0) {
+            const files: string[] = [];
+            let totalBytes = 0;
+            for (const attachmentRef of attachments) {
+              const materialized = await materializeTeacherAttachment(internalService, actor, workspace, attachmentRef);
+              if (totalBytes + materialized.byteSize > 48 * 1024 * 1024) throw new Error("teacher chat attachments exceed 48 MiB per turn");
+              totalBytes += materialized.byteSize;
+              files.push(materialized.note);
+              await store.createAttachment(principal, {
+                attachmentId: randomUUID(),
+                threadId,
+                workspacePath: materialized.workspacePath,
+                originalName: materialized.originalName,
+                mimeType: materialized.mimeType,
+                byteSize: materialized.byteSize,
+                sha256: materialized.sha256,
+                storageObjectId: materialized.objectId,
+              });
+            }
+            prompt = `${content || "请阅读随消息附带的文件。"}\n\n本次消息附带文件：\n${files.join("\n")}\n请按需读取这些文件（例如先用内容工具查看 PDF 或图片版面）。\n请全程使用简体中文回复，不要在回复中夹杂英文。`;
+          }
+          await pi.sendMessage(threadId, { content: prompt });
+          return { record, snapshot: await pi.getThread(threadId) };
+        } finally {
+          releasePrincipal();
+        }
+      })().finally(() => {
+        if (teacherChatLocks.get(key) === operation) teacherChatLocks.delete(key);
+      });
+      teacherChatLocks.set(key, operation);
+    }
+    try {
+      const result = await operation;
+      return {
+        thread_id: result.record.threadId,
+        messages: result.snapshot.messages,
+      };
+    } catch (error) {
+      request.log.error({ err: error, threadId }, "teacher chat send failed");
+      return reply.code(502).send({ error: "teacher chat send failed" });
+    }
+  });
+
+  app.get("/internal/teacher-chat/threads/:threadId", { preHandler: contentGuard }, async (request, reply) => {
+    const actor = internalServiceContext(request).actor;
+    if (!actor.roles.includes("teacher")) return reply.code(403).send({ error: "teacher principal required" });
+    const principal = piPrincipal(actor);
+    const threadId = String((request.params as Record<string, unknown>).threadId ?? "");
+    const record = await store.deletable(principal, threadId);
+    if (!record) return reply.code(404).send({ error: "thread not found" });
+    try {
+      const snapshot = await pi.getThread(threadId);
+      return {
+        thread_id: record.threadId,
+        messages: snapshot.messages,
+      };
+    } catch (error) {
+      request.log.error({ err: error, threadId }, "teacher chat read failed");
+      return reply.code(502).send({ error: "teacher chat read failed" });
     }
   });
 }

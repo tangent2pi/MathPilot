@@ -163,6 +163,29 @@ export class LearningCommandService {
     });
   }
 
+  async deleteThread(principal: Principal, threadId: string, value: unknown, headerKey: unknown) {
+    if (!threadPattern.test(threadId)) throw new LearningCommandError(404, "thread_not_found", "对话不存在");
+    const body = objectValue(value);
+    idempotencyKey(headerKey, body);
+    return withPrincipal(this.pool, principal, async (client) => {
+      const subject = await assertThreadAccess(client, principal, threadId, true);
+      void subject;
+      // 软删除：science_v3 全库是不可变学习证据日志（thread 表 science_v3_thread_guard
+      // 触发器直接禁止 DELETE，0033）。置 deleted_at 后，列表/详情/选题/工作区投影等
+      // 所有读取路径均把该对话视为不存在；底层 BKT 证据按架构设计保留。
+      // 更新满足 thread_guard：version 前进、updated_at 前进、不改身份字段、不改 status。
+      const result = (await client.query<{ thread_id: string }>(
+        `update science_v3_conversation_thread
+            set deleted_at=clock_timestamp(),updated_at=clock_timestamp(),version=version+1
+          where tenant_id=$1 and conversation_thread_id=$2 and deleted_at is null
+        returning conversation_thread_id as thread_id`,
+        [principal.tenantId, threadId],
+      )).rows[0];
+      if (!result) throw new LearningCommandError(404, "thread_not_found", "对话不存在或已删除");
+      return { thread_id: result.thread_id, deleted: true };
+    });
+  }
+
   async submitForegroundMessage(principal: Principal, threadId: string, value: unknown, headerKey: unknown) {
     if (!threadPattern.test(threadId)) throw new LearningCommandError(404, "thread_not_found", "对话不存在");
     const body = objectValue(value);

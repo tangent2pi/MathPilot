@@ -38,6 +38,7 @@ export interface CandidateSummary {
   sequence_no: number;
   status: string;
   item_count: number;
+  display_name: string | null;
   created_at: string;
   decided_at: string | null;
 }
@@ -515,7 +516,7 @@ export class CandidateRepository {
     return withPrincipal(this.pool, principal, async (client) => {
       await assertTeacher(client, principal);
       const duplicate = await client.query<CandidateSummary>(
-        `select candidate_set_id,phase,owner_teacher_user_id,thread_id,sequence_no,status,created_at,decided_at,
+        `select candidate_set_id,phase,owner_teacher_user_id,thread_id,sequence_no,status,display_name,created_at,decided_at,
                 (select count(*)::int from content_candidate_set_item i where i.candidate_set_id=s.candidate_set_id) as item_count
            from content_candidate_set s
           where tenant_id=$1 and thread_id=$2 and phase=$3 and respond_tool_call_id=$4`,
@@ -627,7 +628,7 @@ export class CandidateRepository {
         );
       }
       const result = await client.query<CandidateSummary>(
-        `select candidate_set_id,phase,owner_teacher_user_id,thread_id,sequence_no,status,created_at,decided_at,
+        `select candidate_set_id,phase,owner_teacher_user_id,thread_id,sequence_no,status,display_name,created_at,decided_at,
                 (select count(*)::int from content_candidate_set_item i where i.candidate_set_id=s.candidate_set_id) as item_count
            from content_candidate_set s where candidate_set_id=$1`,
         [candidateSetId],
@@ -793,6 +794,21 @@ export class CandidateRepository {
     });
   }
 
+  /** 教师给解析批次（候选集）起名/改名；传空名则恢复默认显示名。仅批次所有者可操作。 */
+  async renameCandidateDisplayName(principal: Principal, candidateSetId: string, displayName: string | null): Promise<boolean> {
+    const title = String(displayName ?? "").trim().slice(0, 120);
+    return withPrincipal(this.pool, principal, async (client) => {
+      const result = await client.query(
+        `update content_candidate_set
+            set display_name=$3
+          where tenant_id=$1 and candidate_set_id=$2 and owner_teacher_user_id=$4
+          returning candidate_set_id`,
+        [principal.tenantId, candidateSetId, title === "" ? null : title, principal.userId],
+      );
+      return (result.rowCount ?? 0) === 1;
+    });
+  }
+
   async searchLibrary(
     principal: Principal,
     kinds: EntityKind[] | undefined,
@@ -903,6 +919,178 @@ export class CandidateRepository {
         [principal.tenantId, principal.userId, principal.roles],
       );
       return result.rows as Json[];
+    });
+  }
+
+  async deleteTeacherPackage(principal: Principal, packageId: string): Promise<boolean> {
+    return withPrincipal(this.pool, principal, async (client) => {
+      const owner = await client.query<{ package_id: string }>(
+        `select package_id from content_package p
+          where p.tenant_id=$1 and p.package_id=$2 and p.origin='teacher'
+            and p.owner_teacher_user_id=$3 and p.status='ready'
+          for update`,
+        [principal.tenantId, packageId, principal.userId],
+      );
+      if (!owner.rows[0]) return false;
+      // 先删除包内 items（守卫只放行“所属教师包仍为 ready”时的删除），再删包。
+      await client.query(`delete from content_package_item where tenant_id=$1 and package_id=$2`, [principal.tenantId, packageId]);
+      const result = await client.query(`delete from content_package p where p.tenant_id=$1 and p.package_id=$2 returning p.package_id`, [principal.tenantId, packageId]);
+      return (result.rowCount ?? 0) === 1;
+    });
+  }
+
+  /** 教师自选题组卷：列出该教师可挑选的题目（本人解析、已批准/就绪的最新修订）。 */
+  async listManualPickableQuestions(principal: Principal): Promise<Json[]> {
+    return withPrincipal(this.pool, principal, async (client) => {
+      const result = await client.query(
+        `with latest as (
+           select distinct on (e.entity_id) e.entity_id, r.revision_id, r.revision_no,
+                  r.lifecycle_status, r.candidate_set_id
+             from content_entity e
+             join content_entity_revision r on r.entity_id=e.entity_id and r.tenant_id=e.tenant_id
+            where e.tenant_id=$1 and e.entity_kind='question' and e.origin='teacher'
+              and e.owner_teacher_user_id=$2
+              and r.lifecycle_status in ('approved','ready')
+            order by e.entity_id, r.revision_no desc
+         )
+         select l.entity_id, l.revision_id, l.revision_no, l.lifecycle_status,
+                l.candidate_set_id as batch_id, cs.display_name as batch_display_name,
+                cs.phase as batch_phase, qr.chapter_id, qr.stem_format, qr.difficulty,
+                left(qr.stem_markdown, 220) as stem_preview,
+                tr.name as question_type_name
+           from latest l
+           join content_entity e on e.entity_id=l.entity_id
+           join content_question_revision qr on qr.revision_id=l.revision_id
+           left join content_question_type_revision tr on tr.revision_id=qr.question_type_revision_id
+           left join content_candidate_set cs on cs.candidate_set_id=l.candidate_set_id
+          order by l.entity_id limit 500`,
+        [principal.tenantId, principal.userId],
+      );
+      return result.rows as Json[];
+    });
+  }
+
+  /** 教师自选题组卷：用选中题目 revision 创建 manual 练习包（ready，可直接发布）。 */
+  async createManualTeacherPackage(principal: Principal, title: string, revisionIds: string[]): Promise<Json> {
+    const cleanTitle = String(title ?? "").trim().slice(0, 200);
+    if (!cleanTitle) throw new Error("package title must not be empty");
+    const ids = [...new Set(revisionIds.map((value) => String(value).trim()).filter(Boolean))];
+    if (!ids.length) throw new Error("select at least one question");
+    if (ids.length > 200) throw new Error("too many questions (max 200)");
+    return withPrincipal(this.pool, principal, async (client) => {
+      const picks = await client.query<{ entity_id: string; entity_kind: string; owner_teacher_user_id: string; lifecycle_status: string }>(
+        `select e.entity_id, e.entity_kind, e.owner_teacher_user_id, r.lifecycle_status
+           from content_entity e join content_entity_revision r on r.entity_id=e.entity_id and r.tenant_id=e.tenant_id
+          where r.tenant_id=$1 and r.revision_id=any($2::text[])`,
+        [principal.tenantId, ids],
+      );
+      if (picks.rows.length !== ids.length) throw new Error("some revisions are not found");
+      const entities = new Set<string>();
+      for (const row of picks.rows) {
+        if (row.entity_kind !== "question") throw new Error("only question revisions can be picked");
+        if (row.owner_teacher_user_id !== principal.userId) throw new Error("question is not owned by this teacher");
+        if (row.lifecycle_status !== "approved" && row.lifecycle_status !== "ready") throw new Error("question revision is not approved");
+        if (entities.has(row.entity_id)) throw new Error("duplicate question entity in selection");
+        entities.add(row.entity_id);
+      }
+      await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [`package-version:${principal.tenantId}:${principal.userId}`]);
+      const version = await client.query<{ version_no: number }>(
+        `select coalesce(max(version_no),0)+1 as version_no from content_package where tenant_id=$1 and owner_teacher_user_id=$2`,
+        [principal.tenantId, principal.userId],
+      );
+      const packageId = newId("pkg");
+      const versionNo = Number(version.rows[0]?.version_no ?? 1);
+      await client.query(
+        `insert into content_package(package_id,tenant_id,origin,owner_teacher_user_id,title,version_no,status,manual_build)
+         values ($1,$2,'teacher',$3,$4,$5,'ready',true)`,
+        [packageId, principal.tenantId, principal.userId, cleanTitle, versionNo],
+      );
+      await client.query(
+        `update content_entity_revision set lifecycle_status='ready'
+          where tenant_id=$1 and revision_id=any($2::text[]) and lifecycle_status='approved'`,
+        [principal.tenantId, ids],
+      );
+      for (const [index, revisionId] of ids.entries()) {
+        await client.query(
+          `insert into content_package_item(tenant_id,package_id,revision_id,item_order) values ($1,$2,$3,$4)`,
+          [principal.tenantId, packageId, revisionId, index],
+        );
+      }
+      return { package_id: packageId, title: cleanTitle, version_no: versionNo, status: "ready", item_count: ids.length };
+    });
+  }
+
+  /** 教师给自有练习包改名（teacher origin，任意非撤回状态）。 */
+  async renameTeacherPackageTitle(principal: Principal, packageId: string, title: string): Promise<boolean> {
+    const cleanTitle = String(title ?? "").trim().slice(0, 200);
+    if (!cleanTitle) throw new Error("package title must not be empty");
+    return withPrincipal(this.pool, principal, async (client) => {
+      const result = await client.query(
+        `update content_package p
+            set title=$4
+          where p.tenant_id=$1 and p.package_id=$2 and p.origin='teacher'
+            and p.owner_teacher_user_id=$3 and p.status <> 'withdrawn'
+          returning p.package_id`,
+        [principal.tenantId, packageId, principal.userId, cleanTitle],
+      );
+      return (result.rowCount ?? 0) === 1;
+    });
+  }
+
+  async teacherParseProgress(principal: Principal, threadId: string): Promise<Record<string, unknown>> {
+    return withPrincipal(this.pool, principal, async (client) => {
+      const command = (await client.query(
+        `select command_id,status,last_error,created_at from content_ktq_start_command
+          where tenant_id=$1 and owner_teacher_user_id=$2 and target_thread_id=$3`,
+        [principal.tenantId, principal.userId, threadId],
+      )).rows[0];
+      if (!command) return { stage: "none" };
+      const ktq = (await client.query(
+        `select candidate_set_id,status,
+                (select count(*)::int from content_candidate_set_item i where i.candidate_set_id=s.candidate_set_id) as item_count
+           from content_candidate_set s
+          where s.tenant_id=$1 and s.owner_teacher_user_id=$2 and s.thread_id=$3
+          order by s.created_at limit 1`,
+        [principal.tenantId, principal.userId, threadId],
+      )).rows[0] ?? null;
+      const erThreads = ktq && ktq.status === "approved"
+        ? (await client.query(
+          `select target_thread_id from content_er_start_command
+            where tenant_id=$1 and approved_ktq_candidate_set_id=$2`,
+          [principal.tenantId, ktq.candidate_set_id],
+        )).rows.map((row) => row.target_thread_id)
+        : [];
+      const er = erThreads.length
+        ? (await client.query(
+          `select candidate_set_id,status,
+                  (select count(*)::int from content_candidate_set_item i where i.candidate_set_id=s.candidate_set_id) as item_count
+             from content_candidate_set s
+            where s.tenant_id=$1 and s.owner_teacher_user_id=$2 and s.thread_id=any($3::text[])
+            order by s.created_at limit 1`,
+          [principal.tenantId, principal.userId, erThreads],
+        )).rows[0] ?? null
+        : null;
+      const pkg = er && er.status === "approved"
+        ? (await client.query(
+          `select package_id,status from content_package
+            where tenant_id=$1 and origin='teacher' and owner_teacher_user_id=$2 and approved_er_candidate_set_id=$3
+            order by created_at desc limit 1`,
+          [principal.tenantId, principal.userId, er.candidate_set_id],
+        )).rows[0] ?? null
+        : null;
+      let stage = "parsing";
+      if (ktq && ktq.status === "pending_review") stage = "reviewing";
+      else if (ktq && ktq.status === "approved" && !er) stage = "er";
+      else if (pkg) stage = "done";
+      else if (command.status === "dispatched") stage = "parsing";
+      return {
+        stage,
+        command_status: command.status,
+        last_error: command.last_error ?? null,
+        ktq_candidate: ktq ?? null,
+        er_candidate: er ?? null,
+        package: pkg ?? null,
+      };
     });
   }
 
@@ -1111,6 +1299,58 @@ export class CandidateRepository {
     });
   }
 
+  async createKtqStartCommand(
+    principal: Principal,
+    value: { commandId: string; targetThreadId: string; chapterId?: string | null },
+  ): Promise<{ command_id: string; status: string }> {
+    return withPrincipal(this.pool, principal, async (client) => {
+      await client.query(
+        `insert into content_ktq_start_command(command_id,tenant_id,owner_teacher_user_id,target_thread_id,chapter_id)
+         values ($1,$2,$3,$4,$5)
+         on conflict (target_thread_id) do update set chapter_id=excluded.chapter_id
+         returning command_id,status`,
+        [value.commandId, principal.tenantId, principal.userId, value.targetThreadId, value.chapterId ?? null],
+      );
+      const row = (await client.query(
+        `select command_id,status from content_ktq_start_command
+          where tenant_id=$1 and owner_teacher_user_id=$2 and target_thread_id=$3`,
+        [principal.tenantId, principal.userId, value.targetThreadId],
+      )).rows[0];
+      return { command_id: String(row.command_id), status: String(row.status) };
+    });
+  }
+
+  async pendingKtqCommands(): Promise<Array<{ command_id: string; tenant_id: string; owner_user_id: string; target_thread_id: string; chapter_id: string | null; attempt_count: number }>> {
+    return withPrincipal(this.pool, { tenantId: "", userId: "", roles: [] }, async (client) => {
+      const result = await client.query(`select * from mathpilot_pending_ktq_start_commands()`);
+      return result.rows as Array<{ command_id: string; tenant_id: string; owner_user_id: string; target_thread_id: string; chapter_id: string | null; attempt_count: number }>;
+    });
+  }
+
+  async markKtqCommandAttempt(commandId: string, tenantId: string, ownerUserId: string, error: string | null): Promise<void> {
+    await withPrincipal(this.pool, { tenantId, userId: ownerUserId, roles: ["teacher"] }, async (client) => {
+      await client.query(
+        `update content_ktq_start_command
+            set attempt_count=attempt_count+1,last_error=$2,next_attempt_at=now()+least(interval '10 minutes', interval '5 seconds' * power(2, least(attempt_count, 7)))
+          where command_id=$1 and status='pending'`,
+        [commandId, error],
+      );
+    });
+  }
+
+  async markKtqCommandDispatched(commandId: string, tenantId: string, ownerUserId: string): Promise<void> {
+    await withPrincipal(this.pool, { tenantId, userId: ownerUserId, roles: ["teacher"] }, async (client) => {
+      await client.query(`update content_ktq_start_command set status='dispatched',dispatched_at=now(),last_error=null where command_id=$1 and status='pending'`, [commandId]);
+    });
+  }
+
+  async pendingAutoPrivateCandidates(): Promise<Array<{ candidate_set_id: string; tenant_id: string; owner_user_id: string; phase: string }>> {
+    return withPrincipal(this.pool, { tenantId: "", userId: "", roles: [] }, async (client) => {
+      const result = await client.query(`select * from mathpilot_pending_auto_private_candidates()`);
+      return result.rows as Array<{ candidate_set_id: string; tenant_id: string; owner_user_id: string; phase: string }>;
+    });
+  }
+
   async pendingFeedbackCommands(): Promise<Array<{
     command_id: string;
     tenant_id: string;
@@ -1175,6 +1415,7 @@ export class CandidateRepository {
       sequence_no: Number(row.sequence_no),
       status: row.status,
       item_count: Number(row.item_count ?? 0),
+      display_name: row.display_name ?? null,
       created_at: created instanceof Date ? created.toISOString() : String(created),
       decided_at: decided instanceof Date ? decided.toISOString() : (decided == null ? null : String(decided)),
     };

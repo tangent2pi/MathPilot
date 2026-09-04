@@ -5,19 +5,30 @@ import {
   ArchiveIcon,
   BookOpenCheckIcon,
   BrainCircuitIcon,
+  ClipboardListIcon,
   Clock3Icon,
   HistoryIcon,
+  Library as LibraryIcon,
   Loader2Icon,
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
+  TrashIcon,
   UsersIcon,
 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { AccountMenu } from "@/account-menu";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +47,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/auth";
 import type { ThreadSummary } from "../contracts";
 import { learningApi, learningKeys } from "../data/client";
+import { teacherChatApi, teacherChatKeys } from "../data/teacherChatClient";
 
 const learningLinks: ReadonlyArray<{
   to: string;
@@ -50,6 +62,21 @@ const learningLinks: ReadonlyArray<{
   { to: "/learning/review", label: "复习队列", icon: BookOpenCheckIcon },
 ] as const;
 
+type SidebarThreadItem = {
+  thread_id: string;
+  title: string;
+  archived: boolean;
+  canManage: boolean;
+  version?: number;
+};
+
+const teacherThreadLabel = (createdAt: string): string => {
+  const parsed = Date.parse(createdAt);
+  if (!Number.isFinite(parsed)) return "新对话";
+  const time = new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(parsed));
+  return `对话 · ${time}`;
+};
+
 export function LearningSidebar() {
   const { principal } = useAuth();
   const navigate = useNavigate();
@@ -58,31 +85,65 @@ export function LearningSidebar() {
   const [search, setSearch] = useState("");
   const [renaming, setRenaming] = useState<string>();
   const [title, setTitle] = useState("");
-  const query = useQuery({
+  const [pendingDelete, setPendingDelete] = useState<SidebarThreadItem>();
+  // 教师端侧栏展示其独立对话空间的会话（归属教师、无自我测评），学生端展示学习对话。
+  const isTeacher = Boolean(principal?.roles.includes("teacher"));
+  const studentThreadsQuery = useQuery({
     queryKey: learningKeys.threads,
     queryFn: learningApi.listThreads,
-    enabled: Boolean(principal?.roles.includes("student")),
+    enabled: Boolean(principal) && !isTeacher,
     retry: 1,
   });
-  const threads = query.data?.data.threads ?? [];
+  const teacherThreadsQuery = useQuery({
+    queryKey: teacherChatKeys.threads,
+    queryFn: teacherChatApi.listThreads,
+    enabled: Boolean(principal) && isTeacher,
+    retry: 1,
+  });
+  const threads = useMemo<SidebarThreadItem[]>(() => {
+    if (isTeacher) {
+      const items = teacherThreadsQuery.data ?? [];
+      return items.map((thread) => ({
+        thread_id: thread.thread_id,
+        title: teacherThreadLabel(thread.created_at),
+        archived: false,
+        canManage: false,
+      }));
+    }
+    return (studentThreadsQuery.data?.data.threads ?? []).map((thread) => ({
+      thread_id: thread.thread_id,
+      title: thread.title || "新对话",
+      archived: thread.status === "archived",
+      canManage: thread.status === "active",
+    }));
+  }, [isTeacher, teacherThreadsQuery.data, studentThreadsQuery.data]);
+  const threadsLoading = isTeacher ? teacherThreadsQuery.isPending : studentThreadsQuery.isPending;
   const filtered = useMemo(() => {
     const term = search.trim().toLocaleLowerCase();
     return term ? threads.filter((thread) => thread.title.toLocaleLowerCase().includes(term)) : threads;
   }, [search, threads]);
 
+  const threadsKey = isTeacher ? teacherChatKeys.threads : learningKeys.threads;
   const rename = useMutation({
-    mutationFn: ({ thread, nextTitle }: { thread: ThreadSummary; nextTitle: string }) => learningApi.renameThread(thread, nextTitle),
-    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: learningKeys.threads }); },
+    mutationFn: ({ thread, nextTitle }: { thread: SidebarThreadItem; nextTitle: string }) => learningApi.renameThread(thread as unknown as ThreadSummary, nextTitle),
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: threadsKey }); },
   });
   const archive = useMutation({
-    mutationFn: (thread: ThreadSummary) => learningApi.archiveThread(thread),
+    mutationFn: (thread: SidebarThreadItem) => learningApi.archiveThread(thread as unknown as ThreadSummary),
     onSuccess: async (_result, thread) => {
-      await queryClient.invalidateQueries({ queryKey: learningKeys.threads });
+      await queryClient.invalidateQueries({ queryKey: threadsKey });
+      if (location.pathname === `/c/${encodeURIComponent(thread.thread_id)}`) navigate("/");
+    },
+  });
+  const deleteThread = useMutation({
+    mutationFn: (thread: SidebarThreadItem) => learningApi.deleteThread(thread as unknown as ThreadSummary),
+    onSuccess: async (_result, thread) => {
+      await queryClient.invalidateQueries({ queryKey: threadsKey });
       if (location.pathname === `/c/${encodeURIComponent(thread.thread_id)}`) navigate("/");
     },
   });
 
-  const submitRename = (event: FormEvent, thread: ThreadSummary) => {
+  const submitRename = (event: FormEvent, thread: SidebarThreadItem) => {
     event.preventDefault();
     const nextTitle = title.trim();
     if (!nextTitle || nextTitle === thread.title) {
@@ -116,6 +177,11 @@ export function LearningSidebar() {
           >
             <PlusIcon className="size-4" />新对话
           </Button>
+          {isTeacher && threads.length === 0 && (
+            <p className="text-muted-foreground px-2.5 py-1.5 text-xs leading-5">
+              贴一道具体题目让我讲解最快；需要出新题时把范围说清楚（如“三边已知、用中线长公式”），我会更快回答。
+            </p>
+          )}
           {threads.length > 0 && (
             <label className="relative block py-1">
               <SearchIcon className="text-muted-foreground pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2" />
@@ -129,7 +195,7 @@ export function LearningSidebar() {
               />
             </label>
           )}
-          {query.isPending && principal?.roles.includes("student") && (
+          {threadsLoading && (
             <div className="text-muted-foreground flex h-16 items-center justify-center" role="status">
               <Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" />
               <span className="sr-only">正在读取对话</span>
@@ -159,7 +225,7 @@ export function LearningSidebar() {
                   className={cn(
                     "group/thread flex items-center rounded-md",
                     active && "bg-sidebar-accent text-sidebar-accent-foreground",
-                    thread.status === "archived" && "opacity-55",
+                    thread.archived && "opacity-55",
                   )}
                 >
                   <button
@@ -169,7 +235,7 @@ export function LearningSidebar() {
                   >
                     {thread.title || "新对话"}
                   </button>
-                  {thread.status === "active" && (
+                  {thread.canManage && (
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         render={<Button variant="ghost" size="icon" className="me-1 size-7 opacity-0 group-hover/thread:opacity-100 data-[state=open]:opacity-100 focus-visible:opacity-100" />}
@@ -180,6 +246,12 @@ export function LearningSidebar() {
                       <DropdownMenuContent side="right" align="start">
                         <DropdownMenuItem onClick={() => { setTitle(thread.title); setRenaming(thread.thread_id); }}>
                           <PencilIcon />重命名
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => setPendingDelete(thread)}
+                        >
+                          <TrashIcon />删除对话
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => archive.mutate(thread)}>
                           <ArchiveIcon />归档
@@ -210,21 +282,81 @@ export function LearningSidebar() {
               </NavLink>
             ))}
             {principal.roles.includes("teacher") && (
-              <NavLink
-                to="/teacher/students"
-                className={({ isActive }) => cn(
-                  "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
-                  isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
-                )}
-              >
-                <UsersIcon className="size-4" />学生
-              </NavLink>
+              <>
+                <NavLink
+                  to="/teacher/students"
+                  className={({ isActive }) => cn(
+                    "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
+                    isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
+                  )}
+                >
+                  <UsersIcon className="size-4" />学生
+                </NavLink>
+                <NavLink
+                  to="/teacher/library"
+                  className={({ isActive }) => cn(
+                    "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
+                    isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
+                  )}
+                >
+                  <LibraryIcon className="size-4" />我的资料库
+                </NavLink>
+                <NavLink
+                  to="/teacher/paper-compose"
+                  className={({ isActive }) => cn(
+                    "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
+                    isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
+                  )}
+                >
+                  <ClipboardListIcon className="size-4" />组卷
+                </NavLink>
+              </>
             )}
           </nav>
         )}
       </SidebarContent>
       <SidebarRail />
       <SidebarFooter className="border-t"><AccountMenu /></SidebarFooter>
+      <Dialog
+        open={pendingDelete !== undefined}
+        onOpenChange={(open) => {
+          if (!open && !deleteThread.isPending) setPendingDelete(undefined);
+        }}
+      >
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>删除对话</DialogTitle>
+            <DialogDescription>
+              确定要永久删除对话「{pendingDelete?.title || "新对话"}」吗？此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleteThread.isPending}
+              onClick={() => setPendingDelete(undefined)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteThread.isPending}
+              onClick={() => {
+                const target = pendingDelete;
+                if (!target) return;
+                deleteThread.mutate(target, { onSettled: () => setPendingDelete(undefined) });
+              }}
+            >
+              {deleteThread.isPending && (
+                <Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" />
+              )}
+              删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sidebar>
   );
 }

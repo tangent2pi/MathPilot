@@ -73,6 +73,11 @@ export function registerLearningHttp(
     try { return reply.send(await commands.archiveThread(principal, params(request).threadId!, request.body, headerKey(request))); }
     catch (error) { return problem(reply, error); }
   });
+  app.post("/api/learning/threads/:threadId/delete", async (request, reply) => {
+    const principal = await principalOf(request, reply); if (!principal) return;
+    try { return reply.send(await commands.deleteThread(principal, params(request).threadId!, request.body, headerKey(request))); }
+    catch (error) { return problem(reply, error); }
+  });
   app.get("/api/learning/threads/:threadId/messages", async (request, reply) => {
     const principal = await principalOf(request, reply); if (!principal) return;
     try { return sendView(request, reply, await reads.threadMessages(principal, params(request).threadId!, query(request).after)); }

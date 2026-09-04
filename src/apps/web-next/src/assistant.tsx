@@ -6,6 +6,7 @@ import { useMatch } from "react-router-dom";
 import { LearningSidebar } from "./learning/components/LearningSidebar";
 import { LearningContextPanel } from "./learning/components/LearningContextPanel";
 import { LearningRuntimeProvider } from "./learning/runtime/LearningRuntimeProvider";
+import { LearningThreadProvider } from "./learning/runtime/LearningThreadContext";
 
 /**
  * App owns routing, thread lists and canonical data. assistant-ui is the
@@ -23,8 +24,10 @@ export const Assistant = () => {
             <SidebarTrigger aria-label="打开会话列表" />
           </header>
           <div className="flex h-full min-w-0">
-            <div className="min-w-0 flex-1"><Thread /></div>
-            <LearningContextPanel threadId={threadId} />
+            <LearningThreadProvider value={threadId}>
+              <div className="min-w-0 flex-1"><Thread /></div>
+              <LearningContextPanel threadId={threadId} />
+            </LearningThreadProvider>
           </div>
         </SidebarInset>
       </SidebarProvider>

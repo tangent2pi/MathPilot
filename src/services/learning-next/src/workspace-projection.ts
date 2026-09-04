@@ -124,7 +124,7 @@ export async function compileWorkspaceProjection(
         and operation.requested_by_user_id=student.user_id
        join identity_user user_account on user_account.user_id=student.user_id
        join identity_tenant tenant on tenant.tenant_id=thread.tenant_id
-      where thread.tenant_id=$1 and thread.conversation_thread_id=$2`,
+      where thread.tenant_id=$1 and thread.conversation_thread_id=$2 and thread.deleted_at is null`,
     [request.tenantId, request.conversationThreadId, request.operationId],
   )).rows[0];
   if (!thread) throw new Error("authorized science-v3 conversation thread does not exist");
@@ -158,7 +158,7 @@ export async function compileWorkspaceProjection(
          on student.tenant_id=candidate.tenant_id and student.student_id=candidate.student_id
        join identity_user user_account on user_account.user_id=student.user_id
        join identity_tenant tenant on tenant.tenant_id=candidate.tenant_id
-      where candidate.tenant_id=$1 and student.user_id=$2
+      where candidate.tenant_id=$1 and student.user_id=$2 and candidate.deleted_at is null
       order by candidate.updated_at desc,candidate.conversation_thread_id`,
     [request.tenantId, thread.user_id],
   )).rows;
@@ -175,6 +175,7 @@ export async function compileWorkspaceProjection(
          join science_v3_student student
            on student.tenant_id=candidate.tenant_id and student.student_id=candidate.student_id
         where message.tenant_id=$1 and student.user_id=$2 and message.lifecycle='committed'
+          and candidate.deleted_at is null
         order by message.conversation_thread_id,message.sequence`,
       [request.tenantId, thread.user_id],
     )).rows

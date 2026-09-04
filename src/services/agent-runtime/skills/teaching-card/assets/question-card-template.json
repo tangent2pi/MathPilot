@@ -1,9 +1,0 @@
-{
-  "schema": "mathpilot.question-card/v1",
-  "card_id": "card_example",
-  "prompt_markdown": "",
-  "response_type": "free_text",
-  "options": [],
-  "allow_skip": true,
-  "allow_free_text": true
-}

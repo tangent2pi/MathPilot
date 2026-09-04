@@ -1,7 +1,0 @@
-{
-  "schema": "mathpilot.er-result/v1",
-  "error_causes": [{"id":"E_CONFUSE_ANGLE","name":"角度混淆","description":"混淆已知角与待求角"}],
-  "diagnosis_rules": [{"id":"R_PROBE_ANGLE","trigger":"答案使用了错误的已知角","candidate_error_causes":["E_CONFUSE_ANGLE"],"probe":"请指出每个角对应的顶点。","dimension_ids":["K_TRIANGLE"],"citations":[]}],
-  "reused_error_causes": [],
-  "reused_rules": []
-}

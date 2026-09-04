@@ -1,7 +1,0 @@
-{
-  "schema": "mathpilot.er-result/v1",
-  "error_causes": [{"id": "E_EXAMPLE", "name": "", "description": ""}],
-  "diagnosis_rules": [{"id": "R_EXAMPLE", "trigger": "", "candidate_error_causes": ["E_EXAMPLE"], "probe": "", "dimension_ids": ["K_EXAMPLE"], "citations": []}],
-  "reused_error_causes": [],
-  "reused_rules": []
-}

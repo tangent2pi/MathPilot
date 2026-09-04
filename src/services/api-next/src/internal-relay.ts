@@ -30,11 +30,14 @@ const relay = async (
   else request.raw.once("aborted", abort);
   reply.raw.once("close", close);
   try {
+    // OCR 作业可能轮询数分钟；教师对话需要等待 Pi 完整一轮（问题目/讲解）；
+    // 组卷答案解析的 AI 补全与 XeLaTeX 出片同样耗时；其余 content 转发保持默认 30s。
+    const timeoutMs = path.startsWith("/ocr") || path.startsWith("/teacher-chat") || path.includes("/answer") ? 600_000 : 30_000;
     const response = await runtime.request(edge, actor, path, {
       method: request.method,
       ...(includesBody ? { json: request.body } : {}),
       signal: cancellation.signal,
-      timeoutMs: 30_000,
+      timeoutMs,
     });
     reply.code(response.status);
     for (const name of forwardedResponseHeaders) {

@@ -232,7 +232,7 @@ const AttachmentRemove: FC = () => {
     <AttachmentPrimitive.Remove
       render={
         <TooltipIconButton
-          tooltip="Remove file"
+          tooltip="移除附件"
           className="aui-attachment-tile-remove absolute end-1 top-1 size-5 rounded-full bg-black/50! text-white after:absolute after:-inset-1.5 hover:bg-black/70! hover:text-white! active:scale-[0.96] motion-reduce:transition-none"
           side="top"
         />
@@ -268,16 +268,34 @@ export const ComposerAddAttachment: FC = () => {
     <ComposerPrimitive.AddAttachment
       render={
         <TooltipIconButton
-          tooltip="Add Attachment"
+          tooltip="添加附件"
           side="bottom"
           variant="ghost"
           size="icon"
           className="aui-composer-add-attachment text-muted-foreground hover:text-foreground hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30 size-7 rounded-full active:scale-[0.96] motion-reduce:transition-none"
-          aria-label="Add Attachment"
+          aria-label="添加附件"
         />
       }
     >
       <PlusIcon className="aui-attachment-add-icon size-4" />
     </ComposerPrimitive.AddAttachment>
+  );
+};
+
+// 教师端明确的上传入口：直接显示“上传资料”文字按钮，而不只是加号图标。
+export const TeacherMaterialUploadEntry: FC = () => {
+  return (
+    <ComposerPrimitive.AddAttachment
+      render={
+        <button
+          type="button"
+          aria-label="上传资料"
+          className="aui-teacher-material-upload text-muted-foreground hover:text-foreground hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30 flex h-7 items-center gap-1 rounded-full px-2 text-xs transition-colors"
+        >
+          <PlusIcon className="aui-teacher-material-upload-icon size-4" />
+          <span>上传资料</span>
+        </button>
+      }
+    />
   );
 };

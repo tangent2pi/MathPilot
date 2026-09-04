@@ -1,0 +1,11 @@
+No active sessions
+== open ==
+✗ Could not configure browser: Failed to read: 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。 (os error 10060)
+open_exit=1
+== title ==
+title_exit=124
+== snapshot -i ==
+snap_exit=124
+== screenshot ==
+shot_exit=124
+✓ Closed session: default

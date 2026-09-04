@@ -18,6 +18,7 @@ import { Type } from "typebox";
 import { parseSelectionDecision } from "./selection-core.ts";
 import { parseAnnotationChangeSet, parseLightAtomProposal, parseRemOutput } from "./dream-core.ts";
 import { parseBoundedLearningAction, parseForegroundTeachingOutput } from "./foreground-core.ts";
+import { parseJudgmentProposal } from "./grade-core.ts";
 import type { PiExecutorRequest, PiExecutorResult, PiTaskExecutor, WorkspaceObjectReader } from "./runtime-types.ts";
 import { StorageNextObjectReader } from "./storage-object-reader.ts";
 
@@ -201,6 +202,7 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       description: `Submit exactly one structured result matching ${request.taskSpec.output_schema}.`,
       parameters: Type.Object({ output: Type.Unknown() }),
       async execute(_toolCallId, params) {
+        console.error(`[pi-debug] respond output (${request.taskSpec.task_type}):`, JSON.stringify(params.output));
         if (!params.output || typeof params.output !== "object" || Array.isArray(params.output)) {
           throw new Error("structured result must be a JSON object");
         }
@@ -213,6 +215,40 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
           structuredOutput = parseSelectionDecision(params.output, {
             intentId: requirements.intent_id,
             intentRevision: Number(requirements.intent_revision),
+          });
+        } else if (request.taskSpec.task_type === "grade") {
+          const bundle = objectValue(request.inputBundle);
+          const requirements = objectValue(bundle.output_requirements);
+          const question = objectValue(bundle.question);
+          const questionSession = objectValue(bundle.question_session);
+          const contract = objectValue(questionSession.frozen_measurement_contract);
+          const attempt = objectValue(bundle.attempt);
+          if (typeof requirements.judgment_id !== "string"
+            && typeof bundle.target_judgment_id !== "string") {
+            throw new Error("Grade input bundle is missing its frozen judgment binding");
+          }
+          if (typeof requirements.attempt_id !== "string"
+            && typeof attempt.attempt_id !== "string") {
+            throw new Error("Grade input bundle is missing its frozen attempt binding");
+          }
+          const stringsOf = (value: unknown): string[] =>
+            Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+          structuredOutput = parseJudgmentProposal(params.output, {
+            judgmentId: typeof requirements.judgment_id === "string"
+              ? requirements.judgment_id
+              : String(bundle.target_judgment_id),
+            attemptId: typeof requirements.attempt_id === "string"
+              ? requirements.attempt_id
+              : String(attempt.attempt_id),
+            schemaVersion: typeof requirements.schema_version === "number" ? requirements.schema_version : 3,
+            factVersion: typeof requirements.fact_version === "number" ? requirements.fact_version : 1,
+            allowedEvidenceRefs: stringsOf(requirements.evidence_refs_must_come_from),
+            allowedRubricItemIds: Array.isArray(question.rubric_items)
+              ? question.rubric_items
+                .map((raw) => objectValue(raw).rubric_item_id)
+                .filter((item): item is string => typeof item === "string")
+              : [],
+            allowedDimensionRevisionIds: stringsOf(contract.dimension_revision_ids),
           });
         } else if (request.taskSpec.task_type === "light") {
           const bundle = objectValue(request.inputBundle);
@@ -280,29 +316,32 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
       name: "learning_action",
       label: "Learning action",
       description: "Request one bounded, host-validated learning action in the current Thread and foreground epoch. Authorization identities are supplied only by the host.",
-      parameters: Type.Union([
-        Type.Object({
-          action: Type.Literal("request_cut"),
-          reason: Type.Union([
-            Type.Literal("completed"), Type.Literal("student_switch"), Type.Literal("skipped"),
-            Type.Literal("system_policy"), Type.Literal("abandoned"),
-          ]),
-          next_natural_language_request: Type.Optional(Type.String({ minLength: 1, maxLength: 4000 })),
-        }, { additionalProperties: false }),
-        Type.Object({
-          action: Type.Literal("revise_selection_intent"),
-          natural_language_request: Type.String({ minLength: 1, maxLength: 4000 }),
-        }, { additionalProperties: false }),
-        Type.Object({
-          action: Type.Literal("present_validated_artifact"),
-          artifact_schema: Type.Literal(MATH_DERIVATION_ARTIFACT_SCHEMA),
-          summary: Type.String({ minLength: 1, maxLength: 1000 }),
-          content: mathDerivationContent,
-        }, { additionalProperties: false }),
-      ]),
+      parameters: Type.Object({
+        action: Type.Union([
+          Type.Literal("request_cut"),
+          Type.Literal("revise_selection_intent"),
+          Type.Literal("present_validated_artifact"),
+        ]),
+        reason: Type.Optional(Type.Union([
+          Type.Literal("completed"), Type.Literal("student_switch"), Type.Literal("skipped"),
+          Type.Literal("system_policy"), Type.Literal("abandoned"),
+        ])),
+        next_natural_language_request: Type.Optional(Type.String({ minLength: 1, maxLength: 4000 })),
+        natural_language_request: Type.Optional(Type.String({ minLength: 1, maxLength: 4000 })),
+        artifact_schema: Type.Optional(Type.Literal(MATH_DERIVATION_ARTIFACT_SCHEMA)),
+        summary: Type.Optional(Type.String({ minLength: 1, maxLength: 1000 })),
+        content: Type.Optional(mathDerivationContent),
+      }, { additionalProperties: false }),
       async execute(toolCallId, params) {
         if (!request.learningAction) throw new Error("learning_action is unavailable");
-        const result = await request.learningAction.perform(toolCallId, parseBoundedLearningAction(params));
+        const defined = (value: Record<string, unknown>) =>
+          Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined));
+        const clean = params.action === "request_cut"
+          ? defined({ action: params.action, reason: params.reason, next_natural_language_request: params.next_natural_language_request })
+          : params.action === "revise_selection_intent"
+            ? defined({ action: params.action, natural_language_request: params.natural_language_request })
+            : defined({ action: params.action, artifact_schema: params.artifact_schema, summary: params.summary, content: params.content });
+        const result = await request.learningAction.perform(toolCallId, parseBoundedLearningAction(clean));
         return {
           content: [{ type: "text" as const, text: result.message }],
           details: result,
@@ -390,7 +429,18 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         JSON.stringify(request.inputBundle),
         `Return a value matching ${request.taskSpec.output_schema} through respond.`,
       ].join("\n"));
-      if (structuredOutput === undefined) throw new Error("Pi AgentAttempt ended without a structured respond result");
+      if (structuredOutput === undefined) {
+        console.error(`[pi-debug] session ended WITHOUT respond (${request.taskSpec.task_type}); last messages:`,
+          JSON.stringify(session.messages.slice(-4).map((m: any) => ({
+            role: m.role,
+            stopReason: m.stopReason,
+            errorMessage: m.errorMessage,
+            ...(m.content ? { content: typeof m.content === "string" ? m.content.slice(0, 2000) : m.content } : {}),
+            ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
+            ...(m.usage ? { usage: m.usage } : {}),
+          }))));
+        throw new Error("Pi AgentAttempt ended without a structured respond result");
+      }
       const usage = usageFromMessages(session.messages);
       return {
         output: structuredOutput,

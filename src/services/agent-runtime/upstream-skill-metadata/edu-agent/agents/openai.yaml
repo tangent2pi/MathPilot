@@ -1,6 +1,0 @@
-interface:
-  display_name: "教学可视化"
-  short_description: "复用完整 Edu Agent 资产制作数学教学动画与页面"
-  default_prompt: "Use $qwen-mm-plugins-edu-agent together with $teaching-artifact-adapter for an offline MathPilot artifact."
-policy:
-  allow_implicit_invocation: true

@@ -1,0 +1,4 @@
+source_file,entity_kind,id_column,row_count,sha256,origin,owner_user_id
+data/official-content/triangle-sine-pilot/knowledge_points.csv,knowledge,knowledge_id,5,ca9e672a30343f1b9f774daf3e7fa720040703043a0dbb42d3ace1ff53a05937,official,
+data/official-content/triangle-sine-pilot/question_types.csv,question_type,type_id,3,985fb911a0fb71ff95adb1cd84f53c438a3ca138a443dac24629ac1d25cc9818,official,
+data/official-content/triangle-sine-pilot/questions.csv,question,question_id,16,7bfbaa1fcb0d7c0745a88dd26158663d4eb0d58190c897478c378f57fb8e66a3,official,

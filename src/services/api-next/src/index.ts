@@ -6,6 +6,7 @@ import { auth, authenticate, bootstrapAuthUsers, requireRole, AuthError, type Pr
 import { relayContent, relayStorage } from "./internal-relay.ts";
 import { createPool, startService, withTenant } from "./lib.ts";
 import { registerLearningHttp } from "./learning-http.ts";
+import { registerSelfTestHttp } from "./self-test/http.ts";
 
 const internalService = configureInternalService("api-next", process.env);
 const pool = createPool(process.env.DATABASE_URL ?? "postgres://localhost:5432/mathpilot");
@@ -34,6 +35,7 @@ await startService({
   port: Number(process.env.PORT ?? 3101),
   register(app) {
     registerLearningHttp(app, pool, principalOf);
+    registerSelfTestHttp(app, pool, principalOf);
 
     app.route({
       method: ["GET", "POST"], url: "/api/auth/*",
@@ -62,7 +64,7 @@ await startService({
     // authenticated session into a short-lived, request-bound assertion for
     // the isolated content-next service.
     app.route({
-      method: ["GET", "POST", "PATCH", "DELETE"], url: "/api/content/*",
+      method: ["GET", "POST", "PATCH", "PUT", "DELETE"], url: "/api/content/*",
       async handler(request, reply) {
         const principal = await principalOf(request, reply); if (!principal) return;
         return relayContent(internalService, principal, request, reply);

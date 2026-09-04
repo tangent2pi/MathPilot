@@ -1,9 +1,12 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { createBrowserRouter, RouterProvider, useParams } from "react-router-dom";
 import { Assistant } from "./assistant";
-import { AuthProvider } from "./auth";
+import { AuthProvider, useAuth } from "./auth";
 import { ContentPackagePage } from "./pages/content-package-page";
 import { ContentReviewPage } from "./pages/content-review-page";
+import { PaperComposePage } from "./pages/paper-compose";
+import { TeacherLibraryPage } from "./pages/teacher-library-page";
 import {
   AnnotationPage,
   EvidencePage,
@@ -40,11 +43,14 @@ const router = createBrowserRouter([
       { path: "/learning/review", element: <OwnLearningPage kind="review" /> },
       { path: "/learning/evidence/:evidenceHandle", element: <EvidencePage /> },
       { path: "/teacher/students", element: <TeacherStudentsPage /> },
+      { path: "/teacher/library", element: <TeacherLibraryPage /> },
+      { path: "/teacher/paper-compose", element: <PaperComposePage /> },
       { path: "/teacher/students/:studentHandle", element: <TeacherStudentPage kind="overview" /> },
       { path: "/teacher/students/:studentHandle/history", element: <TeacherStudentPage kind="history" /> },
       { path: "/teacher/students/:studentHandle/state", element: <TeacherStudentPage kind="state" /> },
       { path: "/teacher/students/:studentHandle/memory", element: <TeacherStudentPage kind="memory" /> },
       { path: "/teacher/students/:studentHandle/review", element: <TeacherStudentPage kind="review" /> },
+      { path: "/teacher/students/:studentHandle/report", element: <TeacherStudentPage kind="report" /> },
     ],
   },
   { path: "/content/review/:candidateSetId", element: <ContentReviewRoute /> },
@@ -56,10 +62,30 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <AccountDataScope />
         <RouterProvider router={router} />
       </AuthProvider>
     </QueryClientProvider>
   );
+}
+
+/**
+ * 登录账号切换（含登出）时清空全部 React Query 缓存。
+ * 学习/自我测评的缓存 key 不含账号维度，若不清理，
+ * 上一个学生账号残留的对话仍会在新账号（如教师）下显示。
+ */
+function AccountDataScope() {
+  const { principal } = useAuth();
+  const queryClient = useQueryClient();
+  const previousUserId = useRef<string | null>(null);
+  useEffect(() => {
+    const next = principal?.uid ?? null;
+    if (previousUserId.current !== null && next !== previousUserId.current) {
+      queryClient.clear();
+    }
+    previousUserId.current = next;
+  }, [principal, queryClient]);
+  return null;
 }
 
 function ContentReviewRoute() {

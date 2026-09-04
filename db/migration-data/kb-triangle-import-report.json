@@ -1,0 +1,47 @@
+{
+  "schema": "mathpilot.official-content-import-report/v1",
+  "tenant_id": "tnt_dev00001",
+  "manifest": [
+    {
+      "source_file": "data/official-content/triangle-kb/knowledge_points.csv",
+      "entity_kind": "knowledge",
+      "id_column": "knowledge_id",
+      "row_count": 49,
+      "sha256": "05bf1473ea32cf220da62de262ba9e90ba63642bdc265c4cb2607ab68ebfac38",
+      "origin": "official",
+      "owner_user_id": ""
+    },
+    {
+      "source_file": "data/official-content/triangle-kb/question_types.csv",
+      "entity_kind": "question_type",
+      "id_column": "type_id",
+      "row_count": 36,
+      "sha256": "e75dfafbb03073f474de20b2ac6b9ef7568e581f34f759165ce24e65638d264f",
+      "origin": "official",
+      "owner_user_id": ""
+    },
+    {
+      "source_file": "data/official-content/triangle-kb/questions.csv",
+      "entity_kind": "question",
+      "id_column": "question_id",
+      "row_count": 139,
+      "sha256": "8b7b1b0d66679f34d2e7426c22fac93ae3b141f67ebeaf606da83f5f915ccf98",
+      "origin": "official",
+      "owner_user_id": ""
+    },
+    {
+      "source_file": "data/official-content/triangle-kb/error_causes.csv",
+      "entity_kind": "error_cause",
+      "id_column": "error_id",
+      "row_count": 73,
+      "sha256": "8172cadc1d6b3b4c1604c3cdf11ae6a82fbed45bdead50a0d6c3c1e2a4e8eac4",
+      "origin": "official",
+      "owner_user_id": ""
+    }
+  ],
+  "total_rows": 297,
+  "default_teacher_user_id": "usr_teacher01",
+  "teacher_count": 1,
+  "owner_fallback": "Manifest rows without a traceable owner are assigned to the configured default administrator; this deployment has one teacher.",
+  "execute": true
+}

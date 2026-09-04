@@ -1,8 +1,4 @@
-import {
-  ComposerAddAttachment,
-  ComposerAttachments,
-  UserMessageAttachments,
-} from "@/components/assistant-ui/elements/attachment.aui";
+import { ComposerAddAttachment, ComposerAttachments, TeacherMaterialUploadEntry, UserMessageAttachments } from "@/components/assistant-ui/elements/attachment.aui";
 import { MarkdownText } from "@/components/assistant-ui/elements/markdown-text";
 import {
   SessionReasoningStep,
@@ -10,8 +6,11 @@ import {
   SessionToolTimeline,
 } from "@/components/assistant-ui/elements/session-tool-timeline";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
+import { SelfTestEntry } from "@/components/assistant-ui/self-test/SelfTestEntry";
 import { Button } from "@/components/ui/button";
 import { DomainMessagePart } from "@/learning/presentation/domainPresentationRegistry";
+import { useLearningThreadId } from "@/learning/runtime/LearningThreadContext";
+import { useAuth } from "@/auth";
 import { cn } from "@/lib/utils";
 import {
   ActionBarMorePrimitive,
@@ -26,6 +25,7 @@ import {
   SuggestionPrimitive,
   ThreadPrimitive,
   groupPartByType,
+  useAui,
   useAuiState,
 } from "@assistant-ui/react";
 import {
@@ -34,6 +34,7 @@ import {
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ClipboardListIcon,
   CopyIcon,
   DownloadIcon,
   MicIcon,
@@ -41,6 +42,7 @@ import {
   SquareIcon,
 } from "lucide-react";
 import type { FC } from "react";
+import { useNavigate } from "react-router-dom";
 
 const isNewChatView = (s: AssistantState) =>
   s.thread.messages.length === 0 &&
@@ -77,6 +79,13 @@ const ThreadHistorySkeleton: FC = () => (
 
 export const Thread: FC = () => {
   const isEmpty = useAuiState(isNewChatView);
+  // 根路径（未绑定线程）= 真正的新对话；已建但尚无消息的历史线程需与它区分，
+  // 否则「新对话」点击后（/c/:id → /）页面毫无视觉变化，用户误以为按钮失效。
+  const threadId = useLearningThreadId();
+  const { principal } = useAuth();
+  const isTeacher = Boolean(principal?.roles.includes("teacher"));
+  const isRootNewChat = isEmpty && !threadId;
+  const isEmptyNamedThread = isEmpty && Boolean(threadId);
 
   return (
     <ThreadPrimitive.Root
@@ -99,9 +108,8 @@ export const Thread: FC = () => {
             isEmpty && "justify-center",
           )}
         >
-          <AuiIf condition={isNewChatView}>
-            <ThreadWelcome />
-          </AuiIf>
+          {isRootNewChat && (isTeacher ? <TeacherChatWelcome /> : <ThreadWelcome />)}
+          {isEmptyNamedThread && <EmptyThreadHint />}
           <AuiIf condition={isHistoryLoadingView}>
             <ThreadHistorySkeleton />
           </AuiIf>
@@ -124,7 +132,7 @@ export const Thread: FC = () => {
           >
             <ThreadScrollToBottom />
             <Composer />
-            <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
+            <AuiIf condition={(s) => !threadId && isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
           </ThreadPrimitive.ViewportFooter>
@@ -160,6 +168,70 @@ const ThreadWelcome: FC = () => {
       <h1 className="aui-thread-welcome-message-inner text-2xl font-medium tracking-tight">
         今天想从哪道数学问题开始？
       </h1>
+    </div>
+  );
+};
+
+// 教师对话快捷提问：把“重流程措辞”换成轻量指令，减少一次 8 分钟的长任务。
+// 点击只把建议填进输入框，教师仍可编辑后再发送。
+const teacherQuickPrompts: ReadonlyArray<{ label: string; hint: string; prompt: string }> = [
+  {
+    label: "贴题讲解",
+    hint: "粘贴一道具体题目，最快",
+    prompt: "请讲解下面这道题（我会把题目文字贴上来）：",
+  },
+  {
+    label: "快速出一题",
+    hint: "限定范围、只要题干和答案",
+    prompt: "请快速出一道解三角形的小题：只给题干与答案，控制在三行以内，不要长篇解析。",
+  },
+  {
+    label: "讲一个考点",
+    hint: "两三句说清怎么用",
+    prompt: "请用两三句话讲清楚这个考点的适用场景和用法：",
+  },
+];
+
+const TeacherChatWelcome: FC = () => {
+  const aui = useAui();
+  const composerEmpty = useAuiState((state) => state.composer.isEmpty);
+  return (
+    <div className="aui-thread-welcome-root mb-6 flex flex-col items-center px-4 text-center">
+      <h1 className="aui-thread-welcome-message-inner text-2xl font-medium tracking-tight">
+        今天想讲哪道题，还是快速出一题？
+      </h1>
+      <p className="text-muted-foreground mt-2 max-w-md text-sm leading-6">
+        直接贴一道具体题目让我讲解会最快；需要我出新题时，尽量说清范围（如“三边已知、用中线长公式”），我就能少走弯路。
+      </p>
+      {composerEmpty && (
+        <div className="mt-5 flex w-full max-w-xl flex-wrap items-center justify-center gap-2" aria-label="快捷提问建议">
+          {teacherQuickPrompts.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => aui.composer.setText(item.prompt)}
+              className="border-border/60 text-foreground hover:bg-muted flex flex-col items-start gap-0.5 rounded-xl border px-3.5 py-2 text-start text-sm transition-colors"
+            >
+              <span className="font-medium">{item.label}</span>
+              <span className="text-muted-foreground text-xs">{item.hint}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 已创建但尚无消息的历史线程：不复用根路径的欢迎大标题，避免与「新对话」混淆。
+const EmptyThreadHint: FC = () => {
+  return (
+    <div className="aui-thread-empty-thread-hint mb-6 flex flex-col items-center px-4 text-center">
+      <p className="text-muted-foreground text-sm">
+        空对话 · 尚无消息，直接提问即可开始。
+      </p>
+      <p className="text-muted-foreground text-xs">
+        想另起炉灶？点侧边栏「新对话」。
+      </p>
     </div>
   );
 };
@@ -204,7 +276,7 @@ const Composer: FC = () => {
             className="aui-composer-input placeholder:text-muted-foreground/60 max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base leading-6 outline-none"
             rows={1}
             autoFocus
-            aria-label="Message input"
+            aria-label="消息输入"
           />
           <ComposerAction />
         </div>
@@ -213,22 +285,48 @@ const Composer: FC = () => {
   );
 };
 
+// 教师端组卷入口：与「上传资料」并列，跳转到组卷工作台。
+const TeacherPaperComposeEntry: FC = () => {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      aria-label="组卷"
+      onClick={() => navigate("/teacher/paper-compose")}
+      className="text-muted-foreground hover:text-foreground hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30 flex h-7 items-center gap-1 rounded-full px-2 text-xs transition-colors"
+    >
+      <ClipboardListIcon className="size-4" />
+      <span>组卷</span>
+    </button>
+  );
+};
+
 const ComposerAction: FC = () => {
+  // 附件：学生可传作业图/文件；教师端用明确的“上传资料”按钮上传讲义与题目资料。
+  // 自我测评只属于学生会话，教师端保留隐藏。
+  const { principal } = useAuth();
+  const isStudent = Boolean(principal?.roles.includes("student"));
+  const isTeacher = Boolean(principal?.roles.includes("teacher"));
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
-      <ComposerAddAttachment />
+      <div className="flex items-center gap-1.5">
+        {isTeacher && <TeacherMaterialUploadEntry />}
+        {isTeacher && <TeacherPaperComposeEntry />}
+        {isStudent && <ComposerAddAttachment />}
+        {isStudent && <SelfTestEntry />}
+      </div>
       <div className="flex items-center gap-1.5">
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>
             <ComposerPrimitive.Dictate asChild>
               <TooltipIconButton
-                tooltip="Voice input"
+                tooltip="语音输入"
                 side="bottom"
                 type="button"
                 variant="ghost"
                 size="icon"
                 className="aui-composer-dictate text-muted-foreground hover:text-foreground size-7 rounded-full"
-                aria-label="Start voice input"
+                aria-label="开始语音输入"
               >
                 <MicIcon className="aui-composer-dictate-icon size-4" />
               </TooltipIconButton>
@@ -237,7 +335,7 @@ const ComposerAction: FC = () => {
           <AuiIf condition={(s) => s.composer.dictation != null}>
             <ComposerPrimitive.StopDictation asChild>
               <TooltipIconButton
-                tooltip="Stop dictation"
+                tooltip="停止语音输入"
                 side="bottom"
                 type="button"
                 variant="ghost"
@@ -355,7 +453,7 @@ const AssistantMessage: FC = () => {
           <span
             data-slot="aui_assistant-message-indicator"
             className="animate-pulse font-sans"
-            aria-label="Assistant is working"
+            aria-label="正在处理"
           >
             {"●"}
           </span>
@@ -382,7 +480,7 @@ const AssistantActionBar: FC = () => {
       className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ms-1 flex gap-1 duration-200"
     >
       <ActionBarPrimitive.Copy asChild>
-        <TooltipIconButton tooltip="Copy">
+        <TooltipIconButton tooltip="复制">
           <AuiIf condition={(s) => s.message.isCopied}>
             <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out" />
           </AuiIf>
@@ -409,7 +507,7 @@ const AssistantActionBar: FC = () => {
           <ActionBarPrimitive.ExportMarkdown asChild>
             <ActionBarMorePrimitive.Item className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none">
               <DownloadIcon className="size-4" />
-              Export as Markdown
+              导出为 Markdown
             </ActionBarMorePrimitive.Item>
           </ActionBarPrimitive.ExportMarkdown>
         </ActionBarMorePrimitive.Content>

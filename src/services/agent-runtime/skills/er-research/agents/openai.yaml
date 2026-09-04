@@ -1,6 +1,0 @@
-interface:
-  display_name: "ER 错因研究"
-  short_description: "基于冻结 KTQ 结果生成、去重并验证错因与诊断规则"
-  default_prompt: "Use $er-research to build, validate, and submit the exact ER result file."
-policy:
-  allow_implicit_invocation: true

@@ -174,6 +174,21 @@ export function registerContentNextRoutes(
     return value ? value : reply.code(404).send({ error: "candidate not found" });
   });
 
+  // 教师给解析批次（候选集）改名；display_name 传空则恢复默认显示名。
+  server.patch("/candidates/:id/display-name", { preHandler: fromApi }, async (request, reply) => {
+    const actor = requireTeacher(request);
+    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    const id = (request.params as { id: string }).id;
+    const body = jsonObject(request.body);
+    const displayName = typeof body.display_name === "string" ? body.display_name : "";
+    try {
+      const renamed = await repository.renameCandidateDisplayName(actor, id, displayName);
+      return renamed ? { renamed: true } : reply.code(404).send({ error: "candidate set not found or not owned by this teacher" });
+    } catch (error) {
+      return reply.code(422).send({ error: "rename_rejected", detail: errorMessage(error) });
+    }
+  });
+
   server.get(
     "/internal/candidates/:id/frozen",
     { preHandler: fromPi },
@@ -269,5 +284,71 @@ export function registerContentNextRoutes(
     } catch (error) {
       return reply.code(422).send({ error: "withdraw_rejected", detail: errorMessage(error) });
     }
+  });
+
+  // 教师私有资料库：解析批次（候选集）+ 已生成包聚合。
+  server.get("/teacher/library", { preHandler: fromApi }, async (request, reply) => {
+    const actor = requireTeacher(request);
+    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    const [candidates, packages] = await Promise.all([
+      repository.list(actor),
+      repository.listPackages(actor),
+    ]);
+    return { candidates, packages };
+  });
+
+  // 教师手动选题组卷：可挑选题目清单（本人解析、已批准/就绪的最新修订）。
+  server.get("/teacher/library/questions", { preHandler: fromApi }, async (request, reply) => {
+    const actor = requireTeacher(request);
+    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    try {
+      return { questions: await repository.listManualPickableQuestions(actor) };
+    } catch (error) {
+      return reply.code(422).send({ error: "questions_unavailable", detail: errorMessage(error) });
+    }
+  });
+
+  // 教师手动选题组卷：创建 manual 练习包（ready，可直接发布到班级）。
+  server.post("/teacher/library/packages/manual", { preHandler: fromApi }, async (request, reply) => {
+    const actor = requireTeacher(request);
+    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    const body = jsonObject(request.body);
+    const title = typeof body.title === "string" ? body.title : "";
+    const rawRevisionIds = body.revision_ids;
+    if (!Array.isArray(rawRevisionIds)) {
+      return reply.code(422).send({ error: "revision_ids must be an array of question revision ids" });
+    }
+    const revisionIds = rawRevisionIds.filter((value): value is string => typeof value === "string");
+    try {
+      const created = await repository.createManualTeacherPackage(actor, title, revisionIds);
+      return reply.code(201).send(created);
+    } catch (error) {
+      return reply.code(422).send({ error: "manual_package_rejected", detail: errorMessage(error) });
+    }
+  });
+
+  // 教师给自有练习包改名。
+  server.patch("/packages/:id", { preHandler: fromApi }, async (request, reply) => {
+    const actor = requireTeacher(request);
+    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    const id = (request.params as { id: string }).id;
+    const body = jsonObject(request.body);
+    const title = typeof body.title === "string" ? body.title : "";
+    if (!title.trim()) return reply.code(422).send({ error: "title is required" });
+    try {
+      const renamed = await repository.renameTeacherPackageTitle(actor, id, title);
+      return renamed ? { renamed: true } : reply.code(404).send({ error: "teacher package not found or not editable" });
+    } catch (error) {
+      return reply.code(422).send({ error: "rename_rejected", detail: errorMessage(error) });
+    }
+  });
+
+  // 删除“未发布”的教师私有包（ready 状态）；已发布请先撤回。
+  server.delete("/packages/:id", { preHandler: fromApi }, async (request, reply) => {
+    const actor = requireTeacher(request);
+    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    const id = (request.params as { id: string }).id;
+    const deleted = await repository.deleteTeacherPackage(actor, id);
+    return deleted ? { deleted: true } : reply.code(404).send({ error: "teacher package not found or not deletable" });
   });
 }

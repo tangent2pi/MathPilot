@@ -1,0 +1,5 @@
+source_file,entity_kind,id_column,row_count,sha256,origin,owner_user_id
+data/official-content/triangle-kb/knowledge_points.csv,knowledge,knowledge_id,49,05bf1473ea32cf220da62de262ba9e90ba63642bdc265c4cb2607ab68ebfac38,official,
+data/official-content/triangle-kb/question_types.csv,question_type,type_id,36,e75dfafbb03073f474de20b2ac6b9ef7568e581f34f759165ce24e65638d264f,official,
+data/official-content/triangle-kb/questions.csv,question,question_id,139,8b7b1b0d66679f34d2e7426c22fac93ae3b141f67ebeaf606da83f5f915ccf98,official,
+data/official-content/triangle-kb/error_causes.csv,error_cause,error_id,73,8172cadc1d6b3b4c1604c3cdf11ae6a82fbed45bdead50a0d6c3c1e2a4e8eac4,official,

@@ -1,7 +1,7 @@
 # MathPilot Next 实现收敛与复用治理 Goal
 
 > 用途：承接 Science v3 P7 的用户明确未完成移交，统一关闭 Next 路径中的隐藏省略、伪能力、重复运行机制与不必要手写基础设施。
-> 状态：`active`（2026-09-01）；G0 审计检查点已完成并冻结逐 owner 产品 replay；G1 正在实施，C-04 path/object、O-13 evidence secret 与 deployed Pi active Artifact 三个窄边界已 fail-closed，但 G1 其余安全项与 G2–G6 均未完成。
+> 状态：`active`（2026-09-01）；G0 审计检查点已完成并冻结逐 owner 产品 replay；G1 正在实施，C-04 path/object、O-13 evidence secret、deployed Pi active Artifact 与正式 Next internal service identity/config 机制已分别收口，但内容识别、错误承诺等 G1 其余安全项与 G2–G6 均未完成。
 > P7 权威 Goal：[科学内核与 Dream 配套前端实施 Goal](./科学内核与Dream封版v3/GOAL.md)
 > 唯一审计输入：[Next 实现整合审计 v3](./Next实现隐藏省略设计忠实度与复用整合审计v3.md)
 > 历史审计：v1、v2 补充与忠实度 v1 已 superseded，只可沿 v3 的裁决追溯，不得直接生成任务。
@@ -98,7 +98,7 @@
 |---|---|---|
 | O-11 发送失败静默丢消息 | `7843ab8` 确认 | 属于 P7 退出条件；失败时保留草稿/乐观消息并进入 assistant-ui 原生 incomplete/error 状态 |
 | O-12 取消后结果仍落盘 | **原影响判断不成立，范围收窄** | API 确实未向 Temporal 传播取消，但 `mathpilot_science_v3_commit_foreground_response` 会拒绝 terminal request，foreground 结果不能在取消后提交。治理取消传播、算力浪费、完成延迟和其他 operation 的一致取消协议 |
-| O-13 evidence HMAC 默认密钥 | 确认，且下游 ACL 二次鉴权降低了直接危害 | `O13_IMPLEMENTATION_COMMIT` + `O13_PREFLIGHT_COMMIT` 已关闭该窄项：非 development 必须提供独立 secret，默认 secret 只存在于显式 dev profile，生产 Compose 有不回显值的同 loader 预检；证据见 5.8。其余内部身份/config 不随之关闭 |
+| O-13 evidence HMAC 默认密钥 | 确认，且下游 ACL 二次鉴权降低了直接危害 | `O13_IMPLEMENTATION_COMMIT` + `O13_PREFLIGHT_COMMIT` 已关闭该窄项：非 development 必须提供独立 secret，默认 secret 只存在于显式 dev profile，生产 Compose 有不回显值的同 loader 预检；证据见 5.8。该窄项当时未关闭的正式 internal identity/config 后由 5.10 共同机制收口 |
 | O-14 `present_validated_artifact` 名不副实 | 确认 | 接入真实 canonical artifact schema 校验，或去掉 `validated` 承诺；不能只验字段形状和 schema 名字正则 |
 | O-15 Workflow 失败后无限重启 | **撤销** | `@temporalio/client` 1.23.0 在未提供 `options.retry` 时发送 `retryPolicy: undefined`；未捕获的 `TemporalFailure` 会令 Workflow Execution 失败，不会自动创建无限新 run。不得为修复此伪问题反而添加 Workflow retry。补终态行为测试，并单独防范普通编程错误造成 Workflow Task 反复失败 |
 | O-16 action slots/capability 双轨 | `7843ab8` 确认，P7 正在修改相关面 | 属于 P7 交接复验；capability 必须从同一领域状态生成，静态 slot 不得与命令受理条件矛盾 |
@@ -123,7 +123,7 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 | R-23 UUID/Math.random 回退 | 低优先级确认 | 明确浏览器/Node platform contract；支持 `crypto.randomUUID` 时删回退，否则使用经审计 UUID 库，不维护自写 v4 |
 | R-24 offset cursor 双轨 | 确认，但排序语义不得通用化 | 共享签名/编码/error codec，各领域使用稳定 keyset；多 kind 分页必须明确支持或拒绝，不静默回第一页 |
 | R-25 三套错误类与默认 500 | 重复与泄漏风险确认；“一个 AppError 类”方案过度 | 共享 Problem Details/error mapping 协议和 Fastify handler；领域错误类型可保留，不能做万能错误类 |
-| R-26 shared secret 普通比较 | 确认，低成本 | 统一 internal assertion/service-context；过渡 secret 使用恒定时间比较 |
+| R-26 shared secret 普通比较 | `e065416` 已关闭正式 Next 六条生产边 | `@mathpilot/internal-service` 统一 assertion/service-context、逐 edge keyring、恒定时间验证、rotation/readiness 与生产预检；证据见 5.10 |
 | R-27 rate limit/安全头/CORS | **拆分** | 按 threat model 配置 rate limit 与安全头；同源应用缺少 CORS 插件不是缺陷，除非确有跨域需求，不为“插件齐全”放宽同源边界 |
 | R-28 compose 健康门禁 | 确认 | 真实 readiness + MinIO/服务 healthcheck；强依赖使用 `service_healthy`，弱依赖显式降级 |
 | R-29 Dockerfile 缓存双模板 | 确认，维护项 | 共享构建约定/模板，先复制 manifest 安装再复制源码；不把缓存优化冒充功能修复 |
@@ -238,7 +238,7 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 | v3 §4.1 产品问题族 | `open/changed` | 十二个问题族已在 5.7 以 `G0_PRODUCT_REPLAY_BASELINE` 的产品树逐 owner 重放，并由 `G0_PRODUCT_REPLAY_EVIDENCE_COMMIT` 冻结证据；这完成的是事实定位，不是产品实现。O-13 evidence secret 窄项当前关闭证据见 5.8；deployed Pi active Artifact trigger/publish/read 已按 5.9 fail-closed，但通用 artifact contract/interaction promise 仍开放；数学推导 artifact 的 O-14 窄子项仍按 5.1 `closed-by-p7`；其余开放面按 5.7 进入 G1/G2/G4/G5/G6 | 各领域 owner / 逐项实施前继续走窄门禁 |
 | v3 §4.2 横向机制 | `open/changed` | pool/config/SSE/server-state/object/path/ID/cursor/CSV/migration/build graph 的当前实况见 5.5；跨进程 pool、浏览器 EventSource、presigned data-plane fetch、局部 Map/Set 与字节 SHA 是合理例外 | 第 8 节对应共同机制 owner / G1、G4、G5、G6 |
 
-本表不把任一 `open/changed` 产品问题族标成实现完成。第 5.7 节补齐逐 owner 的 trigger→write→consumer、反证、影响与最小归属后，G0 作为**审计检查点**可以结束；每个代码 tranche 仍须按第 4.5 节在其 owner 上重新确认。C-04、O-13 与 deployed Pi active Artifact 已分别沿独立门禁关闭窄边界，不代表 G1、通用 Artifact contract、对象生命周期或 production config/internal identity 整体完成。
+本表不把任一 `open/changed` 产品问题族标成实现完成。第 5.7 节补齐逐 owner 的 trigger→write→consumer、反证、影响与最小归属后，G0 作为**审计检查点**可以结束；每个代码 tranche 仍须按第 4.5 节在其 owner 上重新确认。C-04、O-13、deployed Pi active Artifact 与正式 Next internal service identity/config 已分别沿独立门禁收口；这仍不代表 G1、通用 Artifact contract、对象生命周期或通用注入式 config 整体完成。
 
 ### 5.4 防误修反回归 ledger
 
@@ -266,7 +266,7 @@ O-15 的修正依据是当前官方 TypeScript SDK 实现：[Workflow start 仅�
 | HTTP route | 4 个正式 HTTP 服务有 87 个 route 声明，展开为 97 个 method/path；Fastify `schema` 为 0/97 | `open` / G3 contracts + route adapters |
 | Task/Schema | 9 TaskSpec、9 Skill；5 个 direct workflow route，grade 由真实 child 启动；diagnose、teach_summary、semantic_decomposition 无 production starter，grade 等 4 项缺 host output validator；45 个 `$id` 文档，19 个 runtime literal URI 中 7 个 missing-document | `changed/open` / G2 reachability + G3 registry |
 | pools | 正式五进程有 11 个常驻 app pool、声明 max 合计 63；其中 learning 同进程 6 个/max 32，API 同进程 2 个/max 10；另 2 个 importer/bootstrap 短期 pool | 同进程重复 `open`；跨进程独立 pool 与短期 pool 是例外 / G5 postgres-context |
-| env/config | 基线正式 production src 18 文件、108 次 `process.env`；composition roots 可保留，cursor、store/lib、Pi route/extension 与 executor 等业务深层读取仍存在，evidence/auth/internal secret 有 dev fallback。当前 api-next auth/evidence 的 O-13 fallback 已移除并 fail-fast，见 5.8；内部 edge secret 与其余深层读取仍开放 | O-13 窄项 `closed` / G1；internal identity 仍 `open` / G1；注入式 config `open` / G5 |
+| env/config | 基线正式 production src 18 文件、108 次 `process.env`。当前 api-next auth/evidence 的 O-13 fallback 已由 5.8 移除；五个正式服务间六条生产 edge 已由 5.10 迁到共同 identity/config owner，旧 secret/header/gateway fallback 与深层 edge env 读取已删除。其他领域的深层 `process.env` 与通用注入式 config 仍开放 | O-13 与 formal internal identity `closed` / G1；其余注入式 config `open` / G5 |
 | Web/server-state | Web 8 文件有 9 个 `fetch()`、7 个 `window.location.assign`、2 个 2 秒 polling；14 个 service fetch 中 11 个 control-plane、3 个 presigned data-plane，API relay 还会全量 `arrayBuffer()` | control-plane/generated client、Router/Query 与 streaming proxy `open`；data-plane fetch 是例外 / G5 |
 | SSE/timer/runtime | 两套手写 SSE：learning 逐 client 1 秒 DB poll，Pi 20 秒 heartbeat；Content 5 秒扫两类 pending command；Pi 有 3 个进程 Map 及 ER/review marker+transcript 恢复 | SSE `open` / G5；Content/Pi durable state `changed` 且有 design prerequisite / G4 |
 | ID/hash/cursor | 8 份 deterministic SHA-truncate helper、3 份随机 `newId`、2 个浏览器 `Math.random` fallback；canonical JSON hash 有排序/裸 stringify 双轨；API、Content、Selection 三套 cursor，Content 多 kind 会静默把 offset 归零 | `open/changed` / G5 codecs + 各领域稳定排序；字节 SHA 与局部视觉随机是例外 |
@@ -370,7 +370,7 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 - Compose 显式要求 environment 并分别注入两把变量；生产 runbook 的密钥项故意留空，one-off 容器使用实际 Compose 环境和同一 loader 强制 production，失败只输出固定文本；
 - `nix develop path:/home/tangent/MathPilot -c pnpm --filter @mathpilot/api-next test` 为 6/6 pass，typecheck 退出 0；production preflight 成功路径退出 0，development profile 退出 1；使用固定假密钥的 `docker compose ... run --rm --no-deps --build ... preflight:production` 退出 0，未启动依赖或回显配置。
 
-该关闭只对应 O-13 的 api-next auth/evidence secret 边界。Content↔Pi 等内部 edge secret 的 fallback/方向不一致、其余服务 production fail-fast、深层 `process.env` 注入与全系统 secret rotation/readiness 仍分别留在 G1/G5/G6；因此 G1 和终态安全矩阵仍未完成。
+该关闭只对应 O-13 的 api-next auth/evidence secret 边界。其后 Content↔Pi 等正式内部 edge、服务 production fail-fast 与 identity rotation/readiness 已由第 5.10 节的共同机制收口；其他领域的深层 `process.env` 注入仍留在 G5，多副本与真实全系统证据仍留在 G6，因此 G1 和终态安全矩阵仍未完成。
 
 ### 5.9 deployed Pi active Artifact fail-closed 证据
 
@@ -392,6 +392,26 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 - `nix develop path:/home/tangent/MathPilot -c pnpm --filter @mathpilot/pi-chat-runtime test` 为 32/32 pass，typecheck 退出 0，`git diff --check` 通过；定向测试覆盖 sandbox renderer、media 伪装 HTML/JS/SVG、旧 index 与 native-card/PNG 正例；正式 web-next/api-next 对 `/api/pi|postMessage|iframe|sandbox=` 的负证据搜索为零命中。
 
 该关闭只证明当前 deployed Pi Runtime 不再发布或返回主动 Artifact。通用 contracts 中的 `sandboxed_html`、未消费 `interaction_token` 与受限 bridge 承诺仍需 owning-design/G3 裁决；GET 触发发布和普通 JSON index 原子性仍在 G5，图片完整解码/重编码与内容识别仍在 G1，若将来明确恢复可执行 Artifact 则必须另建 untrusted origin 与浏览器攻击测试。旧 Agent Runtime 未修改、未作为 Next 验收证据；G1 与终态安全/Object/Artifact 行仍未完成。
+
+### 5.10 正式 Next internal service identity/config 共同机制证据
+
+| 门禁 | 当前可复现证据 |
+|---|---|
+| 干净基线 | `ec75aacb269f667c1048ad1038ce32cb9e7d3542`；此前窄项证据已冻结，工作树无用户改动，实施只落在正式 Next 服务、共享 package 与 `deploy/dev` |
+| 最终 owner 与接口 | `@mathpilot/internal-service` 唯一拥有 topology、Zod production config、keyring/rotation、JWT assertion codec、service context、Fastify guard/problem mapping、request/cancel/timeout、bounded observation、readiness/preflight 与跨进程 test fixture；API、Content、Pi、Storage、Learning 只声明 edge 和领域 actor/route adapter |
+| 全部 production producer/consumer | 已核对并迁移 `api-to-content`、`api-to-storage`、`content-to-pi`、`pi-to-content`、`pi-to-storage`、`learning-to-storage` 六条控制面边；presigned object URL 仍是经控制面授权的数据面，不伪装成第七条 identity edge |
+| 信任、失败与重放语义 | 每条 edge 使用独立可轮换 keyring、固定 issuer/audience、method/path/有无 body 与 RFC 8785 digest 绑定、60 秒 TTL、`jti` replay 拒绝和恒定时间验证；缺失/公开 dev/跨 edge 重用在非 development 启动 fail-fast。transport 不自动 retry，redirect fail-closed，默认 30 秒 timeout 并传播 AbortSignal；领域 outbox/Temporal retry 每次签发新 assertion |
+| 成熟库与薄 adapter | `jose 6.2.10` 负责受约束的 HS256 SignJWT/jwtVerify，`zod 4.4.3` 负责一次性 production config 解析，`canonicalize 4.0.0` 负责 RFC 8785 canonical JSON；均先按 Context7/官方文档核对。领域代码不复制 JWT、validator、header parser、retry 或错误状态机 |
+| 迁移与删除 | 删除 gateway/shared-secret 反向 fallback、方向私有 header/verifier、深层 edge `process.env` 和 raw internal fetch；Pi 同批删除已失去正式 consumer 的 `/pi/*`、learning-ui/ArtifactPublisher 与直连 MinIO `PiObjectStore`/依赖，Storage 成为对象控制面唯一 owner。旧架构文件未修改，也未新增兼容分支 |
+| 防返工验收 | 新增共同机制只有一套；六条 edge 都走同一 codec/runtime/guard，下一 edge 只需 topology 声明和薄 adapter。当前支持的 deployment 明确为 `memory-single-replica` replay；未来多副本只实现既有 replay-store port 并扩大部署证据，不替换第一批 loader、codec、runtime 或状态模型 |
+
+实施结果绑定 `INTERNAL_IDENTITY_IMPLEMENTATION_COMMIT=e0654164aba5a798303b518990e36859b0ae65af`：
+
+- 六包集中 typecheck 均退出 0；定向 runner 共收集 65 项，60 pass，5 项因 PostgreSQL 环境跳过且不计作本机制证据；身份 package 9/9、API 8/8、Content 2/2、Pi 12/12、Storage 3/3 均通过真实签发/验证或真实 HTTP route 测试，Learning 26 pass/5 DB skip 并覆盖签名 Storage reader、取消与 production tenant fail-fast；
+- `docker compose --env-file deploy/dev/.env.example config` 退出 0；实际构建的 `internal-identity-preflight` 在 read-only、无网络、drop-all-capabilities 容器中退出 0，production + 公开 dev key 负例退出 1且不回显 key；五个正式服务均依赖该 one-shot gate，且只注入自身相邻 edge 的 keyring；
+- 删除证明确认正式 Next production 代码/Compose/runbook 不再含旧 secret/URL/header，Pi 不再含 `PiObjectStore`、直连 MinIO credentials、主动 Artifact tools 或生产 `/pi/*` route；`git diff --check` 通过。
+
+本 tranche 完成的是当前正式 Next topology 的共同 internal identity/config 机制，不是 G1 或 DB/service 终态整行。`memory-single-replica` 是当前明确部署约束；若 G6 启用多副本，须通过既有 replay-store port 接入跨副本原子 consume 并补真实 duplicate/restart 测试。其他领域 config 注入、pool/RLS、Problem Details、安全头、rate limit、内容识别与 G2–G6 仍开放；后续只能扩展消费者和删除路径，不重写本节核心。
 
 ## 6. 不可破坏的设计准则
 
@@ -526,14 +546,14 @@ G0 至此只完成了 handoff、反误修、机制计数与逐 owner 事实冻�
 
 ### G1：安全边界与错误承诺
 
-当前状态：`in_progress`。C-04 窄 path/object boundary、O-13 api-next auth/evidence secret boundary 与 deployed Pi active Artifact entry 已分别由第 5.6、5.8、5.9 节留证；通用 Artifact contract/interaction promise、未来可执行内容 origin、内部身份/config、内容识别、错误承诺、Problem Details、安全头与 rate limit 等交付仍开放，因此不得把 G1 标为完成。
+当前状态：`in_progress`。C-04 窄 path/object boundary、O-13 api-next auth/evidence secret boundary、deployed Pi active Artifact entry 与正式 Next internal service identity/config 已分别由第 5.6、5.8、5.9、5.10 节留证；通用 Artifact contract/interaction promise、未来可执行内容 origin、内容识别、错误承诺、Problem Details、安全头与 rate limit 等交付仍开放，因此不得把 G1 标为完成。
 
 交付：
 
 - P0 修复 Pi archive symlink/containment；加入恶意 symlink、绝对/穿越 object key 测试；
 - 可执行 Artifact 使用独立 untrusted origin + sandbox iframe/窄 `postMessage`；当前 deployed Pi 入口已 fail-closed，若未来恢复能力仍须完成独立 origin；
 - api-next production config fail-fast 与独立 evidence secret（O-13 窄项已关闭）；
-- 其余服务 production config fail-fast 与内部身份过渡加固；
+- 正式 Next 五个服务 production internal config fail-fast 与共同 identity/service-context（六条 edge 已由 5.10 收口；其他领域 config 仍进 G5）；
 - Avatar/附件/Artifact 内容识别、图片解码重编码、stream/size/hash/expiry；
 - `validated`、`sandboxed`、interaction token、dedup 等承诺与真实运行时一致；
 - 全局 Problem Details、默认 500 脱敏、安全头和按 threat model 的 rate limit。

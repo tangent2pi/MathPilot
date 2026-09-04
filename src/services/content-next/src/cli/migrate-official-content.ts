@@ -20,6 +20,8 @@ const databaseUrl = process.env.DATABASE_URL ?? "postgres://localhost:5432/mathp
 const tenantId = process.env.DEFAULT_TENANT_ID ?? process.env.DEV_TENANT_ID ?? "tnt_dev00001";
 const execute = process.argv.includes("--execute");
 const reportArg = process.argv.find((value) => value.startsWith("--report="))?.slice("--report=".length);
+// kb 模式导入文件库（知识题库），revision 中段用 kb 以避开既有 official 种子，且同名 entity 走 supersede。
+const revisionSource = process.env.CONTENT_REVISION_SOURCE === "kb" ? "kb" : "official";
 
 function parseCsv(text: string): Row[] {
   const rows: string[][] = [];
@@ -55,12 +57,17 @@ const revisionPrefix: Readonly<Record<Kind,string>> = {
   diagnosis_rule: "rrev",
 };
 function revisionId(kind: Kind, id: string): string {
-  return `${revisionPrefix[kind]}_official_${hash(Buffer.from(id)).slice(0, 24)}`;
+  return `${revisionPrefix[kind]}_${revisionSource}_${hash(Buffer.from(id)).slice(0, 24)}`;
 }
-function sourceId(fileHash: string): string { return `src_official_${fileHash.slice(0, 24)}`; }
-function packageId(): string { return "pkg_official_home_v1"; }
-function numberDifficulty(value: string): number { return value === "低" ? 0.25 : value === "高" ? 0.8 : 0.5; }
+function sourceId(fileHash: string): string { return `src_${revisionSource}_${fileHash.slice(0, 24)}`; }
+function packageId(): string { return revisionSource === "kb" ? "pkg_kb_triangle_v1" : "pkg_official_home_v1"; }
+function numberDifficulty(value: string): number {
+  const trimmed = (value ?? "").trim();
+  if (/^[1-5]$/.test(trimmed)) return Number(trimmed) / 5;
+  return trimmed === "低" ? 0.25 : trimmed === "高" ? 0.8 : 0.5;
+}
 function stemFormat(value: string): "single_choice" | "multiple_choice" | "fill_blank" | "true_false" | "open_solution" {
+  if (value.includes("多选")) return "multiple_choice";
   if (value.includes("选择")) return "single_choice";
   if (value.includes("填空")) return "fill_blank";
   if (value.includes("判断")) return "true_false";
@@ -229,19 +236,52 @@ async function insertRevision(
   writeRelations = true,
 ): Promise<void> {
   const rev = revisionId(kind, id);
+  // 确定 revision_no：revision 已存在（幂等重跑）沿用其 revision_no；否则 = 该 entity 现有 max(revision_no)+1。
+  const existingRev = await client.query<{ revision_no: number }>(
+    `select revision_no from content_entity_revision where revision_id=$1 and tenant_id=$2`, [rev, tenantId],
+  );
+  let revisionNo: number;
+  if (existingRev.rowCount) {
+    revisionNo = Number(existingRev.rows[0]!.revision_no);
+  } else {
+    const maxRev = await client.query<{ max_no: string | null }>(
+      `select max(revision_no) as max_no from content_entity_revision where entity_id=$1 and tenant_id=$2`, [id, tenantId],
+    );
+    revisionNo = Number(maxRev.rows[0]!.max_no ?? 0) + 1;
+  }
   await client.query(
     `insert into content_entity(entity_id,tenant_id,entity_kind,origin,owner_teacher_user_id,created_by_user_id)
      values($1,$2,$3,'official',$4,$4) on conflict (entity_id) do nothing`, [id, tenantId, kind, ownerTeacherUserId],
   );
+  // ready 是终态（mathpilot_revision_guard 无 ready->superseded 转换）。版本更替
+  // 靠 revision_no 递增：读取侧 distinct on(dimension_id) order by lineage_version/revision_no desc
+  // 自动选最新，旧 ready 保留即可，无需 supersede。
   await client.query(
     `insert into content_entity_revision(revision_id,entity_id,tenant_id,revision_no,candidate_set_id,lifecycle_status,created_by_thread_id,model_id,prompt_version)
-     values($1,$2,$3,1,null,'ready',null,null,'official-home-manifest-v1') on conflict (revision_id) do nothing`, [rev, id, tenantId],
+     values($1,$2,$3,$4,null,'ready',null,null,$5) on conflict (revision_id) do nothing`,
+    [rev, id, tenantId, revisionNo, revisionSource === "kb" ? "kb-triangle-manifest-v1" : "official-home-manifest-v1"],
   );
+  // A ready knowledge/question_type revision is the latest lineage of its business
+  // dimension (K_*/T_*). learning-read's scientific_state view joins
+  // science_v3_mastery_projection on this table; without this row the
+  // projection is invisible. lineage_version must stay in sync with revision_no.
+  if (kind === "knowledge" || kind === "question_type") {
+    await client.query(
+      `insert into science_v3_dimension_lineage(tenant_id,dimension_revision_id,dimension_id,lineage_version)
+       values($1,$2,$3,$4) on conflict (tenant_id,dimension_revision_id) do nothing`,
+      [tenantId, rev, id, revisionNo],
+    );
+  }
   if (kind === "knowledge") {
+    // kb 模式：name 用「知识点名称」，description 存三级模块路径（一级/二级/三级），供 self-test 按模块分层抽题。
+    const name = revisionSource === "kb" ? (data["知识点名称"] || data["三级知识点"] || id) : (data["三级知识点"] || id);
+    const description = revisionSource === "kb"
+      ? [data["一级模块"], data["二级模块"], data["三级模块"]].filter(Boolean).join(" / ")
+      : [data["一级模块"], data["二级模块"]].filter(Boolean).join(" / ");
     await client.query(
       `insert into content_knowledge_revision(revision_id,tenant_id,name,description,grade_band,difficulty,mastery_standard,remediation_advice)
        values($1,$2,$3,$4,$5,$6,$7,$8) on conflict (revision_id) do nothing`,
-      [rev, tenantId, data["三级知识点"] || id, [data["一级模块"], data["二级模块"]].filter(Boolean).join(" / "), data["一级模块"] || null, numberDifficulty(data["难度"] ?? "中"), data["掌握标准"] || null, data["补弱建议"] || null],
+      [rev, tenantId, name, description, data["一级模块"] || null, numberDifficulty(data["难度"] ?? "中"), data["掌握标准"] || null, data["补弱建议"] || null],
     );
   } else if (kind === "question_type") {
     await client.query(
@@ -312,10 +352,18 @@ async function executeImport(
     }
   }
   const uniqueRevisions = [...new Set(packageRevisions)];
+  // content_package 有唯一索引 (tenant_id, owner_teacher_user_id, version_no)：
+  // 官方包已占 version_no=1，kb 包必须取下一个空闲版本号。
+  const versionRow = await client.query<{ next_no: string }>(
+    `select coalesce(max(version_no),0)+1 as next_no from content_package where tenant_id=$1 and owner_teacher_user_id=$2`,
+    [tenantId, teacher.userId],
+  );
+  const packageVersion = Number(versionRow.rows[0]!.next_no);
+  const packageTitle = revisionSource === "kb" ? "知识题库·解三角形（文件库导入）" : "MathPilot 官方初始内容库";
   await client.query(
     `insert into content_package(package_id,tenant_id,origin,owner_teacher_user_id,title,version_no,status,manifest_sha256)
-     values($1,$2,'official',$3,'MathPilot 官方初始内容库',1,'ready',$4)
-     on conflict (package_id) do nothing`, [packageId(), tenantId, teacher.userId, hash(Buffer.from(JSON.stringify(manifest.entries)))],
+     values($1,$2,'official',$3,$4,$5,'ready',$6)
+     on conflict (package_id) do nothing`, [packageId(), tenantId, teacher.userId, packageTitle, packageVersion, hash(Buffer.from(JSON.stringify(manifest.entries)))],
   );
   for (const [position, revision] of uniqueRevisions.entries()) {
     await client.query(`insert into content_package_item(tenant_id,package_id,revision_id,item_order) values($1,$2,$3,$4) on conflict do nothing`, [tenantId, packageId(), revision, position]);

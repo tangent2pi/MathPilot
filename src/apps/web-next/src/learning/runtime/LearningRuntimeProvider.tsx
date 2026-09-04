@@ -32,6 +32,7 @@ import type {
   UserSubmittedMessagePart,
 } from "../contracts";
 import { learningApi, learningKeys, newIdempotencyKey } from "../data/client";
+import { TeacherChatRuntimeProvider } from "./TeacherChatRuntime";
 
 const ACTIVE_OPERATION_STATUSES = new Set(["accepted", "running", "needs_input"]);
 
@@ -59,7 +60,9 @@ export function LearningRuntimeProvider({
     );
   }
   return principal
-    ? <AuthenticatedLearningRuntime threadId={threadId}>{children}</AuthenticatedLearningRuntime>
+    ? principal.roles.includes("teacher")
+      ? <TeacherChatRuntimeProvider threadId={threadId}>{children}</TeacherChatRuntimeProvider>
+      : <AuthenticatedLearningRuntime threadId={threadId}>{children}</AuthenticatedLearningRuntime>
     : <GuestRuntimeProvider>{children}</GuestRuntimeProvider>;
 }
 

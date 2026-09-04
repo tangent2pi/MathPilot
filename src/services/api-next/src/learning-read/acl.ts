@@ -10,7 +10,7 @@ export interface LearningSubject {
   actorMode: "self" | "teacher";
 }
 
-export async function ensureOwnStudent(client: pg.PoolClient, principal: Principal): Promise<LearningSubject> {
+export async function ensureOwnStudent(client: pg.PoolClient, principal: { userId: string; tenantId: string; roles: readonly string[] }): Promise<LearningSubject> {
   if (!principal.roles.includes("student")) {
     throw new LearningReadError(403, "student_role_required", "当前账号不是学生账号");
   }
@@ -32,7 +32,7 @@ export async function ensureOwnStudent(client: pg.PoolClient, principal: Princip
 
 export async function resolveLearningSubject(
   client: pg.PoolClient,
-  principal: Principal,
+  principal: { userId: string; tenantId: string; roles: readonly string[] },
   studentHandle?: string,
 ): Promise<LearningSubject> {
   if (!studentHandle) return ensureOwnStudent(client, principal);
@@ -74,7 +74,7 @@ export async function assertThreadAccess(
          on student.tenant_id=thread.tenant_id and student.student_id=thread.student_id
        join identity_user identity
          on identity.tenant_id=student.tenant_id and identity.user_id=student.user_id
-      where thread.tenant_id=$1 and thread.conversation_thread_id=$2`,
+      where thread.tenant_id=$1 and thread.conversation_thread_id=$2 and thread.deleted_at is null`,
     [principal.tenantId, threadId],
   )).rows[0];
   if (!row) throw new LearningReadError(404, "thread_not_found", "对话不存在");

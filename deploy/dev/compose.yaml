@@ -174,6 +174,8 @@ services:
       MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING:?Pi to Content keyring is required}"
       MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING:?Pi to Storage keyring is required}"
       MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING:?Learning to Storage keyring is required}"
+      MATHPILOT_INTERNAL_CONTENT_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_STORAGE_KEYRING:?Content to Storage keyring is required}"
+      MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING:?Content to Group keyring is required}"
     network_mode: none
     read_only: true
     security_opt: [no-new-privileges:true]
@@ -202,6 +204,8 @@ services:
       MODEL_ID_AUX: ${PI_MODEL_ID_AUX:-${MODEL_ID_AUX:?MODEL_ID_AUX is required}}
     volumes:
       - learning_next_runtime:/var/lib/mathpilot/learning-next
+      - ../../src/services/learning-next/skills:/app/src/services/learning-next/skills:ro
+      - ../../src/services/learning-next/src:/app/src/services/learning-next/src:ro
     depends_on:
       official-content-import:
         condition: service_completed_successfully
@@ -278,16 +282,46 @@ services:
       MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_API_TO_CONTENT_KEYRING:?API to Content keyring is required}"
       MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_PI_KEYRING:?Content to Pi keyring is required}"
       MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_CONTENT_KEYRING:?Pi to Content keyring is required}"
+      MATHPILOT_INTERNAL_CONTENT_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_STORAGE_KEYRING:?Content to Storage keyring is required}"
+      MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING:?Content to Group keyring is required}"
       MATHPILOT_INTERNAL_PI_URL: http://pi-chat-runtime:3105
+      MATHPILOT_INTERNAL_STORAGE_URL: http://storage-next:3017
+      MATHPILOT_INTERNAL_GROUP_URL: http://group-next:3018
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
+      OCR_API_BASE: ${OCR_API_BASE:?OCR_API_BASE is required for content OCR}
+      OCR_API_TOKEN: ${OCR_API_TOKEN:?OCR_API_TOKEN is required for content OCR}
+      OCR_MODEL: ${OCR_MODEL:?OCR_MODEL is required for content OCR}
+      MODEL_API_BASE: ${PI_MODEL_API_BASE:-${MODEL_API_BASE:-}}
+      MODEL_API_KEY: ${PI_MODEL_API_KEY:-${MODEL_API_KEY:-}}
+      MODEL_ID_MAIN: ${PI_MODEL_ID_MAIN:-${MODEL_ID_MAIN:-}}
       PORT: "3016"
     depends_on:
       official-content-import:
         condition: service_completed_successfully
+      storage-next:
+        condition: service_started
+      group-next:
+        condition: service_started
       internal-identity-preflight:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:${CONTENT_NEXT_PORT:-3016}:3016"
+
+  # 试卷出片：XeLaTeX+ctex 把已成型试卷编译为 PDF。仅供 content-next 以
+  # content-to-group 边按需调用；PDF 字节由 content-next 经 storage-next 落盘。
+  group-next:
+    build:
+      context: ../..
+      dockerfile: src/services/group-next/Dockerfile
+    environment:
+      MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
+      MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
+      MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING:?Content to Group keyring is required}"
+      PORT: "3018"
+    depends_on:
+      internal-identity-preflight:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
   # MinIO management credentials are confined to this service. It returns
   # short-lived presigned URLs; no URL is persisted in PostgreSQL.
@@ -366,6 +400,8 @@ services:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:${API_PORT:-3101}:3101"
+    volumes:
+      - ../../src/services/api-next/src:/app/src/services/api-next/src:ro
 
 volumes:
   pgdata:

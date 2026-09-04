@@ -3,6 +3,7 @@
 import { ArrowLeftIcon, CheckIcon, ClipboardCheckIcon, LoaderCircleIcon, MessageSquareTextIcon, RotateCcwIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { MathText } from "@/components/assistant-ui/elements/math-text";
 import { useAuth } from "@/auth";
 import { cn } from "@/lib/utils";
 import { contentApi, type CandidateDetail, type CandidateItem } from "@/lib/content-api";
@@ -59,6 +60,8 @@ export function ContentReviewPage({ candidateSetId }: { candidateSetId: string }
   const [revisionId, setRevisionId] = useState("");
   const [fieldName, setFieldName] = useState("");
   const [packageId, setPackageId] = useState<string>();
+  const [approvedGo, setApprovedGo] = useState(false);
+  const [requestedGo, setRequestedGo] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setError("");
@@ -79,27 +82,30 @@ export function ContentReviewPage({ candidateSetId }: { candidateSetId: string }
   }, [load, principal]);
 
   useEffect(() => {
+    // 只有在教师本人刚在本页点击“批准”后才跳转 ER 会话；直接打开已批准批次时
+    // 停留在详情页供查看，避免被自动带回对话。
     const command = detail?.er_start_command;
-    if (!command) return;
+    if (!command || !approvedGo) return;
     if (command.status === "dispatched") {
       window.location.assign(`/c/${encodeURIComponent(command.target_thread_id)}`);
       return;
     }
     const timer = window.setInterval(() => void load(), 2_000);
     return () => window.clearInterval(timer);
-  }, [detail?.er_start_command, load]);
+  }, [approvedGo, detail?.er_start_command, load]);
 
   useEffect(() => {
+    // 同 approve：只有教师刚点击“返回修改”才跳回原会话。
     const decision = detail?.decision;
     const threadId = detail?.candidate.thread_id;
-    if (decision?.decision !== "changes_requested" || !threadId) return;
+    if (decision?.decision !== "changes_requested" || !threadId || !requestedGo) return;
     if (decision.feedback_dispatched_at) {
       window.location.assign(`/c/${encodeURIComponent(threadId)}`);
       return;
     }
     const timer = window.setInterval(() => void load(), 2_000);
     return () => window.clearInterval(timer);
-  }, [detail?.candidate.thread_id, detail?.decision, load]);
+  }, [detail?.candidate.thread_id, detail?.decision, load, requestedGo]);
 
   const activeAnnotations = useMemo(
     () => detail?.annotations.filter((annotation) => annotation.state !== "withdrawn") ?? [],
@@ -142,6 +148,8 @@ export function ContentReviewPage({ candidateSetId }: { candidateSetId: string }
         method: "POST", body: JSON.stringify({ decision }),
       });
       if (result.package_id) setPackageId(result.package_id);
+      if (decision === "approved") setApprovedGo(true);
+      else setRequestedGo(true);
       await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "复核决定提交失败"); }
     finally { setBusy(false); }
@@ -198,8 +206,8 @@ export function ContentReviewPage({ candidateSetId }: { candidateSetId: string }
                           <code className="[overflow-wrap:anywhere]">{item.entity_id}</code>
                           <span>修订 {item.revision_no}</span>
                         </div>
-                        <h4 className="mt-3 whitespace-pre-wrap text-sm font-medium leading-6">{text.title}</h4>
-                        {text.description && <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{text.description}</p>}
+                        <h4 className="mt-3 text-sm font-medium leading-6"><MathText text={text.title} /></h4>
+                        {text.description && <div className="line-clamp-4 mt-2 text-sm leading-6 text-muted-foreground"><MathText text={text.description} /></div>}
                         {[...new Set(sources)].map((source) => <p className="mt-2 text-xs text-muted-foreground" key={source}>来源：{source}</p>)}
                       </button>
                     </article>

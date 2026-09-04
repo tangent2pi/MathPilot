@@ -118,7 +118,7 @@ export class LearningReadService {
                     and message.conversation_thread_id=thread.conversation_thread_id
                   order by message.sequence desc limit 1) as last_message_summary
            from science_v3_conversation_thread thread
-          where thread.tenant_id=$1 and thread.student_id=$2
+          where thread.tenant_id=$1 and thread.student_id=$2 and thread.deleted_at is null
           order by (thread.status='active') desc,thread.updated_at desc`,
         [principal.tenantId, subject.studentId],
       )).rows;

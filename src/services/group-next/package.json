@@ -1,0 +1,19 @@
+{
+  "name": "@mathpilot/group-next",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MathPilot 试卷出片服务：把结构化题目渲染并编译为 PDF（XeLaTeX + ctex）",
+  "scripts": {
+    "start": "node --import tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mathpilot/internal-service": "workspace:*",
+    "fastify": "^5.2.0",
+    "tsx": "4.20.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

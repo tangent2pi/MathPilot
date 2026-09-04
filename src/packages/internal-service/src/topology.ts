@@ -4,6 +4,7 @@ export const INTERNAL_SERVICE_IDS = [
   "learning-next",
   "pi-chat-runtime",
   "storage-next",
+  "group-next",
 ] as const;
 
 export type InternalServiceId = typeof INTERNAL_SERVICE_IDS[number];
@@ -58,6 +59,20 @@ export const INTERNAL_EDGES = {
     audience: "storage-next",
     keyringEnv: "MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING",
     targetUrlEnv: "MATHPILOT_INTERNAL_STORAGE_URL",
+  },
+  "content-to-storage": {
+    id: "content-to-storage",
+    caller: "content-next",
+    audience: "storage-next",
+    keyringEnv: "MATHPILOT_INTERNAL_CONTENT_TO_STORAGE_KEYRING",
+    targetUrlEnv: "MATHPILOT_INTERNAL_STORAGE_URL",
+  },
+  "content-to-group": {
+    id: "content-to-group",
+    caller: "content-next",
+    audience: "group-next",
+    keyringEnv: "MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING",
+    targetUrlEnv: "MATHPILOT_INTERNAL_GROUP_URL",
   },
 } as const satisfies Record<string, Omit<InternalEdgeDefinition, "id"> & { id: string }>;
 

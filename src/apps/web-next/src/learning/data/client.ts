@@ -128,6 +128,13 @@ export const learningApi = {
     );
   },
 
+  deleteThread(thread: ThreadSummary, key = newIdempotencyKey("delete")) {
+    return requestJson<{ thread_id: string; deleted: boolean }>(
+      `/api/learning/threads/${encodeURIComponent(thread.thread_id)}/delete`,
+      commandInit(key, { expected_version: thread.version, requested_at: new Date().toISOString() }),
+    );
+  },
+
   cancelOperation(operationId: string, version: number, key = newIdempotencyKey("cancel")) {
     return requestJson<{ operation_id: string; status: string; version: number }>(
       `/api/learning/operations/${encodeURIComponent(operationId)}/cancel`,
