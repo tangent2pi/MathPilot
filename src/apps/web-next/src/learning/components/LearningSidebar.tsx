@@ -168,15 +168,72 @@ export function LearningSidebar() {
           </span>
         </button>
       </SidebarHeader>
-      <SidebarContent className="soft-scrollbar gap-4 px-2 py-2">
-        <section className="space-y-1" aria-label="对话">
-          <Button
-            variant="ghost"
-            className="h-9 w-full justify-start gap-2 px-2.5 font-normal"
-            onClick={() => navigate("/")}
-          >
-            <PlusIcon className="size-4" />新对话
-          </Button>
+      <SidebarContent className="gap-0 overflow-hidden px-2 py-2">
+        <div className="shrink-0">
+          <section aria-label="对话">
+            <Button
+              variant="ghost"
+              className="h-9 w-full justify-start gap-2 px-2.5 font-normal"
+              onClick={() => navigate("/")}
+            >
+              <PlusIcon className="size-4" aria-hidden="true" />新对话
+            </Button>
+          </section>
+
+          {principal && !isTeacher && (
+            <nav className="mt-2 border-t pt-2" aria-label="学习记录">
+              <div className="text-muted-foreground px-2.5 pb-1 text-xs font-medium">学习记录</div>
+              {learningLinks.map(({ to, label, icon: Icon, end }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={end}
+                  className={({ isActive }) => cn(
+                    "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
+                    isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
+                  )}
+                >
+                  <Icon className="size-4" aria-hidden="true" />{label}
+                </NavLink>
+              ))}
+            </nav>
+          )}
+
+          {principal && isTeacher && (
+            <nav className="mt-2 border-t pt-2" aria-label="教师工具">
+              <div className="text-muted-foreground px-2.5 pb-1 text-xs font-medium">教师工具</div>
+              <NavLink
+                to="/teacher/students"
+                className={({ isActive }) => cn(
+                  "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
+                  isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
+                )}
+              >
+                <UsersIcon className="size-4" aria-hidden="true" />学生
+              </NavLink>
+              <NavLink
+                to="/teacher/library"
+                className={({ isActive }) => cn(
+                  "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
+                  isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
+                )}
+              >
+                <LibraryIcon className="size-4" aria-hidden="true" />我的资料库
+              </NavLink>
+              <NavLink
+                to="/teacher/paper-compose"
+                className={({ isActive }) => cn(
+                  "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
+                  isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
+                )}
+              >
+                <ClipboardListIcon className="size-4" aria-hidden="true" />组卷
+              </NavLink>
+            </nav>
+          )}
+        </div>
+
+        <section className="soft-scrollbar mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto" aria-label="对话记录">
           {isTeacher && threads.length === 0 && (
             <p className="text-muted-foreground px-2.5 py-1.5 text-xs leading-5">
               贴一道具体题目让我讲解最快；需要出新题时把范围说清楚（如“三边已知、用中线长公式”），我会更快回答。
@@ -264,56 +321,6 @@ export function LearningSidebar() {
             })}
           </div>
         </section>
-
-        {principal && (
-          <nav className="border-t pt-3" aria-label="学习记录">
-            <div className="text-muted-foreground px-2.5 pb-1 text-xs font-medium">学习记录</div>
-            {learningLinks.map(({ to, label, icon: Icon, end }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={end}
-                className={({ isActive }) => cn(
-                  "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
-                  isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
-                )}
-              >
-                <Icon className="size-4" />{label}
-              </NavLink>
-            ))}
-            {principal.roles.includes("teacher") && (
-              <>
-                <NavLink
-                  to="/teacher/students"
-                  className={({ isActive }) => cn(
-                    "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
-                    isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
-                  )}
-                >
-                  <UsersIcon className="size-4" />学生
-                </NavLink>
-                <NavLink
-                  to="/teacher/library"
-                  className={({ isActive }) => cn(
-                    "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
-                    isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
-                  )}
-                >
-                  <LibraryIcon className="size-4" />我的资料库
-                </NavLink>
-                <NavLink
-                  to="/teacher/paper-compose"
-                  className={({ isActive }) => cn(
-                    "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
-                    isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
-                  )}
-                >
-                  <ClipboardListIcon className="size-4" />组卷
-                </NavLink>
-              </>
-            )}
-          </nav>
-        )}
       </SidebarContent>
       <SidebarRail />
       <SidebarFooter className="border-t"><AccountMenu /></SidebarFooter>
