@@ -206,6 +206,7 @@ services:
       - learning_next_runtime:/var/lib/mathpilot/learning-next
       # 源码直挂：改代码只需同步文件 + restart，不重建镜像。
       - ../../src:/app/src:ro
+      - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
     depends_on:
       official-content-import:
         condition: service_completed_successfully
@@ -265,6 +266,7 @@ services:
       - pi_chat_runtime:/var/lib/mathpilot/pi-chat
       # 源码直挂：改代码只需同步文件 + restart，不重建镜像。
       - ../../src:/app/src:ro
+      - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
     depends_on:
       pi-db-migrate:
         condition: service_completed_successfully
@@ -303,6 +305,7 @@ services:
       PORT: "3016"
     volumes:
       - ../../src:/app/src:ro
+      - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
     depends_on:
       official-content-import:
         condition: service_completed_successfully
@@ -328,6 +331,7 @@ services:
       PORT: "3018"
     volumes:
       - ../../src:/app/src:ro
+      - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
     depends_on:
       internal-identity-preflight:
         condition: service_completed_successfully
@@ -356,6 +360,7 @@ services:
     volumes:
       # 源码直挂：改代码只需同步文件 + restart，不重建镜像。
       - ../../src:/app/src:ro
+      - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
     depends_on:
       db-seed:
         condition: service_completed_successfully
@@ -419,6 +424,7 @@ services:
       - "127.0.0.1:${API_PORT:-3101}:3101"
     volumes:
       - ../../src:/app/src:ro
+      - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
 
 volumes:
   pgdata:
