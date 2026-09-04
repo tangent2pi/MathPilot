@@ -52,6 +52,38 @@ type StreamingState = {
   tools: ReadonlyMap<string, StreamingToolState>;
 };
 
+type SettledTimeline = {
+  thinking: string;
+  tools: Array<{ name: string; state: "done" | "error" }>;
+  settledAt: string;
+};
+
+const TIMELINE_STORAGE_PREFIX = "mathpilot.stream-timeline";
+const TIMELINE_STORAGE_LIMIT = 40;
+
+function readSettledTimelines(threadId: string | null): ReadonlyMap<string, SettledTimeline> {
+  if (!threadId) return new Map();
+  try {
+    const raw = sessionStorage.getItem(`${TIMELINE_STORAGE_PREFIX}:${threadId}`);
+    if (!raw) return new Map();
+    const value = JSON.parse(raw) as Record<string, SettledTimeline>;
+    return new Map(Object.entries(value).filter(([, timeline]) =>
+      timeline && Array.isArray(timeline.tools)
+      && typeof timeline.thinking === "string" && typeof timeline.settledAt === "string"));
+  } catch {
+    return new Map();
+  }
+}
+
+function persistSettledTimelines(threadId: string, timelines: ReadonlyMap<string, SettledTimeline>): void {
+  try {
+    const entries = [...timelines.entries()].slice(-TIMELINE_STORAGE_LIMIT);
+    sessionStorage.setItem(`${TIMELINE_STORAGE_PREFIX}:${threadId}`, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // 展示投影的本地持久化失败不影响聊天。
+  }
+}
+
 export function LearningRuntimeProvider({
   threadId,
   children,
@@ -86,6 +118,9 @@ function AuthenticatedLearningRuntime({
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<PendingMessage | null>(null);
   const [streamingByOperation, setStreamingByOperation] = useState<ReadonlyMap<string, StreamingState>>(new Map());
+  const [settledTimelines, setSettledTimelines] = useState<ReadonlyMap<string, SettledTimeline>>(
+    () => readSettledTimelines(threadId ?? null),
+  );
   const attachmentAdapter = useMemo(() => new UnifiedAttachmentAdapter(), []);
   const query = useQuery({
     queryKey: threadId ? learningKeys.thread(threadId) : ["learning", "thread", "new"],
@@ -97,6 +132,42 @@ function AuthenticatedLearningRuntime({
   const view = query.data;
   const operations = view?.data.operations ?? [];
   const activeOperation = [...operations].find((operation) => ACTIVE_OPERATION_STATUSES.has(operation.status));
+
+  // 线程切换时载入该线程已固化的工具时间线。
+  useEffect(() => {
+    setSettledTimelines(readSettledTimelines(threadId ?? null));
+  }, [threadId]);
+
+  // 流式操作离开活跃集（完成/失败/取消）时，把工具/思考轨迹固化为只读块
+  // 并持久到 sessionStorage，避免刷新或回复完成后时间线消失。
+  useEffect(() => {
+    if (!threadId) return;
+    const activeIds = new Set(
+      operations.filter((operation) => ACTIVE_OPERATION_STATUSES.has(operation.status))
+        .map((operation) => operation.operation_id),
+    );
+    const finalized = [...streamingByOperation.entries()]
+      .filter(([operationId]) => !activeIds.has(operationId))
+      .map(([operationId, streaming]) => [operationId, {
+        thinking: streaming.thinking.slice(0, 2000),
+        tools: [...streaming.tools.values()]
+          .filter((tool) => tool.state !== "start")
+          .map((tool) => ({ name: tool.name, state: tool.state as "done" | "error" })),
+        settledAt: new Date().toISOString(),
+      }] as const);
+    if (finalized.length === 0) return;
+    setSettledTimelines((previous) => {
+      const next = new Map(previous);
+      for (const [operationId, timeline] of finalized) next.set(operationId, timeline);
+      persistSettledTimelines(threadId, next);
+      return next;
+    });
+    setStreamingByOperation((current) => {
+      const next = new Map(current);
+      for (const [operationId] of finalized) next.delete(operationId);
+      return next;
+    });
+  }, [operations, streamingByOperation, threadId]);
 
   const onForegroundDelta = useCallback((
     operationId: string,
@@ -165,48 +236,18 @@ function AuthenticatedLearningRuntime({
       items.push(pending.message);
     }
     // 前台教学的流式展示投影：操作仍活跃时叠加增量气泡（工具/推理/正文
-    // 三通道实时可见）；权威消息落库后操作离开活跃集，气泡随之消失。
+    // 三通道实时可见）。
     if (activeOperation?.kind === "foreground_teaching") {
       const streaming = streamingByOperation.get(activeOperation.operation_id);
       if (streaming && (streaming.text.length > 0 || streaming.thinking.length > 0 || streaming.tools.size > 0)) {
-        const content: ThreadAssistantMessagePart[] = [];
-        for (const [id, tool] of streaming.tools) {
-          content.push({
-            type: "tool-call",
-            toolCallId: id,
-            toolName: `mathpilot.workspace.${tool.name}`,
-            args: {},
-            argsText: "",
-            ...(tool.state === "done" ? { result: { status: "done" as const } }
-              : tool.state === "error" ? { result: { status: "error" as const }, isError: true }
-              : { status: { type: "running" as const } }),
-          });
-        }
-        if (streaming.thinking.length > 0) {
-          content.push({
-            type: "reasoning",
-            text: streaming.thinking,
-            status: { type: "running" },
-          });
-        }
-        if (streaming.text.length > 0) {
-          content.push({ type: "text", text: streaming.text });
-        }
-        items.push({
-          id: `delta:${activeOperation.operation_id}`,
-          role: "assistant",
-          createdAt: new Date(activeOperation.started_at),
-          content,
-          status: { type: "running" },
-          metadata: {
-            unstable_state: null,
-            unstable_annotations: [],
-            unstable_data: [],
-            steps: [],
-            custom: { streamingDelta: true, operationId: activeOperation.operation_id },
-          },
-        });
+        items.push(streamingTimelineMessage(activeOperation.operation_id, new Date(activeOperation.started_at), streaming));
       }
+    }
+    // 已固化（终态）的流式轨迹：回复完成后工具/思考记录依然可见（本地持久）。
+    for (const [operationId, timeline] of settledTimelines) {
+      const operation = operations.find((candidate) => candidate.operation_id === operationId);
+      if (!operation || operation.kind !== "foreground_teaching") continue;
+      items.push(settledTimelineMessage(operationId, new Date(timeline.settledAt), timeline));
     }
     return items.sort((left, right) => {
       const time = left.createdAt.getTime() - right.createdAt.getTime();
@@ -540,4 +581,79 @@ function GuestRuntimeProvider({ children }: { children: ReactNode }) {
   }), [requireAuth]);
   const runtime = useLocalRuntime(adapter);
   return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+}
+
+function streamingTimelineMessage(
+  operationId: string,
+  createdAt: Date,
+  streaming: StreamingState,
+): ThreadMessage {
+  const content: ThreadAssistantMessagePart[] = [];
+  for (const [id, tool] of streaming.tools) {
+    content.push({
+      type: "tool-call",
+      toolCallId: id,
+      toolName: `mathpilot.workspace.${tool.name}`,
+      args: {},
+      argsText: `tool ${tool.name}`,
+      ...(tool.state === "done"
+        ? { result: { status: "done" as const }, status: { type: "complete" as const } }
+        : tool.state === "error"
+          ? { result: { status: "error" as const }, isError: true, status: { type: "complete" as const } }
+          : { status: { type: "running" as const } }),
+    });
+  }
+  if (streaming.thinking.length > 0) {
+    content.push({ type: "reasoning", text: streaming.thinking, status: { type: "running" } });
+  }
+  if (streaming.text.length > 0) {
+    content.push({ type: "text", text: streaming.text });
+  }
+  return {
+    id: `delta:${operationId}`,
+    role: "assistant",
+    createdAt,
+    content,
+    status: { type: "running" },
+    metadata: {
+      unstable_state: null,
+      unstable_annotations: [],
+      unstable_data: [],
+      steps: [],
+      custom: { streamingDelta: true, operationId },
+    },
+  };
+}
+
+function settledTimelineMessage(operationId: string, createdAt: Date, timeline: SettledTimeline): ThreadMessage {
+  const content: ThreadAssistantMessagePart[] = [];
+  for (const [index, tool] of timeline.tools.entries()) {
+    content.push({
+      type: "tool-call",
+      toolCallId: `${operationId}:tool:${index}`,
+      toolName: `mathpilot.workspace.${tool.name}`,
+      args: {},
+      argsText: `tool ${tool.name}`,
+      ...(tool.state === "done"
+        ? { result: { status: "done" as const }, status: { type: "complete" as const } }
+        : { result: { status: "error" as const }, isError: true, status: { type: "complete" as const } }),
+    });
+  }
+  if (timeline.thinking.length > 0) {
+    content.push({ type: "reasoning", text: timeline.thinking, status: { type: "complete" as const } });
+  }
+  return {
+    id: `settled:${operationId}`,
+    role: "assistant",
+    createdAt,
+    content,
+    status: { type: "complete", reason: "stop" },
+    metadata: {
+      unstable_state: null,
+      unstable_annotations: [],
+      unstable_data: [],
+      steps: [],
+      custom: { settledTimeline: true, operationId },
+    },
+  };
 }
