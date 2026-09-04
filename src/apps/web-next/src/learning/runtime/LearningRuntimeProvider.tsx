@@ -345,10 +345,22 @@ function canonicalMessage(
       metadata: { custom: { canonical: true, version: message.version, editable: message.editable, lockReason: message.lock_reason } },
     };
   }
-  // 工具时间线置于正文之前：先过程、后结果。
-  const toolParts: ThreadAssistantMessagePart[] = message.parts.flatMap((part) =>
-    part.type === "tool_trace"
-      ? part.items.map<ThreadAssistantMessagePart>((tool, index) => ({
+  return {
+    id: message.message_id,
+    role: "assistant",
+    createdAt,
+    content: message.parts.flatMap<ThreadAssistantMessagePart>((part) => {
+      if (part.type === "text") return [{ type: "text", text: part.text }];
+      if (part.type === "attachment") return [{
+        type: "file", data: part.attachment_ref, filename: part.name,
+        mimeType: part.mime_type, sourceType: "id",
+      }];
+      if (part.type === "domain_ui") {
+        return [{ type: "data", name: "mathpilot-domain-ui", data: presentDomainPart(part.part, supersededJudgments) }];
+      }
+      if (part.type === "tool_trace") {
+        // 权威工具轨迹 → assistant-ui tool-call parts（消息内原生渲染，跨刷新持久）。
+        return part.items.map<ThreadAssistantMessagePart>((tool, index) => ({
           type: "tool-call",
           toolCallId: `tool:${index}`,
           toolName: `mathpilot.workspace.${tool.name}`,
@@ -357,26 +369,10 @@ function canonicalMessage(
           ...(tool.state === "done"
             ? { result: { status: "done" as const }, status: { type: "complete" as const } }
             : { result: { status: "error" as const }, isError: true, status: { type: "complete" as const } }),
-        }))
-      : [],
-  );
-  const bodyParts: ThreadAssistantMessagePart[] = message.parts.flatMap<ThreadAssistantMessagePart>((part) => {
-    if (part.type === "tool_trace") return [];
-    if (part.type === "text") return [{ type: "text", text: part.text }];
-    if (part.type === "attachment") return [{
-      type: "file", data: part.attachment_ref, filename: part.name,
-      mimeType: part.mime_type, sourceType: "id",
-    }];
-    if (part.type === "domain_ui") {
-      return [{ type: "data", name: "mathpilot-domain-ui", data: presentDomainPart(part.part, supersededJudgments) }];
-    }
-    return [{ type: "data", name: "mathpilot-teaching-artifact", data: part }];
-  });
-  return {
-    id: message.message_id,
-    role: "assistant",
-    createdAt,
-    content: [...toolParts, ...bodyParts],
+        }));
+      }
+      return [{ type: "data", name: "mathpilot-teaching-artifact", data: part }];
+    }),
     status: message.lifecycle === "streaming"
       ? { type: "running" }
       : message.lifecycle === "failed"
@@ -531,11 +527,6 @@ function streamingTimelineMessage(
   streaming: StreamingState,
 ): ThreadMessage {
   const content: ThreadAssistantMessagePart[] = [];
-  // 思考（含 respond 前的过程性文本）先于工具步骤；正文由权威 canonical 提供，
-  // live 阶段不注入正文（避免两套对话信息）。
-  if (streaming.thinking.length > 0) {
-    content.push({ type: "reasoning", text: streaming.thinking, status: { type: "running" } });
-  }
   for (const [id, tool] of streaming.tools) {
     content.push({
       type: "tool-call",
@@ -549,6 +540,12 @@ function streamingTimelineMessage(
           ? { result: { status: "error" as const }, isError: true, status: { type: "complete" as const } }
           : { status: { type: "running" as const } }),
     });
+  }
+  if (streaming.thinking.length > 0) {
+    content.push({ type: "reasoning", text: streaming.thinking, status: { type: "running" } });
+  }
+  if (streaming.text.length > 0) {
+    content.push({ type: "text", text: streaming.text });
   }
   return {
     id: `delta:${operationId}`,
