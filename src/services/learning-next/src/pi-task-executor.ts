@@ -457,7 +457,8 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         const name = typeof toolEvent.toolName === "string" ? toolEvent.toolName : "tool";
         const id = typeof toolEvent.toolCallId === "string" ? toolEvent.toolCallId : name;
         const state = toolEvent.isError ? "error" as const : "done" as const;
-        executedTools.set(id, { name, state });
+        // respond 是任务收尾的协议工具，不是用户可见动作：不进工具轨迹。
+        if (name !== "respond") executedTools.set(id, { name, state });
         onDelta("tool", JSON.stringify({ name, state, id }));
       }
     });
