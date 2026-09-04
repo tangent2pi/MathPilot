@@ -736,3 +736,21 @@ nix develop path:/home/tangent/MathPilot -c pnpm test
 8. 明确声明必需项没有剩余工作。
 
 在这些证据形成前保持 Goal active，不以阶段性总结替代真实终态。
+
+## 15. 前台流式裁决（2026-09-04 修订，并入队友产品线）
+
+原裁决（next 分支 2e60e5e）禁止把前台流式折叠回后台工作流、禁止手写
+token reducer，并以 Pi 原生 AgentSession 作为前台运行时。团队产品线
+（0904 包）保留 Temporal 后台工作流执行前台教学，本次合并按路径 1 修订：
+
+- **流式增量仅作展示投影**：增量写入 transient 表
+  `science_v3_foreground_live_delta`（0056），不进入 outbox、不参与
+  科学状态计算；权威事实仍是 `science_v3_canonical_message` + PostgreSQL。
+- 增量由 Pi SDK session 事件（message_start/update/end）提取，经
+  api-next `/api/learning/events` 以 `foreground.delta` 事件转发，
+  前端按 (operation_id, sequence) 去重、以权威消息全量刷新兜底。
+- 禁止任何路径把 delta 当作领域事实：不得从 delta 重建 artifact、
+  判定或状态；权威消息落库后前端必须以权威投影覆盖增量气泡。
+- 交互式前台运行时（interactive epoch、pi_session、pi-gateway）不并入
+  本线，保留在 next 分支；如需原生 AgentSession 流式（工具事件、取消、
+  快照），以独立分支对齐后再裁决。
