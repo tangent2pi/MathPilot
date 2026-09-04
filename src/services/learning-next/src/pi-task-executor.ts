@@ -459,13 +459,30 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
     });
     const onAbort = () => void session.abort();
     request.signal.addEventListener("abort", onAbort, { once: true });
+    // Watchdog：respond 已被接受（structuredOutput 已冻结）但会话未在 90s 内
+    // 正常收敛时（部分模型端点 respond 后不发送结束事件），abort 会话并以
+    // 已冻结的结果继续完成——避免整条 activity 挂到超时、用户看到假卡死。
+    const respondWatchdog = setTimeout(() => {
+      if (structuredOutput !== undefined) {
+        console.error("[pi-debug] respond accepted but session did not settle; aborting session");
+        void session.abort();
+      }
+    }, 90_000);
     try {
-      await session.prompt([
-        `Frozen input reference: ${request.inputRef}`,
-        "Frozen input bundle:",
-        JSON.stringify(request.inputBundle),
-        `Return a value matching ${request.taskSpec.output_schema} through respond.`,
-      ].join("\n"));
+      try {
+        await session.prompt([
+          `Frozen input reference: ${request.inputRef}`,
+          "Frozen input bundle:",
+          JSON.stringify(request.inputBundle),
+          `Return a value matching ${request.taskSpec.output_schema} through respond.`,
+        ].join("\n"));
+      } catch (promptError) {
+        if (structuredOutput === undefined) throw promptError;
+        console.error("[pi-debug] session ended with error after respond was accepted; continuing with the frozen result",
+          String(promptError));
+      } finally {
+        clearTimeout(respondWatchdog);
+      }
       if (structuredOutput === undefined) {
         console.error(`[pi-debug] session ended WITHOUT respond (${request.taskSpec.task_type}); last messages:`,
           JSON.stringify(session.messages.slice(-4).map((m: any) => ({
