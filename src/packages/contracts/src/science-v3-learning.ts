@@ -75,7 +75,9 @@ export type CanonicalMessagePart =
   | { type: "text"; text: string }
   | { type: "attachment"; attachment_ref: string; name: string; mime_type: string }
   | { type: "domain_ui"; part: DomainUIPart }
-  | TeachingArtifactReferencePart;
+  | TeachingArtifactReferencePart
+  // 前台教学回复的真实工具轨迹（权威展示事实；不参与科学状态）。
+  | { type: "tool_trace"; items: readonly { name: string; state: "done" | "error" }[] };
 
 export type UserSubmittedMessagePart = Extract<CanonicalMessagePart, { type: "text" | "attachment" }>;
 

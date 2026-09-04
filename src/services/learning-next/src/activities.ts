@@ -95,6 +95,7 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
           resolvedModelId: result.resolvedModelId,
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
+          ...(result.toolTrace ? { toolTrace: result.toolTrace } : {}),
         });
         context.heartbeat({ stage: "complete", attemptId, outputRef });
         return { outputRef, resolvedModelId: result.resolvedModelId, inputTokens: result.inputTokens, outputTokens: result.outputTokens };

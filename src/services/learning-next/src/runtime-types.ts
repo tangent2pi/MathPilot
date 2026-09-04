@@ -433,6 +433,8 @@ export interface PiExecutorResult {
   resolvedModelId: string;
   inputTokens: number;
   outputTokens: number;
+  /** 会话中真实执行完成的工具轨迹（权威展示事实）。 */
+  toolTrace?: readonly { name: string; state: "done" | "error" }[];
 }
 
 export interface PiTaskExecutor {

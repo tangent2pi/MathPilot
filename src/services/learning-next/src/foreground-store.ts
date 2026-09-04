@@ -197,8 +197,8 @@ export class PostgresForegroundStore implements ForegroundStore {
         throw new Error("foreground output artifact is missing or has the wrong schema");
       }
       verifiedArtifactPayload(artifact, "foreground output");
-      const producingAttempt = (await client.query<{ agent_attempt_id: string }>(
-        `select agent_attempt_id from science_v3_agent_attempt
+      const producingAttempt = (await client.query<{ agent_attempt_id: string; tool_trace: unknown }>(
+        `select agent_attempt_id, tool_trace from science_v3_agent_attempt
           where tenant_id=$1 and operation_id=$2 and output_ref=$3 and status='succeeded'`,
         [input.tenantId, input.operationId, input.outputRef],
       )).rows[0];
@@ -208,6 +208,17 @@ export class PostgresForegroundStore implements ForegroundStore {
         foregroundEpochId: request.foreground_epoch_id,
         replyToMessageId: request.triggering_message_id,
       });
+      // 真实工具轨迹（权威展示事实）作为消息一部分随回复落库；
+      // 前端按 assistant-ui 消息模型渲染 tool-call parts。
+      const toolTrace = Array.isArray(producingAttempt.tool_trace)
+        ? producingAttempt.tool_trace.filter((tool): tool is { name: string; state: "done" | "error" } =>
+            Boolean(tool) && typeof tool === "object" && typeof (tool as { name?: unknown }).name === "string"
+            && ((tool as { state?: unknown }).state === "done" || (tool as { state?: unknown }).state === "error"))
+        : [];
+      const messageParts = toolTrace.length > 0
+        ? [...output.parts, { type: "tool_trace", items: toolTrace }]
+        : output.parts;
+
       const presented = (await client.query<{
         result_resource_ref: string; action_payload: Record<string, unknown>;
       }>(
@@ -229,7 +240,7 @@ export class PostgresForegroundStore implements ForegroundStore {
       const committed = (await client.query<{ canonical_message_id: string; thread_version: string; created: boolean }>(
         `select * from mathpilot_science_v3_commit_foreground_response($1,$2,$3,$4::jsonb,$5,$6)`,
         [input.tenantId, request.foreground_request_id, responseMessageId,
-          JSON.stringify(output.parts), input.outputRef, new Date().toISOString()],
+          JSON.stringify(messageParts), input.outputRef, new Date().toISOString()],
       )).rows[0]!;
       return {
         responseMessageId: committed.canonical_message_id,

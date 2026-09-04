@@ -424,6 +424,8 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
     // 增量源为事件级通道：message_update.assistantMessageEvent 的
     // text_delta/thinking_delta/toolcall_end，以及 tool_execution_end。
     let deltaSequence = 0;
+    // 工具轨迹（权威展示事实）：真实执行结束的工具 → 随结果返回、随回复落 canonical。
+    const executedTools = new Map<string, { name: string; state: "done" | "error" }>();
     const onDelta = (kind: "text" | "thinking" | "tool", delta: string): void => {
       if (!request.onForegroundDelta) return;
       const sequence = deltaSequence++;
@@ -454,7 +456,9 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         const toolEvent = event as unknown as { toolCallId?: unknown; toolName?: unknown; isError?: unknown };
         const name = typeof toolEvent.toolName === "string" ? toolEvent.toolName : "tool";
         const id = typeof toolEvent.toolCallId === "string" ? toolEvent.toolCallId : name;
-        onDelta("tool", JSON.stringify({ name, state: toolEvent.isError ? "error" : "done", id }));
+        const state = toolEvent.isError ? "error" as const : "done" as const;
+        executedTools.set(id, { name, state });
+        onDelta("tool", JSON.stringify({ name, state, id }));
       }
     });
     const onAbort = () => void session.abort();
@@ -501,6 +505,7 @@ export class PiSdkTaskExecutor implements PiTaskExecutor {
         resolvedModelId: model.id,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
+        ...(executedTools.size > 0 ? { toolTrace: [...executedTools.values()] } : {}),
       };
     } finally {
       request.signal.removeEventListener("abort", onAbort);

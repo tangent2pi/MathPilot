@@ -358,6 +358,19 @@ function canonicalMessage(
       if (part.type === "domain_ui") {
         return [{ type: "data", name: "mathpilot-domain-ui", data: presentDomainPart(part.part, supersededJudgments) }];
       }
+      if (part.type === "tool_trace") {
+        // 权威工具轨迹 → assistant-ui tool-call parts（消息内原生渲染，跨刷新持久）。
+        return part.items.map<ThreadAssistantMessagePart>((tool, index) => ({
+          type: "tool-call",
+          toolCallId: `tool:${index}`,
+          toolName: `mathpilot.workspace.${tool.name}`,
+          args: {},
+          argsText: `tool ${tool.name}`,
+          ...(tool.state === "done"
+            ? { result: { status: "done" as const }, status: { type: "complete" as const } }
+            : { result: { status: "error" as const }, isError: true, status: { type: "complete" as const } }),
+        }));
+      }
       return [{ type: "data", name: "mathpilot-teaching-artifact", data: part }];
     }),
     status: message.lifecycle === "streaming"

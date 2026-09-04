@@ -25,6 +25,8 @@ export interface AttemptCompletion {
   resolvedModelId: string;
   inputTokens: number;
   outputTokens: number;
+  /** 前台任务真实工具轨迹（权威展示事实，随回复落 canonical）。 */
+  toolTrace?: readonly { name: string; state: "done" | "error" }[];
 }
 
 export interface RuntimeStore {
@@ -254,9 +256,12 @@ export class PostgresRuntimeStore implements RuntimeStore {
       await client.query(
         `update science_v3_agent_attempt
             set status='succeeded', output_ref=$3, resolved_model_id=$4,
-                input_tokens=$5, output_tokens=$6, completed_at=clock_timestamp()
+                input_tokens=$5, output_tokens=$6,
+                tool_trace=$7, completed_at=clock_timestamp()
           where tenant_id=$1 and agent_attempt_id=$2 and status='started'`,
-        [tenantId, agentAttemptId, completion.outputRef, completion.resolvedModelId, completion.inputTokens, completion.outputTokens],
+        [tenantId, agentAttemptId, completion.outputRef, completion.resolvedModelId,
+          completion.inputTokens, completion.outputTokens,
+          completion.toolTrace ? JSON.stringify(completion.toolTrace) : null],
       );
     });
   }
