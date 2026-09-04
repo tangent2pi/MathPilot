@@ -223,6 +223,10 @@ services:
     build:
       context: ../..
       dockerfile: src/services/pi-chat-runtime/Dockerfile
+      args:
+        # 可选构建代理（Tailscale 到开发机的 7897）；默认空 = 不代理。
+        http_proxy: ${BUILD_HTTP_PROXY:-}
+        https_proxy: ${BUILD_HTTPS_PROXY:-}
     security_opt:
       - no-new-privileges:true
       - seccomp=unconfined

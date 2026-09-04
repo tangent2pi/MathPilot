@@ -1,6 +1,11 @@
 # syntax=docker/dockerfile:1.7
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production
+# 构建代理（可选）：compose build args http_proxy/https_proxy 注入；
+# 默认不代理，等于未配置。Dockerfile 内不再无脑 unset 代理，仅当代理
+# 指向 127.0.0.1/localhost（本机不可达的死代理）时才清理。
+ARG http_proxy
+ARG https_proxy
 # apt 源换成阿里云镜像(http:基础镜像无 ca-certificates,https 会证书校验失败;apt 靠 keyring 校验签名)。
 # pip 走阿里云源(实测清华/中科大 TLS 超时不可达,阿里云可正常 build-isolation 装 setuptools>=77)。
 ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
@@ -15,8 +20,9 @@ COPY references/qwen-mm-plugins /opt/qwen-mm-plugins-src
 # bubblewrap/socat 是该运行时在 Linux 上的依赖,不在项目中手写参数。
 # Docker Desktop 会把 ~/.docker/config.json 里的 127.0.0.1:7897 代理注入构建容器,
 # 容器内连不上宿主机代理,apt/pip/pnpm 会全部失败;故每个网络 RUN 先清掉这些变量,直连国内源。
-RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_PROXY; \
-    export no_proxy="*" NO_PROXY="*"; \
+RUN export HTTP_PROXY="${http_proxy:-}" HTTPS_PROXY="${https_proxy:-}" http_proxy="${http_proxy:-}" https_proxy="${https_proxy:-}"; \
+    case "${http_proxy}" in http://127.0.0.1:*|http://localhost:*) unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_PROXY;; esac; \
+    export no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost"; \
     sed -i \
       -e 's|http://deb.debian.org/debian-security|http://mirrors.aliyun.com/debian-security|g' \
       -e 's|http://deb.debian.org/debian|http://mirrors.aliyun.com/debian|g' \
@@ -29,8 +35,9 @@ RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_
     rm -rf /var/lib/apt/lists/*
 
 # Python venv 与插件安装拆到独立层,后续只调 pip 源/依赖时不用重跑上面的 apt。
-RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_PROXY; \
-    export no_proxy="*" NO_PROXY="*"; \
+RUN export HTTP_PROXY="${http_proxy:-}" HTTPS_PROXY="${https_proxy:-}" http_proxy="${http_proxy:-}" https_proxy="${https_proxy:-}"; \
+    case "${http_proxy}" in http://127.0.0.1:*|http://localhost:*) unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_PROXY;; esac; \
+    export no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost"; \
     python3 -m venv /opt/qwen-mm && \
     /opt/qwen-mm/bin/pip install --no-cache-dir --timeout 180 --retries 15 '/opt/qwen-mm-plugins-src[core,search]' && \
     python3 -m venv /opt/paddleocr-mcp && \
@@ -46,14 +53,16 @@ COPY src/packages/internal-service/package.json ./src/packages/internal-service/
 COPY src/services/pi-chat-runtime/package.json ./src/services/pi-chat-runtime/package.json
 # corepack 与 pnpm 走国内 npm 镜像，规避容器内 registry.npmjs.org 的 TLS 断连。
 ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
-RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_PROXY; \
-    export no_proxy="*" NO_PROXY="*"; \
+RUN export HTTP_PROXY="${http_proxy:-}" HTTPS_PROXY="${https_proxy:-}" http_proxy="${http_proxy:-}" https_proxy="${https_proxy:-}"; \
+    case "${http_proxy}" in http://127.0.0.1:*|http://localhost:*) unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_PROXY;; esac; \
+    export no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost"; \
     npm config set registry https://registry.npmmirror.com && \
     corepack enable && \
     corepack pnpm config set registry https://registry.npmmirror.com
 RUN --mount=type=cache,id=mathpilot-next-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \
-    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_PROXY; \
-    export no_proxy="*" NO_PROXY="*"; \
+    export HTTP_PROXY="${http_proxy:-}" HTTPS_PROXY="${https_proxy:-}" http_proxy="${http_proxy:-}" https_proxy="${https_proxy:-}"; \
+    case "${http_proxy}" in http://127.0.0.1:*|http://localhost:*) unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_PROXY;; esac; \
+    export no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost"; \
     corepack pnpm install --frozen-lockfile --ignore-scripts --filter @mathpilot/pi-chat-runtime... && \
     corepack pnpm --filter @mathpilot/pi-chat-runtime rebuild esbuild
 
