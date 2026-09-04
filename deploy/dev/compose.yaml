@@ -205,7 +205,11 @@ services:
     volumes:
       - learning_next_runtime:/var/lib/mathpilot/learning-next
       # 源码直挂：改代码只需同步文件 + restart，不重建镜像。
-      - ../../src:/app/src:ro
+      - ../../src/services/learning-next/src:/app/src/services/learning-next/src:ro
+      - ../../src/services/learning-next/skills:/app/src/services/learning-next/skills:ro
+      - ../../src/packages/contracts/src:/app/src/packages/contracts/src:ro
+      - ../../src/packages/content-integrity/src:/app/src/packages/content-integrity/src:ro
+      - ../../src/packages/internal-service/src:/app/src/packages/internal-service/src:ro
       - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
     depends_on:
       official-content-import:
@@ -265,7 +269,10 @@ services:
     volumes:
       - pi_chat_runtime:/var/lib/mathpilot/pi-chat
       # 源码直挂：改代码只需同步文件 + restart，不重建镜像。
-      - ../../src:/app/src:ro
+      - ../../src/services/pi-chat-runtime/src:/app/src/services/pi-chat-runtime/src:ro
+      - ../../src/packages/contracts/src:/app/src/packages/contracts/src:ro
+      - ../../src/packages/content-integrity/src:/app/src/packages/content-integrity/src:ro
+      - ../../src/packages/internal-service/src:/app/src/packages/internal-service/src:ro
       - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
     depends_on:
       pi-db-migrate:
@@ -304,7 +311,10 @@ services:
       MODEL_ID_MAIN: ${PI_MODEL_ID_MAIN:-${MODEL_ID_MAIN:-}}
       PORT: "3016"
     volumes:
-      - ../../src:/app/src:ro
+      - ../../src/services/content-next/src:/app/src/services/content-next/src:ro
+      - ../../src/packages/contracts/src:/app/src/packages/contracts/src:ro
+      - ../../src/packages/content-integrity/src:/app/src/packages/content-integrity/src:ro
+      - ../../src/packages/internal-service/src:/app/src/packages/internal-service/src:ro
       - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
     depends_on:
       official-content-import:
@@ -330,7 +340,10 @@ services:
       MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_GROUP_KEYRING:?Content to Group keyring is required}"
       PORT: "3018"
     volumes:
-      - ../../src:/app/src:ro
+      - ../../src/services/group-next/src:/app/src/services/group-next/src:ro
+      - ../../src/packages/contracts/src:/app/src/packages/contracts/src:ro
+      - ../../src/packages/content-integrity/src:/app/src/packages/content-integrity/src:ro
+      - ../../src/packages/internal-service/src:/app/src/packages/internal-service/src:ro
       - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
     depends_on:
       internal-identity-preflight:
@@ -359,7 +372,10 @@ services:
       PORT: "3017"
     volumes:
       # 源码直挂：改代码只需同步文件 + restart，不重建镜像。
-      - ../../src:/app/src:ro
+      - ../../src/services/storage-next/src:/app/src/services/storage-next/src:ro
+      - ../../src/packages/contracts/src:/app/src/packages/contracts/src:ro
+      - ../../src/packages/content-integrity/src:/app/src/packages/content-integrity/src:ro
+      - ../../src/packages/internal-service/src:/app/src/packages/internal-service/src:ro
       - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
     depends_on:
       db-seed:
@@ -423,7 +439,10 @@ services:
     ports:
       - "127.0.0.1:${API_PORT:-3101}:3101"
     volumes:
-      - ../../src:/app/src:ro
+      - ../../src/services/api/src:/app/src/services/api/src:ro
+      - ../../src/packages/contracts/src:/app/src/packages/contracts/src:ro
+      - ../../src/packages/content-integrity/src:/app/src/packages/content-integrity/src:ro
+      - ../../src/packages/internal-service/src:/app/src/packages/internal-service/src:ro
       - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
 
 volumes:
