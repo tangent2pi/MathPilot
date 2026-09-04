@@ -9,8 +9,7 @@ ENV PIP_DEFAULT_TIMEOUT=180
 
 # 固定使用仓库中已审计的 Qwen-MM-Plugins 副本；镜像构建不联网拉另一份源码。
 COPY references/qwen-mm-plugins /opt/qwen-mm-plugins-src
-# paddleocr-mcp 完整依赖的在容器外预下载闭包，构建期离线安装，规避容器内不稳定外网。
-COPY wheelhouse /opt/wheelhouse
+# paddleocr-mcp 从 PIP_INDEX_URL（阿里云镜像）在线安装；不需要本机预下载的 wheelhouse 闭包。
 
 # Pi 文件工具与 Core/Search/OCR 全部由官方 Sandbox Runtime 启动。
 # bubblewrap/socat 是该运行时在 Linux 上的依赖,不在项目中手写参数。
@@ -36,7 +35,7 @@ RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ftp_proxy all_proxy ALL_
     python3 -m venv /opt/qwen-mm && \
     /opt/qwen-mm/bin/pip install --no-cache-dir --timeout 180 --retries 15 '/opt/qwen-mm-plugins-src[core,search]' && \
     python3 -m venv /opt/paddleocr-mcp && \
-    /opt/paddleocr-mcp/bin/pip install --no-cache-dir --no-index --find-links=/opt/wheelhouse --timeout 180 --retries 15 'paddleocr-mcp==0.8.5' && \
+    /opt/paddleocr-mcp/bin/pip install --no-cache-dir --timeout 180 --retries 15 'paddleocr-mcp==0.8.5' && \
     mkdir -p /tmp/qwen-mm-search && chmod 1777 /tmp/qwen-mm-search
 
 WORKDIR /app
