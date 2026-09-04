@@ -127,7 +127,9 @@ function AuthenticatedLearningRuntime({
     queryFn: () => learningApi.threadMessages(threadId!),
     enabled: Boolean(threadId),
     retry: 1,
-    refetchInterval: (state) => hasActiveOperation(state.state.data) ? 1_200 : false,
+    // SSE 不可达/断连时轮询兜底：始终以低频轮询保证最终一致
+    // （操作进行中提速到 1.2s；空闲 5s 轮询以捕获迟到事件）。
+    refetchInterval: (state) => hasActiveOperation(state.state.data) ? 1_200 : 5_000,
   });
   const view = query.data;
   const operations = view?.data.operations ?? [];
