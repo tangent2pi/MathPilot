@@ -13,6 +13,7 @@ dist/
 deploy/dev/.env
 deploy/dev/.env.bak-*
 deploy/dev/web-dist/
+deploy/dev/web-nginx.conf
 .imports/
 backups/
 db-delivery/
