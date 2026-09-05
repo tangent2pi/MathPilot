@@ -1,0 +1,10 @@
+{
+  "name": "@mathpilot/self-test",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/service.ts", "./core": "./src/core.ts", "./content": "./src/content.ts", "./report": "./src/report.ts", "./model": "./src/model.ts" },
+  "dependencies": { "pg": "^8.13.1" },
+  "devDependencies": { "@types/pg": "^8.11.10", "typescript": "^5.6.0" },
+  "scripts": { "typecheck": "tsc --noEmit" }
+}

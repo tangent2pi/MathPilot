@@ -21,7 +21,7 @@
     "skill_ref": { "type": "string", "pattern": "^skill:[a-z0-9][a-z0-9_-]+@v[1-9][0-9]*(?:\\.[0-9]+){0,2}$" },
     "allowed_capability_tools": {
       "type": "array",
-      "items": { "enum": ["question_catalog", "read", "grep", "learning_action", "delegate"] },
+      "items": { "enum": ["question_catalog", "read", "grep", "learning_action", "delegate", "assessment", "sandbox"] },
       "uniqueItems": true,
       "maxItems": 3
     },
@@ -122,7 +122,7 @@
     },
     {
       "if": { "properties": { "task_type": { "const": "foreground_teaching" } }, "required": ["task_type"] },
-      "then": { "properties": { "allowed_capability_tools": { "const": ["read", "grep", "learning_action"] } } }
+      "then": { "properties": { "allowed_capability_tools": { "const": ["read", "grep", "learning_action", "assessment", "sandbox"] } } }
     },
     {
       "if": { "properties": { "task_type": { "const": "semantic_decomposition" } }, "required": ["task_type"] },

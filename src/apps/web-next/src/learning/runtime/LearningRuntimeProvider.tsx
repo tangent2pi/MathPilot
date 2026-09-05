@@ -297,7 +297,7 @@ function AuthenticatedLearningRuntime({
     onNew,
     ...(onCancel ? { onCancel } : {}),
     onRefetchThread: async () => { await query.refetch(); },
-    adapters: { attachments: attachmentAdapter },
+    adapters: { attachments: attachmentAdapter, threadList: { threadId: threadId ?? "new" } },
   });
 
   return (

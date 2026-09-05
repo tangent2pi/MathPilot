@@ -187,6 +187,15 @@ services:
     build:
       context: ../..
       dockerfile: src/services/learning-next/Dockerfile
+      additional_contexts:
+        pi-runtime: service:pi-chat-runtime
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=unconfined
+      - apparmor=unconfined
+      - systempaths=unconfined
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETUID, SETGID, SETFCAP]
     environment:
       MATHPILOT_ENVIRONMENT: ${MATHPILOT_ENVIRONMENT:?set MATHPILOT_ENVIRONMENT to development or production}
       MATHPILOT_INTERNAL_REPLAY_MODE: ${MATHPILOT_INTERNAL_REPLAY_MODE:?acknowledge the configured replay mode}
@@ -198,12 +207,24 @@ services:
       TEMPORAL_TASK_QUEUE: mathpilot_learning_next
       LEARNING_NEXT_TENANT_IDS: ${LEARNING_NEXT_TENANT_IDS:-${DEFAULT_TENANT_ID:?DEFAULT_TENANT_ID is required}}
       LEARNING_NEXT_RUNTIME_ROOT: /var/lib/mathpilot/learning-next
+      HOME: /var/lib/mathpilot/learning-next/sandbox-home
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      QWEN_MM_SEARCH_BACKEND: ${QWEN_MM_SEARCH_BACKEND:-auto}
+      PADDLEOCR_MCP_MODEL: ${OCR_MODEL:-PaddleOCR-VL-1.6}
+      PADDLEOCR_MCP_PPOCR_SOURCE: aistudio
+      PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN: ${OCR_API_TOKEN:-}
+      PADDLEOCR_MCP_AISTUDIO_BASE_URL: ${OCR_API_BASE:-https://paddleocr.aistudio-app.com}
       MODEL_API_BASE: ${PI_MODEL_API_BASE:-${MODEL_API_BASE:?MODEL_API_BASE is required}}
       MODEL_API_KEY: ${PI_MODEL_API_KEY:-${MODEL_API_KEY:?MODEL_API_KEY is required}}
       MODEL_ID_MAIN: ${PI_MODEL_ID_MAIN:-${MODEL_ID_MAIN:?MODEL_ID_MAIN is required}}
       MODEL_ID_AUX: ${PI_MODEL_ID_AUX:-${MODEL_ID_AUX:?MODEL_ID_AUX is required}}
     volumes:
       - learning_next_runtime:/var/lib/mathpilot/learning-next
+      - ../../src/packages/self-test/src:/app/src/packages/self-test/src:ro
+      - ../../src/services/pi-chat-runtime/src:/app/src/services/pi-chat-runtime/src:ro
+      - ../../src/services/pi-chat-runtime/extensions:/app/src/services/pi-chat-runtime/extensions:ro
       # 源码直挂：改代码只需同步文件 + restart，不重建镜像。
       - ../../src/services/learning-next/src:/app/src/services/learning-next/src:ro
       - ../../src/services/learning-next/skills:/app/src/services/learning-next/skills:ro
@@ -363,6 +384,7 @@ services:
       MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_API_TO_STORAGE_KEYRING:?API to Storage keyring is required}"
       MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_PI_TO_STORAGE_KEYRING:?Pi to Storage keyring is required}"
       MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_LEARNING_TO_STORAGE_KEYRING:?Learning to Storage keyring is required}"
+      MATHPILOT_INTERNAL_CONTENT_TO_STORAGE_KEYRING: "${MATHPILOT_INTERNAL_CONTENT_TO_STORAGE_KEYRING:?Content to Storage keyring is required}"
       DATABASE_URL: postgres://mathpilot_app:${APP_DB_PASSWORD:-mathpilot-app-dev-only}@postgres:5432/${POSTGRES_DB:-mathpilot}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
@@ -442,7 +464,8 @@ services:
     ports:
       - "127.0.0.1:${API_PORT:-3101}:3101"
     volumes:
-      - ../../src/services/api/src:/app/src/services/api/src:ro
+      - ../../src/services/api-next/src:/app/src/services/api-next/src:ro
+      - ../../src/packages/self-test/src:/app/src/packages/self-test/src:ro
       - ../../src/packages/contracts/src:/app/src/packages/contracts/src:ro
       - ../../src/packages/content-integrity/src:/app/src/packages/content-integrity/src:ro
       - ../../src/packages/internal-service/src:/app/src/packages/internal-service/src:ro

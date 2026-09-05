@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { MATH_DERIVATION_ARTIFACT_SCHEMA_URI } from "@mathpilot/contracts";
 import { digestJson, encodeArtifact, verifiedArtifactPayload } from "./artifact-integrity.ts";
 import pg from "pg";
+import { performAssessment, type AssessmentAction } from "@mathpilot/self-test/model";
 import { parseForegroundTeachingOutput } from "./foreground-core.ts";
 import type {
   CommitForegroundResponseInput,
@@ -38,6 +39,7 @@ interface StoredAction {
 }
 
 export interface ForegroundStore {
+  assessment?(input: { tenantId: string; operationId: string; agentAttemptId: string; action: AssessmentAction }): Promise<unknown>;
   executeAction(input: ExecuteLearningActionInput): Promise<LearningActionResult>;
   commitResponse(input: CommitForegroundResponseInput): Promise<ForegroundResponseCommitResult>;
   close(): Promise<void>;
@@ -48,6 +50,14 @@ export class PostgresForegroundStore implements ForegroundStore {
 
   constructor(connectionString: string) {
     this.pool = new pg.Pool({ connectionString, max: 4 });
+  }
+
+  async assessment(input: { tenantId: string; operationId: string; agentAttemptId: string; action: AssessmentAction }): Promise<unknown> {
+    const context = await this.withTenant(input.tenantId, (client) => this.context(client, input, false));
+    return performAssessment(this.pool, {
+      principal: { tenantId: input.tenantId, userId: context.user_id, roles: ["student"] },
+      operationId: input.operationId, agentAttemptId: input.agentAttemptId,
+    }, input.action);
   }
 
   private async withTenant<T>(tenantId: string, run: (client: pg.PoolClient) => Promise<T>): Promise<T> {
@@ -252,7 +262,7 @@ export class PostgresForegroundStore implements ForegroundStore {
 
   private async context(
     client: pg.PoolClient,
-    input: ExecuteLearningActionInput,
+    input: Pick<ExecuteLearningActionInput, "tenantId" | "operationId" | "agentAttemptId">,
     lock: boolean,
   ): Promise<ForegroundContext> {
     const row = (await client.query<ForegroundContext>(

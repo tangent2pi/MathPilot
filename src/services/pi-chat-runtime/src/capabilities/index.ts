@@ -7,10 +7,10 @@ import { OCR_TOOL_NAMES, ocrCapabilityServer } from "./ocr.ts";
 import { governMultimodalProviderPayload } from "./multimodal-payload.ts";
 import { SEARCH_TOOL_NAMES, searchCapabilityServer } from "./search.ts";
 
-const REQUIRED_DIRECT_TOOLS = [...CORE_TOOL_NAMES, ...SEARCH_TOOL_NAMES, ...OCR_TOOL_NAMES];
+export const REQUIRED_DIRECT_TOOLS = [...CORE_TOOL_NAMES, ...SEARCH_TOOL_NAMES, ...OCR_TOOL_NAMES];
 
 /** Pi-discovered extension that owns the new runtime's Core/Search/OCR capability surface. */
-export default function capabilitiesExtension(pi: ExtensionAPI): void {
+export default function capabilitiesExtension(pi: ExtensionAPI, workspace?: { cwd: string; root: string }): void {
   // pi-mcp-adapter waits for explicitly requested direct tools during
   // session_start. This closes the race between opening a thread and its first
   // user prompt without changing assistant-ui's supervisor.
@@ -18,6 +18,15 @@ export default function capabilitiesExtension(pi: ExtensionAPI): void {
     process.env.MCP_DIRECT_TOOLS = REQUIRED_DIRECT_TOOLS.join(",");
   }
 
+  const servers = {
+    "qwen-mm-plugins-core": coreCapabilityServer(),
+    "qwen-mm-plugins-search": searchCapabilityServer(),
+    "paddleocr-vl": ocrCapabilityServer(),
+  };
+  if (workspace) for (const server of Object.values(servers)) {
+    server.cwd = workspace.cwd;
+    server.env = { ...server.env, PI_CHAT_WORKSPACE_ROOT: workspace.root };
+  }
   createMcpAdapter({
     config: {
       settings: {
@@ -35,11 +44,7 @@ export default function capabilitiesExtension(pi: ExtensionAPI): void {
           detailsMaxBytes: 16 * 1024,
         },
       },
-      mcpServers: {
-        "qwen-mm-plugins-core": coreCapabilityServer(),
-        "qwen-mm-plugins-search": searchCapabilityServer(),
-        "paddleocr-vl": ocrCapabilityServer(),
-      },
+      mcpServers: servers,
     },
   })(pi);
 

@@ -555,6 +555,7 @@ const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
   className,
   ...rest
 }) => (
+  <AuiIf condition={(s) => s.thread.capabilities.switchToBranch && !s.thread.isLoading && s.message.branchCount > 1}>
   <BranchPickerPrimitive.Root
     hideWhenSingleBranch
     className={cn(
@@ -577,4 +578,5 @@ const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
       </TooltipIconButton>
     </BranchPickerPrimitive.Next>
   </BranchPickerPrimitive.Root>
+  </AuiIf>
 );

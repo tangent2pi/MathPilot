@@ -210,7 +210,7 @@ export const RadarChart: FC<{ radar: { dimension: string; score: number | null }
 
   return (
     <div className="flex justify-center">
-      <svg width={330} height={230} viewBox="0 0 330 230" role="img" aria-label="六维画像雷达图">
+      <svg className="h-auto w-full max-w-[330px]" width={330} height={230} viewBox="0 0 330 230" role="img" aria-label="六维画像雷达图">
         {/* 网格 4 层 */}
         {[1, 2, 3, 4].map((ring) => {
           const r = (radius * ring) / 4;

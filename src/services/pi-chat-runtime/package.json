@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": { "./sandbox": "./extensions/sandbox.ts", "./capabilities": "./src/capabilities/index.ts" },
   "scripts": {
     "start": "node --import tsx src/index.ts",
     "typecheck": "tsc --noEmit",

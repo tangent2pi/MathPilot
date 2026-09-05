@@ -11,6 +11,7 @@ import { assertThreadAccess, resolveLearningSubject, type LearningSubject } from
 import { decodeCursor, encodeCursor, evidenceHandle, LearningReadError, parseEvidenceHandle } from "./cursor.ts";
 import { materializeTeachingArtifacts, teachingArtifactKey } from "./teaching-artifacts.ts";
 import { capability, learningView } from "./view.ts";
+import { assessmentHistorySql } from "./assessment-history.ts";
 
 const asIso = (value: Date | string | null | undefined): string | undefined =>
   value === null || value === undefined ? undefined : new Date(value).toISOString();
@@ -461,7 +462,20 @@ export class LearningReadService {
           order by session.opened_at desc limit 3`,
         [principal.tenantId, subject.studentId],
       )).rows;
-      const next = activeQuestion ? {
+      const assessment = (await client.query<{
+        question_session_id: string; conversation_thread_id: string; lifecycle: string;
+        opened_at: Date | string; stem_markdown: string | null; verdict: string | null;
+        total_count: string; latest_fact_at: Date | string; max_version: string;
+      }>(`select *,count(*) over() total_count,max(opened_at) over() latest_fact_at,max(version) over() max_version
+          from (${assessmentHistorySql.replaceAll("$5", "$2").replaceAll("$3", "'all'")}) assessment
+          order by opened_at desc,question_session_id desc limit 3`, [principal.tenantId, subject.userId])).rows;
+      const activeAssessment = assessment.find((row) => row.lifecycle === "active");
+      const assessmentCount = Number(assessment[0]?.total_count ?? 0);
+      const next = activeAssessment ? {
+        kind: "continue_assessment", title: "继续自我测评",
+        summary: activeAssessment.stem_markdown?.slice(0, 180) ?? "返回对话继续当前测评。",
+        href: `/c/${activeAssessment.conversation_thread_id}`,
+      } : activeQuestion ? {
         kind: "continue_question", title: "继续当前题目",
         summary: activeQuestion.stem_markdown?.slice(0, 180) ?? "返回对话继续完成当前题目。",
         href: `/c/${activeQuestion.conversation_thread_id}#question-${activeQuestion.question_session_id}`,
@@ -474,18 +488,19 @@ export class LearningReadService {
       };
       return learningView({
         kind: "learning_overview", resourceKind: "student", resourceId: subject.studentId,
-        version: Number(summary.max_version), factsThrough: summary.latest_fact_at,
+        version: Math.max(Number(summary.max_version), Number(assessment[0]?.max_version ?? 1)),
+        factsThrough: maxDate(summary.latest_fact_at, assessment[0]?.latest_fact_at),
         permissions: actorPermissions(subject),
         data: {
           actor: { mode: subject.actorMode, student_id: subject.studentId, display_name: subject.displayName },
           next_recommendation: next,
-          counts: { sessions: summary.session_count, due_reviews: summary.due_count, error_verifications: summary.error_due_count, memories: summary.memory_count },
-          recent_changes: recent.map((row) => ({
+          counts: { sessions: summary.session_count + assessmentCount, assessments: assessmentCount, due_reviews: summary.due_count, error_verifications: summary.error_due_count, memories: summary.memory_count },
+          recent_changes: [...recent, ...assessment].sort((a, b) => new Date(b.opened_at).getTime() - new Date(a.opened_at).getTime()).slice(0, 3).map((row) => ({
             question_session_id: row.question_session_id, thread_id: row.conversation_thread_id,
             summary: row.stem_markdown?.slice(0, 180) ?? "外部题目", status: row.lifecycle,
             verdict: row.verdict, occurred_at: asIso(row.opened_at),
           })),
-          empty_state: summary.session_count === 0 ? "完成几次练习后，这里会出现有依据的学习记录。" : null,
+          empty_state: summary.session_count + assessmentCount === 0 ? "完成几次练习后，这里会出现有依据的学习记录。" : null,
         },
       });
     });
@@ -493,7 +508,7 @@ export class LearningReadService {
 
   async history(principal: Principal, afterValue: unknown, kind: unknown, studentHandle?: string): Promise<LearningView> {
     const offset = decodeCursor(afterValue);
-    const filter = typeof kind === "string" && ["all", "independent", "review", "error", "change"].includes(kind) ? kind : "all";
+    const filter = typeof kind === "string" && ["all", "self_test", "independent", "review", "error", "change"].includes(kind) ? kind : "all";
     return withPrincipal(this.pool, principal, async (client) => {
       const subject = await resolveLearningSubject(client, principal, studentHandle);
       const rows = (await client.query<{
@@ -503,13 +518,14 @@ export class LearningReadService {
         attempt_id: string | null; attempt_kind: string | null; hint_level: number | null;
         submitted_at: Date | string | null; judgment_id: string | null; verdict: string | null;
         uncertainty: string | null; decision_summary: string | null; diagnostic_status: string | null;
+        response_text: string | null;
       }>(
-        `select session.question_session_id,session.conversation_thread_id,session.question_revision_id,
+        `select * from (select session.question_session_id,session.conversation_thread_id,session.question_revision_id,
                 session.source,session.lifecycle,session.close_reason,session.opened_at,session.closed_at,
                 session.version,question.stem_markdown,
                 attempt.attempt_id,attempt.kind attempt_kind,attempt.hint_level,attempt.submitted_at,
                 judgment.judgment_id,judgment.verdict,judgment.uncertainty,judgment.decision_summary,
-                closure.diagnostic_status
+                closure.diagnostic_status,null::text response_text
            from science_v3_question_session session
            left join content_question_revision question
              on question.tenant_id=session.tenant_id and question.revision_id=session.question_revision_id
@@ -539,9 +555,10 @@ export class LearningReadService {
               or ($3='error' and closure.diagnostic_status is not null)
               or ($3='change' and exists(select 1 from science_v3_observation observation
                                           where observation.tenant_id=session.tenant_id and observation.question_session_id=session.question_session_id)))
-          order by session.opened_at desc,session.question_session_id desc
+          union all ${assessmentHistorySql}) history
+          order by opened_at desc,question_session_id desc
           offset $4 limit 31`,
-        [principal.tenantId, subject.studentId, filter, offset],
+        [principal.tenantId, subject.studentId, filter, offset, subject.userId],
       )).rows;
       const page = rows.slice(0, 30);
       const version = page.reduce((value, row) => Math.max(value, Number(row.version)), 1);
@@ -555,6 +572,7 @@ export class LearningReadService {
             question_session_id: row.question_session_id, question_revision_id: row.question_revision_id,
             thread_id: row.conversation_thread_id, question_summary: row.stem_markdown?.slice(0, 240) ?? "外部题目",
             source: row.source, status: row.lifecycle, close_reason: row.close_reason,
+            ...(row.source === "self_test" ? { question_markdown: row.stem_markdown, response_text: row.response_text } : {}),
             opened_at: asIso(row.opened_at), closed_at: asIso(row.closed_at),
             attempt: row.attempt_id ? {
               id: row.attempt_id, kind: row.attempt_kind, hint_level: row.hint_level,
@@ -563,11 +581,11 @@ export class LearningReadService {
             judgment: row.judgment_id ? {
               id: row.judgment_id, verdict: row.verdict, uncertainty: row.uncertainty,
               summary: row.decision_summary,
-              evidence_href: `/learning/evidence/${evidenceHandle({ kind: "judgment", id: row.judgment_id!, studentId: subject.studentId })}`,
+              ...(row.source === "self_test" ? {} : { evidence_href: `/learning/evidence/${evidenceHandle({ kind: "judgment", id: row.judgment_id!, studentId: subject.studentId })}` }),
             } : null,
-            scientific_impact: row.diagnostic_status ? diagnosticImpact(row.diagnostic_status)
+            scientific_impact: row.source === "self_test" ? (row.judgment_id ? "自我测评记录 · 已纳入测评画像" : "自我测评 · 等待作答") : row.diagnostic_status ? diagnosticImpact(row.diagnostic_status)
               : row.judgment_id ? (row.hint_level === 0 ? "已进入证据评估" : "用于教学连续性，不作为独立掌握证据") : "尚未形成正式判定",
-            thread_href: `/c/${row.conversation_thread_id}#question-${row.question_session_id}`,
+            thread_href: `/c/${row.conversation_thread_id}${row.source === "self_test" ? "" : `#question-${row.question_session_id}`}`,
           })),
           next_cursor: page.length ? encodeCursor(offset + page.length) : encodeCursor(offset),
           has_more: rows.length > 30,

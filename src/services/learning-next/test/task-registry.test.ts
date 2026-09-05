@@ -9,7 +9,7 @@ test("Task Registry grants only the documented minimum capabilities", () => {
   }
   assert.deepEqual(TASK_REGISTRY.select_question.allowed_capability_tools, ["question_catalog"]);
   assert.deepEqual(TASK_REGISTRY.semantic_decomposition.allowed_capability_tools, ["delegate"]);
-  assert.deepEqual(TASK_REGISTRY.foreground_teaching.allowed_capability_tools, ["read", "grep", "learning_action"]);
+  assert.deepEqual(TASK_REGISTRY.foreground_teaching.allowed_capability_tools, ["read", "grep", "learning_action", "assessment", "sandbox"]);
 });
 
 test("domain workflows are not collapsed into unrelated Pi tasks", () => {

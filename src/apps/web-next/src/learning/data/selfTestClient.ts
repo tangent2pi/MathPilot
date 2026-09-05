@@ -62,6 +62,8 @@ export interface SelfTestQuestion {
 }
 
 export interface RunView {
+  version: number;
+  threadId: string;
   runId: string;
   status: "active" | "finished" | "cancelled";
   createdAt: string;
@@ -227,6 +229,10 @@ export interface CreateRunInput {
 }
 
 export const selfTestApi = {
+  profile: () => requestJson<{ profile: null | {
+    runId: string; threadId: string; status: string; round_no: number;
+    provisional: boolean; report_payload: ReportPayload;
+  } }>("/api/learning/self-test/profile"),
   /** 章节 → 模块 → 知识点（仅可抽） */
   knowledgeTree: (chapter?: string) => {
     const suffix = chapter ? `?chapter=${encodeURIComponent(chapter)}` : "";

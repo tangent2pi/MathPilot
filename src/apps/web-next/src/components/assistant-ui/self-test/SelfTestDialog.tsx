@@ -2,7 +2,7 @@
 
 // 「自我测评」居中模态：检测进行中轮次 → 选章/选点(1-3)/定难度 → 逐题作答
 // → 判定反馈 → 完成汇总报告（报告由后端追加为当前对话的 assistant 消息）。
-import { useQueryClient } from "@tanstack/react-query";
+import { useAui } from "@assistant-ui/react";
 import {
   AlertCircleIcon,
   CheckIcon,
@@ -21,7 +21,6 @@ import {
   type FC,
   type ReactNode,
 } from "react";
-import { useNavigate } from "react-router-dom";
 
 import { SelfTestMarkdown } from "@/components/assistant-ui/self-test/SelfTestMarkdown";
 import { ReportDetail } from "@/components/assistant-ui/self-test/SelfTestReportView";
@@ -34,9 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { learningKeys } from "@/learning/data/client";
 import {
-  SelfTestApiError,
   selfTestApi,
   type KnowledgePoint,
   type KnowledgeTreeView,
@@ -44,7 +41,6 @@ import {
   type SelfTestProgress,
   type RunView,
   type SelfTestQuestion,
-  type SubmitAnswerResult,
 } from "@/learning/data/selfTestClient";
 import { useLearningThreadId } from "@/learning/runtime/LearningThreadContext";
 import { cn } from "@/lib/utils";
@@ -72,8 +68,11 @@ const QUICK_DIFFICULTIES = [
 ] as const;
 
 export const SelfTestDialog: FC<{ onClose?: () => void }> = ({ onClose }) => {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
+  const aui = useAui();
+  const sendToAgent = useCallback((text: string) => {
+    aui.thread.append({ role: "user", content: [{ type: "text", text }] });
+    onClose?.();
+  }, [aui, onClose]);
   const threadId = useLearningThreadId();
   const [view, setView] = useState<View>({ kind: "loading" });
   const [busy, setBusy] = useState(false);
@@ -82,9 +81,6 @@ export const SelfTestDialog: FC<{ onClose?: () => void }> = ({ onClose }) => {
   const [progress, setProgress] = useState<SelfTestProgress | null>(null);
   const [latestReport, setLatestReport] = useState<{ report: string; payload?: ReportPayload; round_no: number } | null>(null);
 
-  const refreshThreads = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: learningKeys.all });
-  }, [queryClient]);
 
   // 打开即探测进行中的轮（续测入口 / 单例提示）+ 轮进度（决定第 2 轮起是否锁选题）
   // + 最近整章报告（是否有可重开的报告详情）
@@ -135,102 +131,27 @@ export const SelfTestDialog: FC<{ onClose?: () => void }> = ({ onClose }) => {
     goal_score?: number;
     daily_minutes?: number;
   }) => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const created = await selfTestApi.createRun({ thread_id: threadId, ...selection });
-      if (created.thread_id && created.thread_id !== threadId) {
-        navigate(`/c/${encodeURIComponent(created.thread_id)}`, { replace: true });
-      }
-      setView({ kind: "answer", run: created.run });
-    } catch (error) {
-      setMessage({ tone: "error", text: errorMessage(error) });
-    } finally {
-      setBusy(false);
-    }
-  }, [navigate, threadId]);
+    sendToAgent("请开始一次自我测评，由你逐题提问、理解我的作答并判答；不明确时先追问。测评偏好：" + JSON.stringify(selection));
+  }, [sendToAgent]);
 
   const submitAnswer = useCallback(async (response: string) => {
-    const current = view.kind === "answer" ? view.run : null;
-    if (!current?.question || busy) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      const result = await selfTestApi.submitAnswer(current.runId, { response });
-      setLast({
-        verdict: result.verdict,
-        expected: result.expected,
-        analysis: result.analysis,
-        autoAudited: result.autoAudited,
-        questionRevisionId: current.question.questionRevisionId,
-        questionEntityId: current.question.questionEntityId,
-        response,
-      });
-      if (result.run.status === "finished") {
-        refreshThreads();
-        setView({ kind: "report", run: result.run, report: result.report ?? fallbackReport(result), payload: result.report_payload });
-      } else {
-        setView({ kind: "answer", run: result.run });
-      }
-    } catch (error) {
-      // 该轮已被服务端判为结束（题库抽尽自动完结 / 其它入口已 finish）：
-      // 不给用户留卡死红框，提示后回到选题页即可重开。
-      if (error instanceof SelfTestApiError && error.code === "run_not_active") {
-        setMessage({ tone: "info", text: "本轮测评已结束，报告已写入对话消息流；可重新选题开始新一轮。" });
-        setLast(null);
-        setView({ kind: "pick" });
-      } else {
-        setMessage({ tone: "error", text: errorMessage(error) });
-      }
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, refreshThreads, view]);
+    const question = view.kind === "answer" ? view.run.question : null;
+    if (!question || busy) return;
+    sendToAgent("我对当前测评题（" + question.questionRevisionId + "）的作答是：" + response + "。请结合我的回答判答，必要时追问。");
+  }, [busy, sendToAgent, view]);
 
-  // 回到「选章节/知识点/难度」。若在 answer 放弃当前轮，先静默结束该轮
-  // （归档 + 报告入消息流），否则单例锁会让新一轮建不起来。
   const resetToPick = useCallback(async () => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const current = view.kind === "answer" ? view.run : null;
-      if (current && current.status === "active") {
-        try {
-          await selfTestApi.finishRun(current.runId);
-          refreshThreads();
-        } catch {
-          // 该轮已被别处结束（finish 409 等）——忽略即可继续重选
-        }
-      }
-      if (threadId) {
-        try { setProgress(await selfTestApi.progress(threadId)); } catch { /* 保持旧值 */ }
-      }
-    } finally {
-      setLast(null);
-      setView({ kind: "pick" });
-      setBusy(false);
+    if (view.kind === "answer" && view.run.status === "active") {
+      sendToAgent("请终止当前测评并保留已答记录，我想重新选择测评内容；请先询问我的新测评需求。");
+      return;
     }
-  }, [refreshThreads, threadId, view]);
+    setLast(null);
+    setView({ kind: "pick" });
+  }, [sendToAgent, view]);
 
-  const finishEarly = useCallback(async (runId: string) => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const result = await selfTestApi.finishRun(runId);
-      refreshThreads();
-      setView({ kind: "report", run: result.run, report: result.report, payload: result.report_payload });
-    } catch (error) {
-      if (error instanceof SelfTestApiError && error.code === "run_not_active") {
-        setMessage({ tone: "info", text: "该轮测评已结束，报告已在前面对话中生成；可重新选题开始新一轮。" });
-        setLast(null);
-        setView({ kind: "pick" });
-      } else {
-        setMessage({ tone: "error", text: errorMessage(error) });
-      }
-    } finally {
-      setBusy(false);
-    }
-  }, [refreshThreads]);
+  const finishEarly = useCallback(async (_runId: string) => {
+    sendToAgent("请结束当前测评，汇总已有证据并给我学习建议。");
+  }, [sendToAgent]);
 
   const reportSuspect = useCallback(async () => {
     if (!last) return;
@@ -255,7 +176,7 @@ export const SelfTestDialog: FC<{ onClose?: () => void }> = ({ onClose }) => {
       <DialogHeader>
         <DialogTitle>自我测评</DialogTitle>
         <DialogDescription>
-          选择题 / 填空题自动判答，掌握度按 BKT 逐题更新，结束出复习报告。
+          由数学智元在对话中出题、追问和判答；也可以直接用文字作答，随时暂停测评。
         </DialogDescription>
       </DialogHeader>
 
@@ -294,7 +215,18 @@ export const SelfTestDialog: FC<{ onClose?: () => void }> = ({ onClose }) => {
         />
       )}
 
-      {view.kind === "answer" && (
+      {view.kind === "answer" && view.run.status === "active" && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm">
+        <span>测评进度跨对话保留，终止不会删除已答记录。</span>
+        <Button variant="ghost" disabled={busy} onClick={() => sendToAgent("请终止当前进行中的测评，保留已答记录，不要继续出题。")}>终止本轮测评</Button>
+      </div>}
+      {view.kind === "answer" && view.run.threadId !== threadId && <div className="space-y-2 rounded-lg border p-3 text-sm">
+        <p>你有一轮测评在其他对话中进行，已答 {view.run.answeredTotal} 题。可以在这里接着做，也可以终止本轮后重新选择。</p>
+        <Button disabled={busy} onClick={() => sendToAgent("请把我进行中的测评接续到当前对话，保留进度，重新展示当前题目并等待我回答。")}>在这里继续测评</Button>
+      </div>}
+      {view.kind === "answer" && view.run.threadId === threadId && !view.run.question && (
+        <Button onClick={() => sendToAgent("请继续当前测评，出下一题；如果已经完成，请汇总报告。")}>回到对话继续测评</Button>
+      )}
+      {view.kind === "answer" && view.run.threadId === threadId && view.run.question && (
         <AnswerStep
           run={view.run}
           busy={busy}
@@ -951,10 +883,6 @@ const InlineError: FC<{ text: string }> = ({ text }) => (
     </Button>
   </div>
 );
-
-function fallbackReport(result: SubmitAnswerResult): string {
-  return `## 自我测评报告\n\n本轮共作答 ${result.run.answeredTotal} 题。`;
-}
 
 function difficultyLabel(difficulty: number): string {
   if (difficulty <= 0.33) return "基础";

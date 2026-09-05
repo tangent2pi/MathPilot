@@ -200,26 +200,26 @@ const sandboxedEditOps = (cwd: string): EditOperations => ({
   access: sandboxedReadOps(cwd).access,
 });
 
-export default async (pi: ExtensionAPI) => {
-  await SandboxManager.initialize(sandboxToolConfig(process.cwd()));
+export default async (pi: ExtensionAPI, cwd = process.cwd()) => {
+  await SandboxManager.initialize(sandboxToolConfig(cwd));
 
   pi.registerTool({
-    ...createBashTool(process.cwd(), { operations: sandboxedBashOps() }),
+    ...createBashTool(cwd, { operations: sandboxedBashOps() }),
     execute: (id, params, signal, onUpdate, ctx) =>
       createBashTool(ctx.cwd, { operations: sandboxedBashOps() }).execute(id, params, signal, onUpdate),
   });
   pi.registerTool({
-    ...createReadTool(process.cwd()),
+    ...createReadTool(cwd),
     execute: (id, params, signal, onUpdate, ctx) =>
       createReadTool(ctx.cwd, { operations: sandboxedReadOps(ctx.cwd) }).execute(id, params, signal, onUpdate),
   });
   pi.registerTool({
-    ...createWriteTool(process.cwd()),
+    ...createWriteTool(cwd),
     execute: (id, params, signal, onUpdate, ctx) =>
       createWriteTool(ctx.cwd, { operations: sandboxedWriteOps(ctx.cwd) }).execute(id, params, signal, onUpdate),
   });
   pi.registerTool({
-    ...createEditTool(process.cwd()),
+    ...createEditTool(cwd),
     execute: (id, params, signal, onUpdate, ctx) =>
       createEditTool(ctx.cwd, { operations: sandboxedEditOps(ctx.cwd) }).execute(id, params, signal, onUpdate),
   });

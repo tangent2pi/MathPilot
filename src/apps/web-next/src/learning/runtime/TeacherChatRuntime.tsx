@@ -129,7 +129,7 @@ export function TeacherChatRuntimeProvider({
     isSendDisabled: Boolean(pending) || (Boolean(threadId) && !query.data),
     onNew,
     onRefetchThread: async () => { await query.refetch(); },
-    adapters: { attachments: attachmentAdapter },
+    adapters: { attachments: attachmentAdapter, threadList: { threadId: threadId ?? "new" } },
   });
 
   if (query.isError && messages.length === 0) {

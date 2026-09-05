@@ -51,13 +51,13 @@ const ownPages: Record<OwnPageKind, { title: string; description: string; path: 
   overview: { title: "学习概览", description: "下一步建议与近期有依据的变化。", path: "/api/learning/me/overview" },
   history: { title: "学习历史", description: "按题目与判定事实回看学习过程。", path: "/api/learning/me/history" },
   state: { title: "科学状态", description: "掌握、保持与错因状态都可回到证据。", path: "/api/learning/me/state" },
-  memory: { title: "学习记忆", description: "系统已发布、可反馈且可停用的学习观察。", path: "/api/learning/me/memories" },
+  memory: { title: "学习记忆", description: "测评六维画像、学习计划与可反馈的学习观察。", path: "/api/learning/me/memories" },
   review: { title: "复习队列", description: "到期保持性复习与错因验证。", path: "/api/learning/me/reviews" },
 };
 
 export function OwnLearningPage({ kind }: { kind: OwnPageKind }) {
   const page = ownPages[kind];
-  return <LearningViewPage title={page.title} description={page.description} url={page.path} mode={kind === "overview" ? undefined : kind} allowImmediateDream={kind === "memory"} />;
+  return <LearningViewPage key={page.path} title={page.title} description={page.description} url={page.path} mode={kind === "overview" ? undefined : kind} allowImmediateDream={kind === "memory"} />;
 }
 
 export function EvidencePage() {
@@ -101,6 +101,7 @@ function TeacherStudentTabs({ studentHandle, active }: { studentHandle: string; 
         {studentTabs.map((tab) => (
           <NavLink
             key={tab.kind}
+            end={tab.kind === "overview"}
             to={`/teacher/students/${encodeURIComponent(studentHandle)}/${tab.suffix}`.replace(/\/$/, "")}
             className={({ isActive }) => cn(
               "rounded-t-md px-3 py-1.5 text-sm transition-colors",
@@ -128,6 +129,7 @@ export function TeacherStudentPage({ kind }: { kind: StudentPageKind }) {
     <div className="flex flex-col">
       <TeacherStudentTabs studentHandle={studentHandle} active={kind} />
       <LearningViewPage
+        key={`${studentHandle}:${kind}`}
         title={`学生 · ${page.title}`}
         description="教师视图只展示已授权、可追溯的学习事实。"
         url={`/api/learning/students/${encodeURIComponent(studentHandle)}/${suffix}`}
@@ -265,13 +267,14 @@ function LearningViewPage({
               {dream.isPending ? "正在整理" : "立即整理"}
             </Button>
           )}
-          <Button variant="ghost" size="icon" onClick={() => void query.refetch()} aria-label="刷新">
+          <Button variant="ghost" size="icon" onClick={() => { void query.refetch(); void queryClient.invalidateQueries({ queryKey: ["learning", "self-test-profile"] }); }} aria-label="刷新">
             <RefreshCwIcon className={cn("size-4", query.isFetching && "animate-spin motion-reduce:animate-none")} />
           </Button>
         </div>
       </div>
       {allowImmediateDream && dream.data && <p role="status" className="text-muted-foreground mt-3 text-sm">{dream.data.message}</p>}
       {allowImmediateDream && dream.error && <p role="alert" className="text-destructive mt-3 text-sm">{dream.error.message}</p>}
+      {allowImmediateDream && principal.roles.includes("student") && <SelfTestMemory />}
       {mode && mode !== "review" && <LearningFilter mode={mode} value={filter} onChange={setFilter} />}
       {query.isPending && <CenteredStatus><Loader2Icon className="size-5 animate-spin motion-reduce:animate-none" />正在读取学习记录</CenteredStatus>}
       {query.error && <ErrorPanel error={query.error} retry={() => void query.refetch()} />}
@@ -290,6 +293,7 @@ function LearningViewPage({
 const filters: Record<Exclude<LearningPageMode, "review">, Array<{ value: string; label: string }>> = {
   history: [
     { value: "all", label: "全部记录" },
+    { value: "self_test", label: "自我测评" },
     { value: "independent", label: "独立作答" },
     { value: "review", label: "复习记录" },
     { value: "error", label: "错因相关" },
@@ -404,11 +408,12 @@ function Overview({ data }: { data: Record<string, unknown> }) {
         summary={stringValue(recommendation.summary) ?? "告诉数学智元你现在想练什么。"}
       />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="题目会话" value={numberValue(counts.sessions)} />
+        <Metric label="练习与测评题目" value={numberValue(counts.sessions)} />
         <Metric label="到期复习" value={numberValue(counts.due_reviews)} />
         <Metric label="待验证错因" value={numberValue(counts.error_verifications)} />
         <Metric label="学习记忆" value={numberValue(counts.memories)} />
       </div>
+      {objectValue(data.actor).mode !== "teacher" && <LinkCard href="/learning/memory#assessment-profile" title="六维画像与测评报告" summary="在学习记忆中查看测评画像、薄弱知识点与学习计划。" />}
       <Section title="近期变化" icon={<HistoryIcon className="size-4" />}>
         {recent.length ? recent.map((entry, index) => {
           const item = objectValue(entry);
@@ -442,12 +447,22 @@ function History({ data }: { data: Record<string, unknown> }) {
             {judgmentId && <span id={`judgment-${judgmentId}`} className="scroll-mt-20" aria-hidden="true" />}
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <h3 className="font-medium leading-6">{stringValue(item.question_summary) ?? "外部题目"}</h3>
+                {item.source === "self_test" ? <div className="space-y-2">
+                  <h3 className="font-medium">自我测评{item.status === "active" ? " · 等待作答" : ""}</h3>
+                  <SelfTestMarkdown text={stringValue(item.question_markdown) ?? stringValue(item.question_summary) ?? "题目内容暂不可用"} />
+                </div> : <h3 className="font-medium leading-6">{stringValue(item.question_summary) ?? "外部题目"}</h3>}
                 <p className="text-muted-foreground mt-1 text-xs">{dateLabel(stringValue(item.opened_at))} · {stringValue(item.scientific_impact) ?? "尚未形成正式判定"}</p>
                 {stringValue(attempt.id) && <p className="text-muted-foreground mt-1 text-xs">{attempt.independent === true ? "独立作答" : `提示等级 ${numberValue(attempt.hint_level)}`}</p>}
               </div>
               <span className="bg-muted rounded-full px-2.5 py-1 text-xs">{verdictLabel(stringValue(judgment.verdict))}</span>
             </div>
+            {item.source === "self_test" && stringValue(item.response_text) && <details className="mt-3 rounded-lg bg-muted/30 p-3 text-sm">
+              <summary className="cursor-pointer font-medium">查看作答与判答依据</summary>
+              <div className="mt-2 space-y-2">
+                <SelfTestMarkdown text={`我的作答：\n\n${stringValue(item.response_text)}`} />
+                {stringValue(judgment.summary) && <SelfTestMarkdown text={`判答依据：\n\n${stringValue(judgment.summary)}`} />}
+              </div>
+            </details>}
             <div className="mt-3 flex flex-wrap gap-2">
               {stringValue(item.thread_href) && <TextLink href={stringValue(item.thread_href)!}>查看对话</TextLink>}
               {stringValue(judgment.evidence_href) && <TextLink href={stringValue(judgment.evidence_href)!}>查看依据</TextLink>}
@@ -457,6 +472,27 @@ function History({ data }: { data: Record<string, unknown> }) {
       }) : <EmptyState text="还没有学习历史。" />}
     </Section>
   );
+}
+
+function SelfTestMemory() {
+  const { principal } = useAuth();
+  const query = useQuery({ queryKey: ["learning", "self-test-profile", principal?.tenantId, principal?.uid], queryFn: selfTestApi.profile, retry: 1 });
+  const profile = query.data?.profile;
+  return <section id="assessment-profile" className="mt-8 scroll-mt-20 rounded-2xl border p-4 sm:p-6" aria-labelledby="assessment-profile-title">
+    <h2 id="assessment-profile-title" className="text-lg font-semibold">测评六维画像</h2>
+    <p className="text-muted-foreground mt-1 text-sm">跨对话保留测评结果，查看最近一次活动的画像与学习计划。</p>
+    {query.isPending && <p role="status" className="mt-4 text-sm">正在读取测评画像…</p>}
+    {query.error && <div role="alert" className="mt-4"><p className="text-sm">测评画像读取失败，请重试。</p><Button variant="outline" className="mt-2" onClick={() => void query.refetch()}>重试</Button></div>}
+    {query.data && !profile && <div className="mt-4"><p className="text-muted-foreground text-sm">还没有测评记录。在对话中告诉数学智元想测什么，完成作答后会在这里形成画像。</p><TextLink href="/">前往对话开始测评</TextLink></div>}
+    {profile && <div className="mt-4 space-y-4">
+      <div className="rounded-xl bg-muted/40 p-3 text-sm">
+        <p>{profile.status === "active" ? "测评进行中" : profile.status === "cancelled" ? "本轮已终止，已答记录保留" : "本轮已结束"} · 第 {profile.round_no} 轮</p>
+        {profile.provisional && <p className="text-muted-foreground mt-1">阶段画像：当前证据尚不充分，不代表完整整章测评结论。完成更多独立作答后再复核。</p>}
+        <div className="mt-2"><TextLink href={`/c/${encodeURIComponent(profile.threadId)}`}>返回测评对话</TextLink></div>
+      </div>
+      {profile.report_payload.chapter.totalAnswered > 0 ? <ReportDetail payload={profile.report_payload} /> : <p className="text-muted-foreground text-sm">尚无已判答题目，暂不展示能力分数。</p>}
+    </div>}
+  </section>;
 }
 
 function ScientificState({ data }: { data: Record<string, unknown> }) {

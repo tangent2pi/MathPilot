@@ -9,6 +9,8 @@
     "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts"
   },
   "dependencies": {
+    "@mathpilot/self-test": "workspace:*",
+    "@mathpilot/pi-chat-runtime": "workspace:*",
     "@mathpilot/content-integrity": "workspace:*",
     "@earendil-works/pi-coding-agent": "0.84.1",
     "@mathpilot/contracts": "workspace:*",

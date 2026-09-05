@@ -1,4 +1,5 @@
 import type { MathDerivationTeachingArtifact } from "@mathpilot/contracts";
+import type { AssessmentAction } from "@mathpilot/self-test/model";
 
 export const TASK_TYPES = [
   "grade",
@@ -13,7 +14,7 @@ export const TASK_TYPES = [
 ] as const;
 
 export type TaskType = (typeof TASK_TYPES)[number];
-export type CapabilityTool = "question_catalog" | "read" | "grep" | "learning_action" | "delegate";
+export type CapabilityTool = "question_catalog" | "read" | "grep" | "learning_action" | "delegate" | "assessment" | "sandbox";
 
 export interface TaskSpec {
   schema_version: 3;
@@ -430,6 +431,7 @@ export interface PiExecutorRequest {
   taskSpec: TaskSpec;
   questionCatalog?: QuestionCatalogCapability;
   learningAction?: LearningActionCapability;
+  assessment?: { perform(action: AssessmentAction): Promise<unknown> };
   workspaceProjection?: WorkspaceProjection;
   signal: AbortSignal;
   heartbeat: (detail?: unknown) => void;

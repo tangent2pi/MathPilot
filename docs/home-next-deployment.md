@@ -1,7 +1,22 @@
 # home：next 对话实现容器部署与数据复制
 
-目标主机为 `home`，部署根为 `/srv/stacks/mathpilot`，唯一 Compose 根为
+目标主机为 `home`，当前部署根为 `/srv/stacks/mathpilot-next`，唯一 Compose 根为
 `deploy/dev/compose.yaml`。
+
+2026-09-05 Agent 工具补丁：learning-next 通过 Pi SDK 显式加载现有 sandbox 与 Core/Search/OCR 插件，
+并直接调用共享的 `@mathpilot/self-test` 模型工具。测评按钮向聊天发送意图；判答与下一题分离。
+新增依赖需构建 `learning-next` 和 `api`；learning 镜像使用 Compose additional_contexts 复用 Pi 镜像。
+前端更新 `deploy/dev/web-dist` 即生效。以下首次切换记录中的 `/srv/stacks/mathpilot` 是历史目录。
+
+答辩演示（2026-09-05）部署在 `deploy/dev/web-dist/defense/`，来源为用户提供的
+`MathPilot答辩演示网页.zip`；`mathpilot-defense.html` 同时作为 `index.html`。
+`/defense` 跳转至 `/defense/`，附件和视频使用同目录静态资源；无需重启网页容器。
+更新主站产物时须保留 `web-dist/defense/`，不要使用全目录删除式同步。
+
+2026-09-05 下载链路修复：storage 必须注入 `MATHPILOT_INTERNAL_CONTENT_TO_STORAGE_KEYRING`。
+生产 `MINIO_PUBLIC_ENDPOINT=https://mathpilot.tangentpi.com`，web 将三个 `mathpilot-*` 桶的
+对象路径同域转发至 `minio:9000`，保留签名 Host/原始 URI，仍由 MinIO 验签。
+不要把容器内端口 `9000` 或仅 Tailscale 可达的映射 `9010` 当作公网下载地址。
 
 ## 不可破坏约束
 

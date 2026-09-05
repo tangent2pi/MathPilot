@@ -69,6 +69,12 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
             },
           } : {}),
           ...(input.taskType === "foreground_teaching" ? {
+            assessment: {
+              perform: (action) => {
+                if (!foregroundStore.assessment) throw new Error("assessment host is unavailable");
+                return foregroundStore.assessment({ tenantId: input.tenantId, operationId: input.operationId, agentAttemptId: attemptId, action });
+              },
+            },
             learningAction: {
               perform: (toolCallId, action) => foregroundStore.executeAction({
                 tenantId: input.tenantId,

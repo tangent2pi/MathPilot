@@ -125,11 +125,11 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskSpec>> = Object.freeze
     },
   }),
   foreground_teaching: spec("foreground_teaching", {
-    purpose: "在当前 ForegroundAgentEpoch 内进行题目教学并提交有界 learning_action。",
+    purpose: "在当前对话内进行沙箱辅助自由问答，通过 assessment 主导测评和模型判答。",
     input_schema: "https://schemas.mathpilot.dev/science-v3/foreground-teaching-input/v1",
     output_schema: "https://schemas.mathpilot.dev/science-v3/foreground-teaching-output/v1",
     skill_ref: "skill:foreground-teaching@v1",
-    allowed_capability_tools: ["read", "grep", "learning_action"],
+    allowed_capability_tools: ["read", "grep", "learning_action", "assessment", "sandbox"],
     allowed_child_task_types: ["grade", "diagnose", "teach_summary", "select_question"],
     workspace_projection_policy: {
       policy_id: "foreground-teaching-workspace-v1",

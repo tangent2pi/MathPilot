@@ -215,6 +215,19 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
+  src/packages/self-test:
+    dependencies:
+      pg:
+        specifier: ^8.13.1
+        version: 8.23.0
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.21.0
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   src/services/api-next:
     dependencies:
       '@mathpilot/content-integrity':
@@ -226,6 +239,9 @@ importers:
       '@mathpilot/internal-service':
         specifier: workspace:*
         version: link:../../packages/internal-service
+      '@mathpilot/self-test':
+        specifier: workspace:*
+        version: link:../../packages/self-test
       better-auth:
         specifier: 1.6.23
         version: 1.6.23(@opentelemetry/api@1.9.0)(pg@8.23.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.11(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(jsdom@30.0.1(@noble/hashes@2.3.0))(vite@8.0.10(@types/node@24.13.3)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.51.2)(tsx@4.20.6)(yaml@2.9.0)))
@@ -304,6 +320,12 @@ importers:
       '@mathpilot/internal-service':
         specifier: workspace:*
         version: link:../../packages/internal-service
+      '@mathpilot/pi-chat-runtime':
+        specifier: workspace:*
+        version: link:../pi-chat-runtime
+      '@mathpilot/self-test':
+        specifier: workspace:*
+        version: link:../../packages/self-test
       '@temporalio/activity':
         specifier: 1.23.0
         version: 1.23.0
