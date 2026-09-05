@@ -189,6 +189,13 @@ export function registerContentNextRoutes(
     }
   });
 
+  server.delete("/candidates/:id", { preHandler: fromApi }, async (request, reply) => {
+    const actor = requireTeacher(request);
+    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    const deleted = await repository.deleteCandidate(actor,(request.params as { id: string }).id);
+    return deleted ? { deleted: true } : reply.code(404).send({ error: "candidate set not found" });
+  });
+
   server.get(
     "/internal/candidates/:id/frozen",
     { preHandler: fromPi },

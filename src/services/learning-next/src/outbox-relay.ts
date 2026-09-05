@@ -10,6 +10,7 @@ import pg from "pg";
 import {
   directWorkflowRoute,
   finalizeQuestionInputFromOutbox,
+  immediateDreamInputFromOutbox,
   scientificReplayInputFromOutbox,
   workflowInputFromOutbox,
 } from "./outbox-routing.ts";
@@ -166,7 +167,9 @@ export class OutboxRelay {
             ? finalizeQuestionInputFromOutbox(event)
             : route.workflowType === "replayScientificStateWorkflow"
               ? scientificReplayInputFromOutbox(event)
-              : workflowInputFromOutbox(event, route.taskType);
+              : route.workflowType === "immediateDreamWorkflow"
+                ? immediateDreamInputFromOutbox(event)
+                : workflowInputFromOutbox(event, route.taskType);
           if (event.eventType === "selection.intent_revised") {
             await this.client.signalWithStart(route.workflowType, {
               args: [workflowInput],

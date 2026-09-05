@@ -22,6 +22,7 @@ test("teacher correction replay is a retryable deterministic Workflow without Pi
     commitDeepDream: unexpected,
     failDreamRun: unexpected,
     enqueueScheduledDream: unexpected,
+    enqueueImmediateDream: unexpected,
     rollbackAnnotationChangeSet: unexpected,
     prepareQuestionFinalization: unexpected,
     recordFinalJudgment: unexpected,

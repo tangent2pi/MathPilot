@@ -61,6 +61,7 @@ export const OUTBOX_EVENT_TYPES = [
   "question.closed",
   "dream.rem_requested",
   "dream.deep_requested",
+  "dream.full_requested",
   "teacher.correction_recorded",
   "foreground.message_submitted",
 ] as const;
@@ -159,6 +160,22 @@ export interface FailDreamRunInput extends BeginDreamRunInput {
 export interface ScheduledDreamEnqueueResult {
   phase: "rem" | "deep";
   enqueued: number;
+}
+
+export interface ImmediateDreamWorkflowInput {
+  schemaVersion: 3;
+  tenantId: string;
+  operationId: string;
+  eventId: string;
+  studentId: string;
+  requestedAt: string;
+}
+
+export interface ImmediateDreamEnqueueResult {
+  retentionProjectionCount: number;
+  remEnqueued: number;
+  deepEnqueued: number;
+  message: string;
 }
 
 export interface RollbackAnnotationChangeSetInput {
@@ -472,6 +489,7 @@ export interface LearningNextActivities {
   commitDeepDream(input: CommitDreamRunInput): Promise<DreamRunCommitResult>;
   failDreamRun(input: FailDreamRunInput): Promise<void>;
   enqueueScheduledDream(input: { tenantId: string; phase: "rem" | "deep"; scheduledAt: string }): Promise<ScheduledDreamEnqueueResult>;
+  enqueueImmediateDream(input: ImmediateDreamWorkflowInput): Promise<ImmediateDreamEnqueueResult>;
   rollbackAnnotationChangeSet(input: RollbackAnnotationChangeSetInput): Promise<RollbackAnnotationChangeSetResult>;
   prepareQuestionFinalization(input: FinalizeQuestionWorkflowInput): Promise<PreparedQuestionFinalization>;
   recordFinalJudgment(input: RecordFinalJudgmentInput): Promise<void>;

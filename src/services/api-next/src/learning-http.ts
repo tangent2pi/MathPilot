@@ -148,6 +148,13 @@ export function registerLearningHttp(
     try { return sendView(request, reply, await reads.reviews(principal, query(request).after)); }
     catch (error) { return problem(reply, error); }
   });
+  app.post("/api/learning/me/dreams/organize", async (request, reply) => {
+    const principal = await principalOf(request, reply); if (!principal) return;
+    try {
+      const result = await commands.organizeDream(principal,request.body ?? {},headerKey(request));
+      return reply.code(result.created ? 202 : 200).send(result);
+    } catch (error) { return problem(reply,error); }
+  });
 
   app.get("/api/learning/teacher/students", async (request, reply) => {
     const principal = await principalOf(request, reply); if (!principal) return;

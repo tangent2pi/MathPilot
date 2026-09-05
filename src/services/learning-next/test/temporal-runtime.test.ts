@@ -104,6 +104,9 @@ test("Temporal owns retry, restart recovery, revision cancellation, Continue-As-
     async enqueueScheduledDream(input) {
       return { phase: input.phase,enqueued: 0 };
     },
+    async enqueueImmediateDream() {
+      return { retentionProjectionCount: 0,remEnqueued: 0,deepEnqueued: 0,message: "done" };
+    },
     async rollbackAnnotationChangeSet() { throw new Error("unexpected Dream rollback in generic runtime test"); },
     async prepareQuestionFinalization() {
       throw new Error("unexpected FinalizeQuestion Activity in generic runtime test");

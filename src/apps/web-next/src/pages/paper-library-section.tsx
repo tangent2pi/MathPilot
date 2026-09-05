@@ -137,11 +137,9 @@ export function PaperLibrarySection({ autoRequest = 0 }: { autoRequest?: number 
               <Button size="sm" variant="ghost" onClick={() => { setRenameValue(paper.title); setRenamePaper(paper); }}>
                 <PencilIcon className="size-3.5" />重命名
               </Button>
-              {paper.status === "draft" && (
-                <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeletePaper(paper)}>
-                  <TrashIcon className="size-3.5" />删除
-                </Button>
-              )}
+              <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeletePaper(paper)}>
+                <TrashIcon className="size-3.5" />删除
+              </Button>
             </div>
           </article>
         ))}
@@ -174,7 +172,7 @@ export function PaperLibrarySection({ autoRequest = 0 }: { autoRequest?: number 
 
       <Dialog open={deletePaper !== null} onOpenChange={(open) => { if (!open && !removeItem.isPending) setDeletePaper(null); }}>
         <DialogContent showCloseButton={false}>
-          <DialogHeader><DialogTitle>删除试卷</DialogTitle><DialogDescription>确定删除「{deletePaper?.title}」吗？仅草稿可删除，已定稿试卷不可删。</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>删除试卷</DialogTitle><DialogDescription>确定删除「{deletePaper?.title}」吗？试卷与已生成的答案内容会一并移除，此操作不可撤销。</DialogDescription></DialogHeader>
           <DialogFooter>
             <Button variant="outline" disabled={removeItem.isPending} onClick={() => setDeletePaper(null)}>取消</Button>
             <Button variant="destructive" disabled={removeItem.isPending} onClick={() => deletePaper && removeItem.mutate(deletePaper.paper_id)}>

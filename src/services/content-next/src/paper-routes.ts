@@ -159,12 +159,12 @@ export function registerPaperRoutes(
     return renamed ? { renamed: true } : reply.code(404).send({ error: "paper not found" });
   });
 
-  // 删除草稿
+  // 删除本人试卷（草稿或已定稿）
   server.delete("/papers/:id", { preHandler: fromApi }, async (request, reply) => {
     const actor = requireTeacher(request);
     if (!actor) return reply.code(403).send({ error: "teacher principal required" });
     const id = (request.params as { id: string }).id;
     const deleted = await repository.deletePaper(actor, id);
-    return deleted ? { deleted: true } : reply.code(404).send({ error: "paper not found or not deletable" });
+    return deleted ? { deleted: true } : reply.code(404).send({ error: "paper not found" });
   });
 }

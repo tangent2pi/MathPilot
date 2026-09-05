@@ -2,6 +2,7 @@ import { directTaskTypeForEvent } from "./task-registry.ts";
 import type {
   AgentTaskWorkflowInput,
   FinalizeQuestionWorkflowInput,
+  ImmediateDreamWorkflowInput,
   OutboxWorkflowStart,
   ScientificReplayWorkflowInput,
   TaskType,
@@ -30,14 +31,31 @@ export interface ScientificReplayWorkflowRoute {
   taskType?: undefined;
 }
 
-export function directWorkflowRoute(eventType: string): DirectWorkflowRoute | FinalizeQuestionWorkflowRoute | ScientificReplayWorkflowRoute | undefined {
+export interface ImmediateDreamWorkflowRoute {
+  workflowType: "immediateDreamWorkflow";
+  taskType?: undefined;
+}
+
+export function directWorkflowRoute(eventType: string): DirectWorkflowRoute | FinalizeQuestionWorkflowRoute | ScientificReplayWorkflowRoute | ImmediateDreamWorkflowRoute | undefined {
   if (eventType === "question.cut_requested") return { workflowType: "finalizeQuestionWorkflow" };
   if (eventType === "teacher.correction_recorded") return { workflowType: "replayScientificStateWorkflow" };
+  if (eventType === "dream.full_requested") return { workflowType: "immediateDreamWorkflow" };
   const taskType = directTaskTypeForEvent(eventType);
   if (!(taskType in DIRECT_WORKFLOW_TYPES)) throw new Error(`task ${taskType} has no direct outbox Workflow`);
   return {
     taskType: taskType as keyof typeof DIRECT_WORKFLOW_TYPES,
     workflowType: DIRECT_WORKFLOW_TYPES[taskType as keyof typeof DIRECT_WORKFLOW_TYPES],
+  };
+}
+
+export function immediateDreamInputFromOutbox(event: OutboxWorkflowStart): ImmediateDreamWorkflowInput {
+  const student = /^student:(stu_[A-Za-z0-9]{8,})$/.exec(event.aggregateRef);
+  if (!student || event.payloadRef !== event.aggregateRef || event.eventType !== "dream.full_requested") {
+    throw new Error("invalid immediate Dream outbox envelope");
+  }
+  return {
+    schemaVersion: 3,tenantId: event.tenantId,operationId: event.operationId,
+    eventId: event.eventId,studentId: student[1]!,requestedAt: event.occurredAt,
   };
 }
 

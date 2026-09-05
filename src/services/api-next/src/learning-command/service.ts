@@ -122,6 +122,42 @@ export class LearningCommandService {
     });
   }
 
+  async organizeDream(principal: Principal, value: unknown, headerKey: unknown) {
+    const body = objectValue(value ?? {});
+    const key = idempotencyKey(headerKey,body);
+    const at = requestedAt(body);
+    return withPrincipal(this.pool,principal,async (client) => {
+      const subject = await ensureOwnStudent(client,principal);
+      const operationId = deterministicId("op",principal.tenantId,principal.userId,"dream-full",key);
+      const eventId = deterministicId("evt",principal.tenantId,principal.userId,"dream-full",key);
+      const existing = (await client.query<{ status: string; user_message: string; version: string }>(
+        `select status,user_message,version from science_v3_operation
+          where tenant_id=$1 and operation_id=$2`,
+        [principal.tenantId,operationId],
+      )).rows[0];
+      if (existing) {
+        return {
+          created: false,operation_id: operationId,status: existing.status,
+          message: existing.user_message,version: Number(existing.version),
+        };
+      }
+      await client.query(
+        `insert into science_v3_operation(
+           operation_id,tenant_id,requested_by_user_id,kind,status,user_message
+         ) values($1,$2,$3,'dream','accepted','学习记忆整理已排队')`,
+        [operationId,principal.tenantId,principal.userId],
+      );
+      await client.query(
+        `insert into infra_outbox(
+           event_id,tenant_id,aggregate_type,aggregate_id,event_type,payload,correlation_id,
+           occurred_at,aggregate_version,payload_ref,operation_id
+         ) values($1,$2,'student',$3,'dream.full_requested','{}'::jsonb,$4,$5,1,$6,$4)`,
+        [eventId,principal.tenantId,subject.studentId,operationId,new Date(at),`student:${subject.studentId}`],
+      );
+      return { created: true,operation_id: operationId,status: "accepted",message: "学习记忆整理已排队",version: 1 };
+    });
+  }
+
   async renameThread(principal: Principal, threadId: string, value: unknown, headerKey: unknown) {
     if (!threadPattern.test(threadId)) throw new LearningCommandError(404, "thread_not_found", "对话不存在");
     const body = objectValue(value);

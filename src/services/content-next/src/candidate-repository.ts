@@ -786,11 +786,24 @@ export class CandidateRepository {
         `select s.*, (select count(*)::int from content_candidate_set_item i where i.candidate_set_id=s.candidate_set_id) as item_count
            from content_candidate_set s
           where s.tenant_id=$1 and s.owner_teacher_user_id=$2
+            and s.deleted_at is null
             and ($3::text is null or s.status=$3)
           order by s.created_at desc limit 100`,
         [principal.tenantId, principal.userId, status ?? null],
       );
       return result.rows.map((row) => this.mapSummary(row));
+    });
+  }
+
+  async deleteCandidate(principal: Principal, candidateSetId: string): Promise<boolean> {
+    return withPrincipal(this.pool,principal,async (client) => {
+      const result = await client.query(
+        `update content_candidate_set set deleted_at=clock_timestamp()
+          where tenant_id=$1 and candidate_set_id=$2 and owner_teacher_user_id=$3
+            and deleted_at is null returning candidate_set_id`,
+        [principal.tenantId,candidateSetId,principal.userId],
+      );
+      return (result.rowCount ?? 0) === 1;
     });
   }
 

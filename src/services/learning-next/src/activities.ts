@@ -118,6 +118,7 @@ export function createActivities({ store, questionStore, selectionStore, dreamSt
     commitDeepDream: (input) => dreamStore.commitDeep(input),
     failDreamRun: (input) => dreamStore.failRun(input),
     enqueueScheduledDream: (input) => dreamStore.enqueueScheduled(input),
+    enqueueImmediateDream: (input) => dreamStore.enqueueImmediate(input),
     rollbackAnnotationChangeSet: (input) => dreamStore.rollbackChangeSet(input),
     prepareQuestionFinalization: (input) => questionStore.prepareFinalization(input),
     recordFinalJudgment: (input) => questionStore.recordFinalJudgment(input),

@@ -262,6 +262,7 @@ export function TeacherLibraryPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [pendingDelete, setPendingDelete] = useState<PackageSummary>();
+  const [pendingCandidateDelete, setPendingCandidateDelete] = useState<CandidateSummary>();
   const [renameTarget, setRenameTarget] = useState<RenameTarget>();
   const [renameValue, setRenameValue] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
@@ -279,6 +280,13 @@ export function TeacherLibraryPage() {
     mutationFn: (packageId: string) => libraryApi<{ deleted: boolean }>(`/packages/${encodeURIComponent(packageId)}`, { method: "DELETE" }),
     onSuccess: async () => {
       setPendingDelete(undefined);
+      await queryClient.invalidateQueries({ queryKey: ["teacher", "library"] });
+    },
+  });
+  const removeCandidate = useMutation({
+    mutationFn: (candidateSetId: string) => libraryApi<{ deleted: boolean }>(`/candidates/${encodeURIComponent(candidateSetId)}`, { method: "DELETE" }),
+    onSuccess: async () => {
+      setPendingCandidateDelete(undefined);
       await queryClient.invalidateQueries({ queryKey: ["teacher", "library"] });
     },
   });
@@ -360,6 +368,9 @@ export function TeacherLibraryPage() {
                   onClick={() => openRename({ kind: "candidate", id: candidate.candidate_set_id, initial: candidate.display_name || `${phaseLabel(candidate.phase)}批次` })}
                 >
                   <PencilIcon className="size-3.5" />重命名
+                </Button>
+                <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setPendingCandidateDelete(candidate)}>
+                  <TrashIcon className="size-3.5" />删除
                 </Button>
               </div>
             </article>
@@ -450,6 +461,21 @@ export function TeacherLibraryPage() {
             <Button variant="outline" disabled={removePackage.isPending} onClick={() => setPendingDelete(undefined)}>取消</Button>
             <Button variant="destructive" disabled={removePackage.isPending} onClick={() => pendingDelete && removePackage.mutate(pendingDelete.package_id)}>
               {removePackage.isPending && <Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" />}删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pendingCandidateDelete !== undefined} onOpenChange={(open) => { if (!open && !removeCandidate.isPending) setPendingCandidateDelete(undefined); }}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>删除解析批次</DialogTitle>
+            <DialogDescription>确定删除「{pendingCandidateDelete?.display_name || (pendingCandidateDelete ? `${phaseLabel(pendingCandidateDelete.phase)}批次` : "") }」吗？批次会从列表隐藏，已入题库的题目仍会保留。</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={removeCandidate.isPending} onClick={() => setPendingCandidateDelete(undefined)}>取消</Button>
+            <Button variant="destructive" disabled={removeCandidate.isPending} onClick={() => pendingCandidateDelete && removeCandidate.mutate(pendingCandidateDelete.candidate_set_id)}>
+              {removeCandidate.isPending && <Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" />}删除
             </Button>
           </DialogFooter>
         </DialogContent>

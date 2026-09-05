@@ -55,6 +55,7 @@ test("FinalizeQuestion turns exhausted grading into unresolved and still closes 
     async enqueueScheduledDream() {
       throw new Error("unexpected Dream Activity");
     },
+    async enqueueImmediateDream() { throw new Error("unexpected Dream Activity"); },
     async rollbackAnnotationChangeSet() { throw new Error("unexpected Dream Activity"); },
     async prepareQuestionFinalization() {
       return {

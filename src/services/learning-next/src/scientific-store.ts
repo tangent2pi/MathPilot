@@ -693,6 +693,25 @@ const projectRetention = async (
   return refs.sort();
 };
 
+/** Rebuild delayed-review events and retention cards after content registration changes. */
+export async function reprojectStudentRetention(
+  client: pg.PoolClient,
+  input: { tenantId: string; studentId: string; projectedAt: string },
+): Promise<string[]> {
+  await client.query(
+    "select pg_advisory_xact_lock(hashtextextended($1,0))",
+    [`science-v3-project:${input.tenantId}:${input.studentId}`],
+  );
+  const commitInput: ScientificCommitInput = {
+    tenantId: input.tenantId,
+    questionSessionId: "reprojection",
+    frozenAttemptSequence: 0,
+    projectedAt: input.projectedAt,
+  };
+  const expectedEventIds = await compileDelayedReviews(client,commitInput,input.studentId);
+  return projectRetention(client,commitInput,input.studentId,expectedEventIds);
+}
+
 export async function compileAndProjectQuestion(
   client: pg.PoolClient,
   input: ScientificCommitInput,

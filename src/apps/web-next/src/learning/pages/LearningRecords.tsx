@@ -12,6 +12,7 @@ import {
   Loader2Icon,
   MessageCircleMoreIcon,
   RefreshCwIcon,
+  SparklesIcon,
   UsersIcon,
 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
@@ -56,7 +57,7 @@ const ownPages: Record<OwnPageKind, { title: string; description: string; path: 
 
 export function OwnLearningPage({ kind }: { kind: OwnPageKind }) {
   const page = ownPages[kind];
-  return <LearningViewPage title={page.title} description={page.description} url={page.path} mode={kind === "overview" ? undefined : kind} />;
+  return <LearningViewPage title={page.title} description={page.description} url={page.path} mode={kind === "overview" ? undefined : kind} allowImmediateDream={kind === "memory"} />;
 }
 
 export function EvidencePage() {
@@ -207,14 +208,17 @@ function LearningViewPage({
   description,
   url,
   mode,
+  allowImmediateDream = false,
 }: {
   title: string;
   description: string;
   url: string;
   mode?: LearningPageMode;
+  allowImmediateDream?: boolean;
 }) {
   const { principal, loading, requireAuth } = useAuth();
   const [filter, setFilter] = useState(defaultFilter(mode));
+  const queryClient = useQueryClient();
   const query = useInfiniteQuery({
     queryKey: [...learningKeys.view(url), mode ?? "single", filter],
     queryFn: ({ pageParam }) => learningApi.view(pageUrl(url, mode, filter, pageParam)),
@@ -227,6 +231,14 @@ function LearningViewPage({
     retry: 1,
   });
   const view = useMemo(() => mergeLearningPages(query.data?.pages ?? []), [query.data?.pages]);
+  const dream = useMutation({
+    mutationFn: () => learningApi.command<{
+      operation_id: string; status: string; message: string;
+    }>("/api/learning/me/dreams/organize",0,{},"dream-organize"),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: learningKeys.all });
+    },
+  });
 
   if (loading && !principal) return <CenteredStatus><Loader2Icon className="size-5 animate-spin motion-reduce:animate-none" />正在读取账户</CenteredStatus>;
   if (!principal) {
@@ -241,13 +253,25 @@ function LearningViewPage({
     );
   }
   return (
-    <main className="mx-auto w-full max-w-5xl p-5 md:p-10" aria-busy={query.isFetching}>
+    <main className="mx-auto w-full max-w-5xl p-5 md:p-10" aria-busy={query.isFetching || dream.isPending}>
       <div className="flex items-start justify-between gap-4">
         <PageHeading title={title} description={description} />
-        <Button variant="ghost" size="icon" onClick={() => void query.refetch()} aria-label="刷新">
-          <RefreshCwIcon className={cn("size-4", query.isFetching && "animate-spin motion-reduce:animate-none")} />
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {allowImmediateDream && (
+            <Button variant="outline" size="sm" disabled={dream.isPending} onClick={() => dream.mutate()}>
+              {dream.isPending
+                ? <Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                : <SparklesIcon className="size-4" aria-hidden="true" />}
+              {dream.isPending ? "正在整理" : "立即整理"}
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" onClick={() => void query.refetch()} aria-label="刷新">
+            <RefreshCwIcon className={cn("size-4", query.isFetching && "animate-spin motion-reduce:animate-none")} />
+          </Button>
+        </div>
       </div>
+      {allowImmediateDream && dream.data && <p role="status" className="text-muted-foreground mt-3 text-sm">{dream.data.message}</p>}
+      {allowImmediateDream && dream.error && <p role="alert" className="text-destructive mt-3 text-sm">{dream.error.message}</p>}
       {mode && mode !== "review" && <LearningFilter mode={mode} value={filter} onChange={setFilter} />}
       {query.isPending && <CenteredStatus><Loader2Icon className="size-5 animate-spin motion-reduce:animate-none" />正在读取学习记录</CenteredStatus>}
       {query.error && <ErrorPanel error={query.error} retry={() => void query.refetch()} />}

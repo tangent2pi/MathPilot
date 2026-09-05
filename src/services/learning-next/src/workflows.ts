@@ -22,6 +22,8 @@ import type {
   AllowedChildWorkflowInput,
   FinalizeQuestionWorkflowInput,
   ForegroundResponseCommitResult,
+  ImmediateDreamEnqueueResult,
+  ImmediateDreamWorkflowInput,
   LearningNextActivities,
   PiTaskActivityResult,
   QuestionClosureResult,
@@ -647,4 +649,26 @@ export async function scheduledDreamTickWorkflow(input: ScheduledDreamTickInput)
     [{ tenantId: input.tenantId, phase: input.phase, scheduledAt: new Date().toISOString() }],
     durableActivityOptions(`enqueue-${input.phase}`),
   );
+}
+
+export async function immediateDreamWorkflow(input: ImmediateDreamWorkflowInput): Promise<ImmediateDreamEnqueueResult> {
+  if (input.schemaVersion !== 3
+    || !idempotencyPattern.test(input.operationId)
+    || !idempotencyPattern.test(input.eventId)
+    || !/^stu_[A-Za-z0-9]{8,}$/.test(input.studentId)
+    || !Number.isFinite(Date.parse(input.requestedAt))) {
+    throw ApplicationFailure.nonRetryable("invalid immediate Dream input","invalid_workflow_input");
+  }
+  try {
+    return await scheduleActivity<ImmediateDreamEnqueueResult>(
+      "enqueueImmediateDream",[input],questionCommitActivityOptions("enqueue-immediate-dream"),
+    );
+  } catch (error) {
+    await CancellationScope.nonCancellable(() => scheduleActivity<Awaited<ReturnType<LearningNextActivities["markOperationFailed"]>>>(
+      "markOperationFailed",
+      [{ tenantId: input.tenantId,operationId: input.operationId,cancelled: isCancellation(error),message: "学习记忆整理失败，请稍后重试" }],
+      durableActivityOptions("mark-immediate-dream-failed"),
+    ));
+    throw error;
+  }
 }

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { digestJson, encodeArtifact, verifiedArtifactPayload } from "./artifact-integrity.ts";
 import pg from "pg";
+import { reprojectStudentRetention } from "./scientific-store.ts";
 import {
   DEEP_COMPILER_VERSION,
   DEEP_GATE_POLICY_VERSION,
@@ -21,6 +22,8 @@ import type {
   DreamPhase,
   DreamRunCommitResult,
   FailDreamRunInput,
+  ImmediateDreamEnqueueResult,
+  ImmediateDreamWorkflowInput,
   RollbackAnnotationChangeSetInput,
   RollbackAnnotationChangeSetResult,
   ScheduledDreamEnqueueResult,
@@ -133,6 +136,7 @@ export interface DreamStore {
   commitDeep(input: CommitDreamRunInput): Promise<DreamRunCommitResult>;
   failRun(input: FailDreamRunInput): Promise<void>;
   enqueueScheduled(input: { tenantId: string; phase: "rem" | "deep"; scheduledAt: string }): Promise<ScheduledDreamEnqueueResult>;
+  enqueueImmediate(input: ImmediateDreamWorkflowInput): Promise<ImmediateDreamEnqueueResult>;
   rollbackChangeSet(input: RollbackAnnotationChangeSetInput): Promise<RollbackAnnotationChangeSetResult>;
   close(): Promise<void>;
 }
@@ -381,6 +385,48 @@ export class PostgresDreamStore implements DreamStore {
       ? this.enqueueRem(client,input.tenantId,scheduledAt.toISOString())
       : this.enqueueDeep(client,input.tenantId,scheduledAt.toISOString()));
     return { phase: input.phase,enqueued };
+  }
+
+  async enqueueImmediate(input: ImmediateDreamWorkflowInput): Promise<ImmediateDreamEnqueueResult> {
+    const requestedAt = new Date(input.requestedAt);
+    if (!Number.isFinite(requestedAt.valueOf())) throw new Error("requestedAt is invalid");
+    return this.withTenant(input.tenantId,async (client) => {
+      const operation = (await client.query<{ status: string; requested_by_user_id: string }>(
+        `select status,requested_by_user_id from science_v3_operation
+          where tenant_id=$1 and operation_id=$2 for update`,
+        [input.tenantId,input.operationId],
+      )).rows[0];
+      if (!operation) throw new Error("immediate Dream operation is missing");
+      if (operation.status === "cancelled") {
+        return { retentionProjectionCount: 0,remEnqueued: 0,deepEnqueued: 0,message: "整理已取消" };
+      }
+      if (operation.status === "succeeded") {
+        return { retentionProjectionCount: 0,remEnqueued: 0,deepEnqueued: 0,message: "整理请求已处理" };
+      }
+      await client.query(
+        `update science_v3_operation
+            set status='running',user_message='正在整理学习记忆',updated_at=clock_timestamp(),version=version+1
+          where tenant_id=$1 and operation_id=$2 and status='accepted'`,
+        [input.tenantId,input.operationId],
+      );
+      const retentionRefs = await reprojectStudentRetention(client,{
+        tenantId: input.tenantId,studentId: input.studentId,projectedAt: requestedAt.toISOString(),
+      });
+      const remEnqueued = await this.enqueueRem(client,input.tenantId,requestedAt.toISOString(),input.studentId);
+      const deepEnqueued = await this.enqueueDeep(client,input.tenantId,requestedAt.toISOString(),input.studentId);
+      const enqueued = remEnqueued + deepEnqueued;
+      const message = enqueued
+        ? `已开始整理：REM ${remEnqueued} 项，Deep ${deepEnqueued} 项`
+        : "已检查全部证据，当前没有满足门禁的新内容";
+      await client.query(
+        `update science_v3_operation
+            set status='succeeded',user_message=$3,retryable=false,
+                related_resource_refs=$4,updated_at=clock_timestamp(),version=version+1
+          where tenant_id=$1 and operation_id=$2 and status='running'`,
+        [input.tenantId,input.operationId,message,retentionRefs.slice(0,32)],
+      );
+      return { retentionProjectionCount: retentionRefs.length,remEnqueued,deepEnqueued,message };
+    });
   }
 
   private async commitContext(client: pg.PoolClient, input: CommitDreamRunInput, phase: DreamPhase): Promise<CommitContext> {
