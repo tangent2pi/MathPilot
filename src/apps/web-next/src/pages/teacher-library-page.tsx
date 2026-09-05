@@ -261,7 +261,7 @@ export function TeacherLibraryPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [pendingDelete, setPendingDelete] = useState<PackageSummary>();
+  const [pendingDelete, setPendingDelete] = useState<PackageSummary | CandidateSummary>();
   const [renameTarget, setRenameTarget] = useState<RenameTarget>();
   const [renameValue, setRenameValue] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
@@ -277,6 +277,13 @@ export function TeacherLibraryPage() {
   });
   const removePackage = useMutation({
     mutationFn: (packageId: string) => libraryApi<{ deleted: boolean }>(`/packages/${encodeURIComponent(packageId)}`, { method: "DELETE" }),
+    onSuccess: async () => {
+      setPendingDelete(undefined);
+      await queryClient.invalidateQueries({ queryKey: ["teacher", "library"] });
+    },
+  });
+  const removeCandidate = useMutation({
+    mutationFn: (candidateSetId: string) => libraryApi<{ deleted: boolean }>(`/candidates/${encodeURIComponent(candidateSetId)}`, { method: "DELETE" }),
     onSuccess: async () => {
       setPendingDelete(undefined);
       await queryClient.invalidateQueries({ queryKey: ["teacher", "library"] });
@@ -361,6 +368,14 @@ export function TeacherLibraryPage() {
                 >
                   <PencilIcon className="size-3.5" />重命名
                 </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setPendingDelete(candidate)}
+                >
+                  <TrashIcon className="size-3.5" />删除
+                </Button>
               </div>
             </article>
           ))}
@@ -440,16 +455,28 @@ export function TeacherLibraryPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={pendingDelete !== undefined} onOpenChange={(open) => { if (!open && !removePackage.isPending) setPendingDelete(undefined); }}>
+      <Dialog open={pendingDelete !== undefined} onOpenChange={(open) => { if (!open && !removePackage.isPending && !removeCandidate.isPending) setPendingDelete(undefined); }}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>删除练习包</DialogTitle>
-            <DialogDescription>确定要删除「{pendingDelete?.title}」吗？仅未发布的包可删除，已发布内容不受影响。</DialogDescription>
+            <DialogTitle>{pendingDelete && "candidate_set_id" in pendingDelete ? "删除解析批次" : "删除练习包"}</DialogTitle>
+            <DialogDescription>
+              {pendingDelete && "candidate_set_id" in pendingDelete
+                ? <>确定要删除批次「{pendingDelete.display_name || `${phaseLabel(pendingDelete.phase)}批次`}」吗？批次会从列表移除，但其中已入库的题目会保留在题库中，可继续被组卷选用。</>
+                : <>确定要删除「{pendingDelete?.title}」吗？仅未发布的包可删除，已发布内容不受影响。</>}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" disabled={removePackage.isPending} onClick={() => setPendingDelete(undefined)}>取消</Button>
-            <Button variant="destructive" disabled={removePackage.isPending} onClick={() => pendingDelete && removePackage.mutate(pendingDelete.package_id)}>
-              {removePackage.isPending && <Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" />}删除
+            <Button variant="outline" disabled={removePackage.isPending || removeCandidate.isPending} onClick={() => setPendingDelete(undefined)}>取消</Button>
+            <Button
+              variant="destructive"
+              disabled={removePackage.isPending || removeCandidate.isPending}
+              onClick={() => {
+                if (!pendingDelete) return;
+                if ("candidate_set_id" in pendingDelete) removeCandidate.mutate(pendingDelete.candidate_set_id);
+                else removePackage.mutate(pendingDelete.package_id);
+              }}
+            >
+              {(removePackage.isPending || removeCandidate.isPending) && <Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" />}删除
             </Button>
           </DialogFooter>
         </DialogContent>

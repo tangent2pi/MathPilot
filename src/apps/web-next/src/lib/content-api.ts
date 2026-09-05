@@ -29,6 +29,8 @@ export type CandidateItem = {
   question_type_identifying_features?: string | null;
   question_type_standard_method?: string | null;
   chapter_id?: string | null;
+  question_module_2?: string | null;
+  question_module_3?: string | null;
   stem_format?: string | null;
   stem_markdown?: string | null;
   question_difficulty?: number | null;

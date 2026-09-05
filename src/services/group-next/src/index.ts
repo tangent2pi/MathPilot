@@ -31,6 +31,7 @@ function sanitizeItems(value: unknown): RenderItem[] {
       ? row.options.map(optionObject).filter((option): option is RenderOption => option !== null)
       : [];
     items.push({
+      item_order: typeof row.item_order === "number" && Number.isFinite(row.item_order) ? row.item_order : items.length,
       stem_format: stemFormat,
       stem_markdown: stem,
       difficulty: typeof row.difficulty === "number" && Number.isFinite(row.difficulty) ? row.difficulty : null,

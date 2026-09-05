@@ -14,7 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       texlive-lang-chinese \
       texlive-latex-recommended \
       fonts-noto-cjk \
+      fontconfig \
     && rm -rf /var/lib/apt/lists/*
+
+# 按组卷 skill 规定装载 Windows 中文字体（华文行楷/黑体/宋体/Times New Roman），
+# 供 XeLaTeX + fontspec 以 family 名检索；装后重建 fontconfig 缓存。
+COPY src/services/group-next/fonts /usr/share/fonts/mathpilot
+RUN fc-cache -f >/dev/null 2>&1 || true
 
 WORKDIR /app
 COPY . .

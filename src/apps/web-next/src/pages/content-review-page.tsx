@@ -28,7 +28,8 @@ const FIELD_OPTIONS: Record<CandidateItem["entity_kind"], Array<{ value: string;
     { value: "identifying_features", label: "识别特征" }, { value: "standard_method", label: "标准方法" },
   ],
   question: [
-    { value: "chapter_id", label: "章节" }, { value: "stem_format", label: "题干格式" },
+    { value: "chapter_id", label: "一级模块" }, { value: "module_2", label: "二级模块" },
+    { value: "module_3", label: "三级模块" }, { value: "stem_format", label: "题干格式" },
     { value: "stem_markdown", label: "题干" }, { value: "difficulty", label: "难度" },
     { value: "question_type_revision_id", label: "题型引用" }, { value: "analysis_markdown", label: "解析" },
   ],
@@ -46,7 +47,10 @@ const FIELD_OPTIONS: Record<CandidateItem["entity_kind"], Array<{ value: string;
 function itemText(item: CandidateItem): { title: string; description: string } {
   if (item.entity_kind === "knowledge") return { title: item.knowledge_name || item.entity_id, description: item.knowledge_description || "" };
   if (item.entity_kind === "question_type") return { title: item.question_type_name || item.entity_id, description: "" };
-  if (item.entity_kind === "question") return { title: item.stem_markdown || item.entity_id, description: item.analysis_markdown || "" };
+  if (item.entity_kind === "question") {
+    const path = [item.chapter_id, item.question_module_2, item.question_module_3].filter(Boolean).join(" / ");
+    return { title: item.stem_markdown || item.entity_id, description: path ? `${item.analysis_markdown || ""}\n模块归属：${path}`.trim() : item.analysis_markdown || "" };
+  }
   if (item.entity_kind === "error_cause") return { title: item.error_name || item.entity_id, description: item.error_description || "" };
   return { title: item.trigger_text || item.entity_id, description: item.probe_text || "" };
 }

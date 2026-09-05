@@ -71,6 +71,7 @@ export function registerPaperExportRoutes(
         ? paper.items.slice(0, 200).map((item: Json) => {
             const stemFormat = stringValue(item.stem_format, "open_solution");
             return {
+              item_order: typeof item.item_order === "number" ? item.item_order : 0,
               stem_format: stemFormat,
               stem_markdown: stringValue(item.stem_markdown, ""),
               difficulty: typeof item.difficulty === "number" ? item.difficulty : null,

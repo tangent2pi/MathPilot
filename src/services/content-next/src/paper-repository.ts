@@ -560,7 +560,7 @@ export class PaperRepository {
   async deletePaper(principal: Principal, paperId: string): Promise<boolean> {
     return withPrincipal(this.pool, principal, async (client) => {
       const result = await client.query(
-        `delete from content_paper where tenant_id=$1 and paper_id=$2 and owner_teacher_user_id=$3 and status='draft' returning paper_id`,
+        `delete from content_paper where tenant_id=$1 and paper_id=$2 and owner_teacher_user_id=$3 returning paper_id`,
         [principal.tenantId, paperId, principal.userId],
       );
       return (result.rowCount ?? 0) === 1;

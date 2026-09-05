@@ -267,21 +267,25 @@ export function LearningSidebar() {
 
         {principal && (
           <nav className="border-t pt-3" aria-label="学习记录">
-            <div className="text-muted-foreground px-2.5 pb-1 text-xs font-medium">学习记录</div>
-            {learningLinks.map(({ to, label, icon: Icon, end }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={end}
-                className={({ isActive }) => cn(
-                  "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
-                  isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
-                )}
-              >
-                <Icon className="size-4" />{label}
-              </NavLink>
-            ))}
-            {principal.roles.includes("teacher") && (
+            {!isTeacher && (
+              <>
+                <div className="text-muted-foreground px-2.5 pb-1 text-xs font-medium">学习记录</div>
+                {learningLinks.map(({ to, label, icon: Icon, end }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    end={end}
+                    className={({ isActive }) => cn(
+                      "flex h-9 items-center gap-2 rounded-md px-2.5 text-sm",
+                      isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/65",
+                    )}
+                  >
+                    <Icon className="size-4" />{label}
+                  </NavLink>
+                ))}
+              </>
+            )}
+            {isTeacher && (
               <>
                 <NavLink
                   to="/teacher/students"

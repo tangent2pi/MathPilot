@@ -4,6 +4,8 @@
  * 答案冲突时标记 need_review，交由教师在线复核裁定（绝不静默二选一）。
  */
 
+import { casualToLatex } from "./math-latex";
+
 type Json = Record<string, unknown>;
 
 export interface QuestionForAnalysis {
@@ -47,6 +49,39 @@ export function normalizeBankAnswer(value: string): string {
     }
   } catch { /* 非 JSON 则原样返回 */ }
   return trimmed;
+}
+
+/**
+ * 单/多选答案归一为选项字母：内容是选项文本/数值时，映射为唯一命中的选项 key；
+ * 已是纯字母则原样返回；无法唯一命中时**原样返回、不做猜测**（铁律⑳：渲染层只排版）。
+ */
+export function ensureChoiceLetterAnswer(
+  stemFormat: string,
+  options: Array<{ option_key: string; option_text: string }>,
+  value: string,
+): string {
+  const v = value.trim();
+  if (stemFormat !== "single_choice" && stemFormat !== "multiple_choice") return v;
+  // 选择判断题答案应是字母/短数值，去掉尾部装饰性标点再判；解答题等不在此分支，不受影响。
+  const vc = v.replace(/[。．,.；;]+$/u, "").trim() || v;
+  if (vc.length > 0 && vc.length <= 8 && /^[A-Ha-h]+$/.test(vc)) return vc.toUpperCase();
+  if (!options.length) return v;
+  const stripPrefix = (text: string) => text.replace(/^\s*[A-Ha-h]\s*[．.)、:：]/u, "").replace(/[。．,.；;\s]+$/u, "").trim();
+  const bodies = options.map((option) => ({
+    key: option.option_key.trim().toUpperCase(),
+    body: stripPrefix(option.option_text),
+  }));
+  // 仅当答案与某选项文本"相等"，或答案作为完整表达式（长度≥2）唯一出现在某个选项里时才映射；
+  // 短数值（如 "7" ⊂ "√7"）会被误判，一律不猜，防止给出未经核实的选项。
+  const matched = bodies.filter((option) => {
+    if (option.body === "") return false;
+    return option.body === vc || (option.body.includes(vc) && vc.length >= 2);
+  });
+  if (matched.length === 1) return matched[0]!.key;
+  if (stemFormat === "multiple_choice" && matched.length > 1) {
+    return matched.map((option) => option.key).join("");
+  }
+  return v;
 }
 
 function modelSettings(): { baseUrl: string; apiKey: string; model: string } {
@@ -142,8 +177,8 @@ export async function completeQuestionAnalysis(
   if (bankAnswer && bankAnalysis) {
     return {
       item_order: question.item_order,
-      answer_text: bankAnswer,
-      analysis_text: bankAnalysis,
+      answer_text: casualToLatex(bankAnswer),
+      analysis_text: casualToLatex(bankAnalysis),
       need_review: false,
       review_note: null,
       source: "bank",
@@ -159,8 +194,8 @@ export async function completeQuestionAnalysis(
   return {
     item_order: question.item_order,
     // 题库有答案则保留题库答案；只有题库缺答案时才采用模型答案。
-    answer_text: bankAnswer || aiAnswer,
-    analysis_text: bankAnalysis || aiAnalysis,
+    answer_text: casualToLatex(ensureChoiceLetterAnswer(question.stem_format, question.options, bankAnswer || aiAnswer)),
+    analysis_text: casualToLatex(bankAnalysis || aiAnalysis),
     need_review: needReview && Boolean(bankAnswer),
     review_note: needReview && Boolean(bankAnswer) ? reviewNote : null,
     source: bankAnalysis ? "bank" : "ai",

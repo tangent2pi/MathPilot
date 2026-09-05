@@ -91,6 +91,8 @@ export type PickableQuestion = {
   batch_display_name: string | null;
   batch_phase: string | null;
   chapter_id: string | null;
+  module_2: string | null;
+  module_3: string | null;
   stem_format: string | null;
   difficulty: number | null;
   stem_preview: string | null;
@@ -246,12 +248,50 @@ export function ManualPaperDialog({ open, onOpenChange, onCreated }: { open: boo
   const [ratio, setRatio] = useState({ easy: 3, medium: 5, hard: 2 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [keyword, setKeyword] = useState("");
+  const [lvl1, setLvl1] = useState<string>("");
+  const [lvl2, setLvl2] = useState<string>("");
+  const [lvl3, setLvl3] = useState<string>("");
 
   const questions = useQuery({
     queryKey: ["teacher", "library", "questions"],
     queryFn: () => papersApi<{ questions: PickableQuestion[] }>("/teacher/library/questions"),
     enabled: open && step === "pick",
   });
+
+  // 从私人题库聚合出 一级→二级→三级 的可选模块树，用于逐层级联过滤。
+  const moduleTree = useMemo(() => {
+    const map = new Map<string, Map<string, Set<string>>>();
+    for (const row of questions.data?.questions ?? []) {
+      const l1 = row.chapter_id;
+      const l2 = row.module_2;
+      const l3 = row.module_3;
+      if (!l1) continue;
+      if (!map.has(l1)) map.set(l1, new Map());
+      const level2 = map.get(l1)!;
+      if (!l2) continue;
+      if (!level2.has(l2)) level2.set(l2, new Set());
+      if (l3) level2.get(l2)!.add(l3);
+    }
+    return [...map.entries()].map(([l1, level2]) => ({
+      name: l1,
+      children: [...level2.entries()].map(([l2, level3]) => ({ name: l2, children: [...level3].sort((a, b) => a.localeCompare(b, "zh-Hans-CN")) })),
+    }));
+  }, [questions.data]);
+
+  const level1Options = moduleTree.map((node) => node.name);
+  const level2Options = useMemo(() => {
+    if (!lvl1) return [];
+    const node = moduleTree.find((item) => item.name === lvl1);
+    return node ? node.children.map((child) => child.name) : [];
+  }, [moduleTree, lvl1]);
+  const level3Options = useMemo(() => {
+    if (!lvl1 || !lvl2) return [];
+    const node = moduleTree.find((item) => item.name === lvl1);
+    const child = node?.children.find((item) => item.name === lvl2);
+    return child ? [...child.children] : [];
+  }, [moduleTree, lvl1, lvl2]);
+
+  const clearModule = () => { setLvl1(""); setLvl2(""); setLvl3(""); };
 
   const countByType = useMemo(() => {
     const map: Record<string, number> = {};
@@ -274,6 +314,7 @@ export function ManualPaperDialog({ open, onOpenChange, onCreated }: { open: boo
     setRatio({ easy: 3, medium: 5, hard: 2 });
     setSelected(new Set());
     setKeyword("");
+    setLvl1(""); setLvl2(""); setLvl3("");
   };
 
   const createPaper = useMutation({
@@ -303,6 +344,10 @@ export function ManualPaperDialog({ open, onOpenChange, onCreated }: { open: boo
       }
     }
     const q = keyword.trim().toLowerCase();
+    const inModule = (row: PickableQuestion) =>
+      (!lvl1 || row.chapter_id === lvl1) &&
+      (!lvl1 || !lvl2 || row.module_2 === lvl2) &&
+      (!lvl1 || !lvl2 || !lvl3 || row.module_3 === lvl3);
     return Object.entries(groups)
       .filter(([, rows]) => rows.length > 0)
       .map(([bucket, rows]) => ({
@@ -310,9 +355,11 @@ export function ManualPaperDialog({ open, onOpenChange, onCreated }: { open: boo
         label: TYPE_META[bucket]?.label ?? bucket,
         need: counts[bucket] ?? 0,
         picked: countByType[bucket] ?? 0,
-        rows: q ? rows.filter((row) => [row.entity_id, row.question_type_name, row.stem_preview, row.chapter_id].filter(Boolean).join(" ").toLowerCase().includes(q)) : rows,
+        rows: rows.filter(inModule).filter((row) => q
+          ? [row.entity_id, row.question_type_name, row.stem_preview, row.chapter_id, row.module_2, row.module_3].filter(Boolean).join(" ").toLowerCase().includes(q)
+          : true),
       }));
-  }, [questions.data, keyword, counts, countByType]);
+  }, [questions.data, keyword, counts, countByType, lvl1, lvl2, lvl3]);
 
   const toggle = (row: PickableQuestion) => {
     if (!row.stem_format || !TYPE_META[row.stem_format]) return;
@@ -366,6 +413,21 @@ export function ManualPaperDialog({ open, onOpenChange, onCreated }: { open: boo
           </div>
         ) : (
           <div className="grid gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <select aria-label="一级模块" value={lvl1} onChange={(event) => { setLvl1(event.target.value); setLvl2(""); setLvl3(""); }} className="max-w-40 min-h-9 rounded-md border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <option value="">全部一级模块</option>
+                {level1Options.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <select aria-label="二级模块" value={lvl2} onChange={(event) => { setLvl2(event.target.value); setLvl3(""); }} className="max-w-40 min-h-9 rounded-md border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={!lvl1}>
+                <option value="">全部二级模块</option>
+                {level2Options.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <select aria-label="三级模块" value={lvl3} onChange={(event) => setLvl3(event.target.value)} className="max-w-40 min-h-9 rounded-md border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={!lvl1 || !lvl2}>
+                <option value="">全部三级模块</option>
+                {level3Options.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              {lvl1 && <Button type="button" size="sm" variant="ghost" onClick={clearModule}>清除筛选</Button>}
+            </div>
             <Input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索题干/题型/章节…" />
             <div className="max-h-[50vh] space-y-4 overflow-y-auto pr-1">
               {questions.isPending && <p className="text-muted-foreground text-sm">正在加载题目…</p>}

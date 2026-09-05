@@ -7,11 +7,22 @@ import type { InternalActor, InternalServiceRuntime } from "@mathpilot/internal-
 import { internalServiceContext, internalServiceGuard } from "@mathpilot/internal-service/fastify";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type pg from "pg";
-import { completeMissingAnalyses, normalizeBankAnswer, type QuestionForAnalysis } from "./answer-analysis.ts";
+import { completeMissingAnalyses, ensureChoiceLetterAnswer, normalizeBankAnswer, type QuestionForAnalysis } from "./answer-analysis.ts";
+import { casualToLatex, latexToCasual } from "./math-latex.ts";
 import { isTeacher, jsonObject, stringValue, type Principal } from "./lib.ts";
 import { PaperRepository } from "./paper-repository.ts";
 
 type Json = Record<string, unknown>;
+
+/** 编辑器展示视图：库存为 LaTeX，返回给复核对话框时把答案/解析逆转为通俗符号（√3、π/3）。
+ * 教师在编辑器写通俗符号，保存时 PUT 再经 casualToLatex 转回 LaTeX，首尾一致。 */
+function toEditorView<T extends { answer_text: string; analysis_text: string }>(items: T[]): T[] {
+  return items.map((item) => ({
+    ...item,
+    answer_text: latexToCasual(item.answer_text),
+    analysis_text: latexToCasual(item.analysis_text),
+  }));
+}
 
 const RENDER_TIMEOUT_MS = 180_000;
 
@@ -106,10 +117,10 @@ export function registerPaperAnswerRoutes(
           merged.push(saved);
           continue;
         }
-        const bankAnswer = normalizeBankAnswer(stringValue(item.answer_text, ""));
+        const bankAnswer = ensureChoiceLetterAnswer(stemFormat, options, normalizeBankAnswer(stringValue(item.answer_text, "")));
         const bankAnalysis = stringValue(item.analysis_markdown, "");
         if (bankAnswer && bankAnalysis) {
-          merged.push({ item_order: order, answer_text: bankAnswer, analysis_text: bankAnalysis, need_review: false, review_note: null, source: "bank" });
+          merged.push({ item_order: order, answer_text: casualToLatex(bankAnswer), analysis_text: casualToLatex(bankAnalysis), need_review: false, review_note: null, source: "bank" });
           continue;
         }
         needsCompletion.push({ item_order: order, stem_format: stemFormat, stem_markdown: stemMarkdown, options, answer_text: bankAnswer, analysis_text: bankAnalysis });
@@ -123,10 +134,14 @@ export function registerPaperAnswerRoutes(
         if (failed.length > 0) {
           for (const order of failed) {
             const source = paperItems.find((item: Json) => Number(item.item_order ?? 0) === order) as Json | undefined;
+            const srcFormat = stringValue(source?.stem_format, "open_solution");
+            const srcOptions = Array.isArray(source?.options)
+              ? (source.options as Json[]).map((option: Json) => ({ option_key: stringValue(option.option_key, ""), option_text: stringValue(option.option_text, "") }))
+              : [];
             merged.push({
               item_order: order,
-              answer_text: normalizeBankAnswer(stringValue(source?.answer_text, "")),
-              analysis_text: stringValue(source?.analysis_markdown, ""),
+              answer_text: casualToLatex(ensureChoiceLetterAnswer(srcFormat, srcOptions, normalizeBankAnswer(stringValue(source?.answer_text, "")))),
+              analysis_text: casualToLatex(stringValue(source?.analysis_markdown, "")),
               need_review: true,
               review_note: "AI 补全失败，请人工补充解析",
               source: "ai",
@@ -142,7 +157,7 @@ export function registerPaperAnswerRoutes(
         title: stringValue(paper.title, ""),
         status: paper.status,
         answer_pdf_sha256: typeof paper.answer_pdf_sha256 === "string" ? paper.answer_pdf_sha256 : null,
-        items: withStemFields(merged, paperItems),
+        items: toEditorView(withStemFields(merged, paperItems)),
       };
     } catch (error) {
       request.log.error({ err: error, paperId }, "paper answer prepare failed");
@@ -161,7 +176,7 @@ export function registerPaperAnswerRoutes(
       const paper = await repository.getPaper(principal, paperId);
       if (!paper) return reply.code(404).send({ error: "paper not found" });
       const paperItems = Array.isArray(paper.items) ? paper.items : [];
-      const items = withStemFields((await repository.getAnswerItems(principal, paperId)).map(answerItemOf), paperItems);
+      const items = toEditorView(withStemFields((await repository.getAnswerItems(principal, paperId)).map(answerItemOf), paperItems));
       return {
         paper_id: paperId,
         title: stringValue(paper.title, ""),
@@ -187,8 +202,8 @@ export function registerPaperAnswerRoutes(
       const row = jsonObject(value);
       return {
         item_order: Number(row.item_order ?? 0),
-        answer_text: stringValue(row.answer_text, ""),
-        analysis_text: stringValue(row.analysis_text, ""),
+        answer_text: casualToLatex(stringValue(row.answer_text, "")),
+        analysis_text: casualToLatex(stringValue(row.analysis_text, "")),
         need_review: row.need_review === true,
         review_note: typeof row.review_note === "string" && row.review_note.trim() ? row.review_note.trim() : null,
       };
