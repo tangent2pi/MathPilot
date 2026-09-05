@@ -11,6 +11,11 @@ dist/
 .env
 .env.local
 deploy/dev/.env
+deploy/dev/.env.bak-*
+deploy/dev/web-dist/
+.imports/
+backups/
+db-delivery/
 .runtime/
 sidecars/pybkt/.venv
 sidecars/pybkt/state/

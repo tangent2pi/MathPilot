@@ -402,9 +402,9 @@ services:
       # 前端产物目录直挂：镜像只负责首次产物与 nginx 配置；
       # 后续前端迭代 = 更新 ./web-dist 即可，无需重建镜像。
       - ./web-dist:/usr/share/nginx/html:ro
-      # nginx 配置直挂：resolver 动态解析 api 主机名，容器换 IP 不再 502。
+      # nginx 配置直接复用受 Git 管理的应用配置，避免线上漂移出第二份副本。
       # 镜像 entrypoint 用 envsubst 从 templates 生成 conf；覆盖 template 即可。
-      - ./web-nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - ../../src/apps/web-next/nginx.conf:/etc/nginx/templates/default.conf.template:ro
 
   api:
     build:
