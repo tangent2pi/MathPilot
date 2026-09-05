@@ -67,6 +67,11 @@ export function stringValue(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value.trim() : fallback;
 }
 
+export function nullableString(value: unknown, maxLength = 127): string | null {
+  const text = stringValue(value);
+  return text ? text.slice(0, maxLength) : null;
+}
+
 export function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()) : [];
 }

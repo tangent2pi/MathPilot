@@ -290,6 +290,7 @@ export const SelfTestDialog: FC<{ onClose?: () => void }> = ({ onClose }) => {
           latestReport={latestReport}
           onStart={startRun}
           onOpenReport={openLatestReport}
+          onClose={onClose}
         />
       )}
 
@@ -334,10 +335,12 @@ const PickStep: FC<{
     daily_minutes?: number;
   }) => void;
   onOpenReport: () => void;
-}> = ({ busy, progress, latestReport, onStart, onOpenReport }) => {
+  onClose?: () => void;
+}> = ({ busy, progress, latestReport, onStart, onOpenReport, onClose }) => {
   const [tree, setTree] = useState<KnowledgeTreeView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chapterName, setChapterName] = useState<string | null>(null);
+  const [moduleName, setModuleName] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [quick, setQuick] = useState<"low" | "medium" | "high">("medium");
   const [scale, setScale] = useState<number | null>(null);
@@ -376,9 +379,10 @@ const PickStep: FC<{
     () => tree?.chapters.find((item) => item.chapterName === chapterName) ?? null,
     [chapterName, tree],
   );
+  const modules = useMemo(() => chapter?.modules ?? [], [chapter]);
   const points = useMemo(
-    () => (chapter?.modules ?? []).flatMap((module) => module.knowledgePoints),
-    [chapter],
+    () => (moduleName ? (chapter?.modules.find((m) => m.moduleName === moduleName)?.knowledgePoints ?? []) : (chapter?.modules ?? []).flatMap((module) => module.knowledgePoints)),
+    [chapter, moduleName],
   );
   const firstDrawable = useMemo(
     () => points.find((point) => point.drawable > 0) ?? null,
@@ -389,6 +393,11 @@ const PickStep: FC<{
   useEffect(() => {
     if (selected.length === 0 && firstDrawable) setSelected([firstDrawable.knowledgeId]);
   }, [firstDrawable, selected.length]);
+
+  // 章节切换时重置模块选择
+  useEffect(() => {
+    setModuleName(null);
+  }, [chapterName]);
 
   const togglePoint = (knowledgeId: string) => {
     setSelected((current) => {
@@ -489,29 +498,37 @@ const PickStep: FC<{
 
           {!isLocked && (
             <>
-              {/* 章节 */}
-              <Field label="③ 选择章节">
-                <div className="flex flex-wrap gap-1.5">
+              {/* 一级模块（章节） */}
+              <Field label="③ 选择一级模块">
+                <select
+                  value={chapterName ?? ""}
+                  onChange={(e) => { setChapterName(e.target.value || null); setSelected([]); }}
+                  disabled={busy || isLocked}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                >
                   {tree.chapters.map((item) => (
-                    <button
-                      key={item.chapterName}
-                      type="button"
-                      onClick={() => setChapterName(item.chapterName)}
-                      className={cn(
-                        "rounded-full border px-3 py-1 text-sm transition-colors",
-                        chapterName === item.chapterName
-                          ? "border-primary/40 bg-primary/10 text-primary font-medium"
-                          : "hover:bg-muted border-transparent text-muted-foreground",
-                      )}
-                    >
-                      {item.chapterName}
-                    </button>
+                    <option key={item.chapterName} value={item.chapterName}>{item.chapterName}</option>
                   ))}
-                </div>
+                </select>
+              </Field>
+
+              {/* 二级模块 */}
+              <Field label="④ 选择二级模块（可选，不选则显示全部）">
+                <select
+                  value={moduleName ?? ""}
+                  onChange={(e) => { setModuleName(e.target.value || null); setSelected([]); }}
+                  disabled={busy || isLocked || !chapterName || modules.length === 0}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
+                >
+                  <option value="">全部模块</option>
+                  {modules.map((item) => (
+                    <option key={item.moduleName} value={item.moduleName}>{item.moduleName}</option>
+                  ))}
+                </select>
               </Field>
 
               {/* 知识点（1-3 个） */}
-              <Field label={`④ 选择知识点（${selected.length}/3，每题只测所选点）`}>
+              <Field label={`⑤ 选择知识点（${selected.length}/3，每题只测所选点）`}>
                 <div className="flex flex-wrap gap-1.5">
                   {points.map((point) => (
                     <KnowledgeChip
@@ -529,7 +546,7 @@ const PickStep: FC<{
               </Field>
 
               {/* 难度 */}
-              <Field label="⑤ 起点难度">
+              <Field label="⑥ 起点难度">
                 <div className="flex items-center gap-1.5">
                   {QUICK_DIFFICULTIES.map((item) => (
                     <button
@@ -573,6 +590,13 @@ const PickStep: FC<{
           )}
 
           <DialogFooter className="pt-1">
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => { setSelected([]); onClose?.(); }}
+            >
+              取消
+            </Button>
             <Button
               disabled={!canStart}
               onClick={() => {

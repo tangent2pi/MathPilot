@@ -3,6 +3,7 @@ import {
   finiteNumber,
   jsonObject,
   newId,
+  nullableString,
   stringArray,
   stringValue,
   type Principal,
@@ -61,7 +62,7 @@ const ID_PATTERNS: Record<EntityKind, RegExp> = {
 const REVIEW_FIELDS: Record<EntityKind, ReadonlySet<string>> = {
   knowledge: new Set(["name", "description", "grade_band", "difficulty", "mastery_standard", "remediation_advice"]),
   question_type: new Set(["name", "description", "identifying_features", "standard_method"]),
-  question: new Set(["chapter_id", "stem_format", "stem_markdown", "difficulty", "question_type_revision_id", "analysis_markdown"]),
+  question: new Set(["chapter_id", "module_2", "module_3", "stem_format", "stem_markdown", "difficulty", "question_type_revision_id", "analysis_markdown"]),
   error_cause: new Set(["category", "name", "description", "manifestation", "judgment_basis", "remediation"]),
   diagnosis_rule: new Set(["rule_version", "trigger_text", "probe_text"]),
 };
@@ -76,6 +77,29 @@ const kindForId = (value: string): EntityKind | null => {
 };
 
 const asJson = (value: unknown): Json => jsonObject(value);
+
+/** 从问题关联知识点的 description（"一级 / 二级 / 三级"）解析模块归属路径。
+ *  优先取需求维度中 role=primary 的知识点；取不到时回退到首个知识点；均无则用题干自带章节名。 */
+function modulePathOfQuestion(raw: Json): [string | null, string | null, string | null] {
+  const knowledge = (Array.isArray(raw.knowledge_components) ? raw.knowledge_components : []).map(asJson);
+  if (!knowledge.length) {
+    const chapter = stringValue(raw.chapter_id);
+    return [chapter || null, null, null];
+  }
+  const targets = Array.isArray(raw.measurement_targets) ? raw.measurement_targets.map(asJson) : [];
+  const primaryDim = targets.find((target) => stringValue(target.role, "primary") === "primary");
+  const picked = primaryDim
+    ? knowledge.find((item) => stringValue(item.id) === stringValue(primaryDim.dim))
+    ?? knowledge[0]
+    : knowledge[0];
+  const description = stringValue(picked?.description);
+  const parts = description.split("/").map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 3) return [parts[0] ?? null, parts[1] ?? null, parts[2] ?? null];
+  if (parts.length === 2) return [parts[0] ?? null, parts[1] ?? null, null];
+  if (parts.length === 1) return [parts[0] ?? null, null, null];
+  const chapter = stringValue(raw.chapter_id);
+  return [chapter || null, null, null];
+}
 
 function sourceLocator(question: Json): string | null {
   const source = asJson(question.source);
@@ -239,11 +263,11 @@ async function insertRevision(
     );
   } else if (kind === "question") {
     await client.query(
-      `insert into content_question_revision(revision_id,tenant_id,chapter_id,stem_format,stem_markdown,difficulty,question_type_revision_id,analysis_markdown)
-       values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [revisionId, principal.tenantId, stringValue(data.chapter_id, "unclassified"), stringValue(data.stem_format, "open_solution"),
-        stringValue(data.stem_markdown), finiteNumber(data.difficulty, 0.5), stringValue(data.question_type_revision_id) || null,
-        stringValue(data.analysis_markdown)],
+      `insert into content_question_revision(revision_id,tenant_id,chapter_id,module_2,module_3,stem_format,stem_markdown,difficulty,question_type_revision_id,analysis_markdown)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [revisionId, principal.tenantId, stringValue(data.chapter_id, "unclassified"), nullableString(data.module_2), nullableString(data.module_3),
+        stringValue(data.stem_format, "open_solution"), stringValue(data.stem_markdown), finiteNumber(data.difficulty, 0.5),
+        stringValue(data.question_type_revision_id) || null, stringValue(data.analysis_markdown)],
     );
   } else if (kind === "error_cause") {
     await client.query(
@@ -348,8 +372,11 @@ async function addKtqQuestion(
   }
 
   const questionId = requireId(raw.question_id ?? newId("Q"), "question");
+  const modulePath = modulePathOfQuestion(raw);
   const questionData: Json = {
-    chapter_id: stringValue(raw.chapter_id, "unclassified"),
+    chapter_id: stringValue(raw.chapter_id, modulePath[0] ?? "unclassified"),
+    module_2: modulePath[1] ?? null,
+    module_3: modulePath[2] ?? null,
     stem_format: stringValue(raw.stem_format, "open_solution"),
     stem_markdown: stringValue(raw.stem_markdown),
     difficulty: finiteNumber(raw.difficulty),
@@ -655,7 +682,8 @@ export class CandidateRepository {
                 kr.mastery_standard as knowledge_mastery_standard,kr.remediation_advice as knowledge_remediation_advice,
                 tr.name as question_type_name,tr.description as question_type_description,
                 tr.identifying_features as question_type_identifying_features,tr.standard_method as question_type_standard_method,
-                qr.chapter_id,qr.stem_format,qr.stem_markdown,qr.difficulty as question_difficulty,
+                qr.chapter_id,qr.module_2 as question_module_2,qr.module_3 as question_module_3,
+                qr.stem_format,qr.stem_markdown,qr.difficulty as question_difficulty,
                 qr.question_type_revision_id,qr.analysis_markdown,
                 er.category as error_category,er.name as error_name,er.description as error_description,
                 er.manifestation as error_manifestation,er.judgment_basis as error_judgment_basis,er.remediation as error_remediation,
@@ -795,18 +823,6 @@ export class CandidateRepository {
     });
   }
 
-  async deleteCandidate(principal: Principal, candidateSetId: string): Promise<boolean> {
-    return withPrincipal(this.pool,principal,async (client) => {
-      const result = await client.query(
-        `update content_candidate_set set deleted_at=clock_timestamp()
-          where tenant_id=$1 and candidate_set_id=$2 and owner_teacher_user_id=$3
-            and deleted_at is null returning candidate_set_id`,
-        [principal.tenantId,candidateSetId,principal.userId],
-      );
-      return (result.rowCount ?? 0) === 1;
-    });
-  }
-
   /** 教师给解析批次（候选集）起名/改名；传空名则恢复默认显示名。仅批次所有者可操作。 */
   async renameCandidateDisplayName(principal: Principal, candidateSetId: string, displayName: string | null): Promise<boolean> {
     const title = String(displayName ?? "").trim().slice(0, 120);
@@ -817,6 +833,19 @@ export class CandidateRepository {
           where tenant_id=$1 and candidate_set_id=$2 and owner_teacher_user_id=$4
           returning candidate_set_id`,
         [principal.tenantId, candidateSetId, title === "" ? null : title, principal.userId],
+      );
+      return (result.rowCount ?? 0) === 1;
+    });
+  }
+
+  /** 教师归档（软删）解析批次。题目 revision 受不可变守护保护无法物理删除，因此仅打 deleted_at 归档标记；列表查询忽略已删批次。 */
+  async deleteCandidateSet(principal: Principal, candidateSetId: string): Promise<boolean> {
+    return withPrincipal(this.pool, principal, async (client) => {
+      await assertTeacher(client, principal);
+      const result = await client.query(
+        `update content_candidate_set set deleted_at=now()
+          where tenant_id=$1 and candidate_set_id=$2 and owner_teacher_user_id=$3 and deleted_at is null`,
+        [principal.tenantId, candidateSetId, principal.userId],
       );
       return (result.rowCount ?? 0) === 1;
     });
@@ -961,14 +990,16 @@ export class CandidateRepository {
                   r.lifecycle_status, r.candidate_set_id
              from content_entity e
              join content_entity_revision r on r.entity_id=e.entity_id and r.tenant_id=e.tenant_id
-            where e.tenant_id=$1 and e.entity_kind='question' and e.origin='teacher'
-              and e.owner_teacher_user_id=$2
+            where e.tenant_id=$1 and e.entity_kind='question'
+              and e.origin in ('teacher','official')
+              and (e.origin='official' or e.owner_teacher_user_id=$2)
               and r.lifecycle_status in ('approved','ready')
             order by e.entity_id, r.revision_no desc
          )
          select l.entity_id, l.revision_id, l.revision_no, l.lifecycle_status,
                 l.candidate_set_id as batch_id, cs.display_name as batch_display_name,
-                cs.phase as batch_phase, qr.chapter_id, qr.stem_format, qr.difficulty,
+                cs.phase as batch_phase, qr.chapter_id, qr.module_2 as module_2, qr.module_3 as module_3,
+                qr.stem_format, qr.difficulty,
                 left(qr.stem_markdown, 220) as stem_preview,
                 tr.name as question_type_name
            from latest l
