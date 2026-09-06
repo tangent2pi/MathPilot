@@ -42,8 +42,15 @@ export interface ThreadMessagesData {
   thread: { id: string; title: string; status: "active" | "archived"; version: number };
   messages: LearningThreadMessage[];
   operations: ThreadOperation[];
+  presentation_links?: ReplyPresentationLink[];
   next_cursor: string;
   has_more: boolean;
+}
+
+export interface ReplyPresentationLink {
+  resource_ref: string;
+  foreground_operation_id: string;
+  triggering_message_id: string;
 }
 
 export type ThreadListView = LearningView<{ threads: ThreadSummary[] }>;

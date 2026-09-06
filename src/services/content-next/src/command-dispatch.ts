@@ -152,27 +152,12 @@ export type AutoPrivateRepository = Pick<
   "pendingAutoPrivateCandidates" | "decide"
 >;
 
-/** 教师私有资料链：ktq-start/er-start 已派发线程的候选集自动批准并推进到包。 */
+/** Approval is a teacher decision, never a background polling side effect. */
 export async function dispatchAutoPrivateApprovals(
   repository: AutoPrivateRepository,
   log: DispatchLog,
   signal?: AbortSignal,
 ): Promise<void> {
-  const candidates = await repository.pendingAutoPrivateCandidates().catch((error) => {
-    log.error({ err: error }, "auto-private approval polling failed");
-    return [];
-  });
-  for (const candidate of candidates) {
-    if (signal?.aborted) return;
-    try {
-      await repository.decide(
-        { tenantId: candidate.tenant_id, userId: candidate.owner_user_id, roles: ["teacher"] },
-        candidate.candidate_set_id,
-        "approved",
-      );
-      log.info?.({ candidateId: candidate.candidate_set_id, phase: candidate.phase }, "auto-approved private candidate");
-    } catch (error) {
-      log.warn?.({ err: error, candidateId: candidate.candidate_set_id }, "auto-private approval skipped");
-    }
-  }
+  // Kept as a no-op for older composition roots importing this symbol.
+  void repository; void log; void signal;
 }

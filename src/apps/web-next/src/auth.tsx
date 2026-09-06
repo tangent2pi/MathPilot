@@ -76,10 +76,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    await authClient.signOut();
+    const result = await authClient.signOut();
+    if (result.error) throw new Error(result.error.message || "退出登录失败，请重试");
+    sessionStorage.removeItem(AUTH_DRAFT_KEY);
     setPrincipal(null);
-    await session.refetch();
-  }, [session]);
+    setDialogOpen(false);
+    // Replace the protected route and discard all in-memory query/chat state.
+    window.location.replace("/");
+  }, []);
 
   const refreshAccount = useCallback(async () => {
     await session.refetch();

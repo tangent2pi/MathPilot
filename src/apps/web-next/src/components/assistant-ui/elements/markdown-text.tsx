@@ -19,6 +19,7 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { cn } from "@/lib/utils";
+import { recoverMathCodeFences } from "./math-code-fences";
 
 const MarkdownTextImpl = () => {
   return (
@@ -36,7 +37,7 @@ const MarkdownTextImpl = () => {
 export const MarkdownText = memo(MarkdownTextImpl);
 
 const preprocessMathMarkdown = (value: string) =>
-  escapeCurrencyDollars(normalizeMathDelimiters(value));
+  escapeCurrencyDollars(normalizeMathDelimiters(recoverMathCodeFences(value)));
 
 const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard();
@@ -48,7 +49,7 @@ const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   return (
     <div className="aui-code-header-root border-border/50 bg-muted/50 mt-3 flex items-center justify-between rounded-t-xl border border-b-0 px-3.5 py-1.5 text-xs">
       <span className="aui-code-header-language text-muted-foreground font-medium lowercase">
-        {language}
+        {language || "代码"}
       </span>
       <TooltipIconButton tooltip="Copy" onClick={onCopy}>
         {!isCopied && (

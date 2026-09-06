@@ -104,6 +104,8 @@ export interface CanonicalMessage {
 /** Read-model message. `presentation` is materialized at read time and is never stored in canonical facts. */
 export type LearningThreadMessage = Omit<CanonicalMessage, "parts"> & {
   parts: LearningThreadMessagePart[];
+  /** Persisted display trace, never learning evidence or model instructions. */
+  thinking?: string;
 };
 
 export interface LearningClientEvent {

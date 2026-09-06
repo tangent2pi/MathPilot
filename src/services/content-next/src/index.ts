@@ -2,7 +2,7 @@ import { configureInternalService } from "@mathpilot/internal-service";
 import { internalServiceGuard } from "@mathpilot/internal-service/fastify";
 import multipart from "@fastify/multipart";
 import { CandidateRepository } from "./candidate-repository.ts";
-import { dispatchAutoPrivateApprovals, dispatchErCommands, dispatchKtqCommands, dispatchReviewFeedbackCommands } from "./command-dispatch.ts";
+import { dispatchErCommands, dispatchKtqCommands, dispatchReviewFeedbackCommands } from "./command-dispatch.ts";
 import { createPool, startService } from "./lib.ts";
 import { registerOcrRoutes } from "./ocr-routes.ts";
 import { registerPaperAnswerRoutes } from "./paper-answer-routes.ts";
@@ -40,7 +40,6 @@ const app = await startService({
         dispatchErCommands(repository, internalService, server.log, shutdown.signal),
         dispatchKtqCommands(repository, internalService, server.log, shutdown.signal),
         dispatchReviewFeedbackCommands(repository, internalService, server.log, shutdown.signal),
-        dispatchAutoPrivateApprovals(repository, server.log, shutdown.signal),
       ]).then(() => undefined).finally(() => { polling = null; });
       return polling;
     };

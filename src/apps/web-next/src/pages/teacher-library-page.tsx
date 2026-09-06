@@ -275,6 +275,7 @@ export function TeacherLibraryPage() {
     queryFn: () => libraryApi<LibraryView>("/teacher/library"),
     enabled: Boolean(principal?.roles.includes("teacher")),
     retry: 1,
+    refetchInterval: 5000,
   });
   const removePackage = useMutation({
     mutationFn: (packageId: string) => libraryApi<{ deleted: boolean }>(`/packages/${encodeURIComponent(packageId)}`, { method: "DELETE" }),

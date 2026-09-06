@@ -6,7 +6,6 @@ import {
   SessionToolTimeline,
 } from "@/components/assistant-ui/elements/session-tool-timeline";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
-import { SelfTestEntry } from "@/components/assistant-ui/self-test/SelfTestEntry";
 import { Button } from "@/components/ui/button";
 import { DomainMessagePart } from "@/learning/presentation/domainPresentationRegistry";
 import { useLearningThreadId } from "@/learning/runtime/LearningThreadContext";
@@ -303,7 +302,7 @@ const TeacherPaperComposeEntry: FC = () => {
 
 const ComposerAction: FC = () => {
   // 附件：学生可传作业图/文件；教师端用明确的“上传资料”按钮上传讲义与题目资料。
-  // 自我测评只属于学生会话，教师端保留隐藏。
+  // 测评通过对话交给 Agent 主持，不再提供独立测评按钮。
   const { principal } = useAuth();
   const isStudent = Boolean(principal?.roles.includes("student"));
   const isTeacher = Boolean(principal?.roles.includes("teacher"));
@@ -313,7 +312,6 @@ const ComposerAction: FC = () => {
         {isTeacher && <TeacherMaterialUploadEntry />}
         {isTeacher && <TeacherPaperComposeEntry />}
         {isStudent && <ComposerAddAttachment />}
-        {isStudent && <SelfTestEntry />}
       </div>
       <div className="flex items-center gap-1.5">
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>

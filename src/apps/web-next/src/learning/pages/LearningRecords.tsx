@@ -51,7 +51,7 @@ const ownPages: Record<OwnPageKind, { title: string; description: string; path: 
   overview: { title: "学习概览", description: "下一步建议与近期有依据的变化。", path: "/api/learning/me/overview" },
   history: { title: "学习历史", description: "按题目与判定事实回看学习过程。", path: "/api/learning/me/history" },
   state: { title: "科学状态", description: "掌握、保持与错因状态都可回到证据。", path: "/api/learning/me/state" },
-  memory: { title: "学习记忆", description: "测评六维画像、学习计划与可反馈的学习观察。", path: "/api/learning/me/memories" },
+  memory: { title: "学习记忆", description: "测评报告、学习计划与可反馈的学习观察。", path: "/api/learning/me/memories" },
   review: { title: "复习队列", description: "到期保持性复习与错因验证。", path: "/api/learning/me/reviews" },
 };
 
@@ -140,54 +140,11 @@ export function TeacherStudentPage({ kind }: { kind: StudentPageKind }) {
 }
 
 function TeacherStudentReportPage({ studentHandle }: { studentHandle: string }) {
-  const query = useQuery({
-    queryKey: ["learning", "teacher-report", studentHandle],
-    queryFn: () => selfTestApi.teacherReport(studentHandle),
-    enabled: Boolean(studentHandle),
-    retry: 1,
-  });
   return (
     <div className="flex flex-col">
       <TeacherStudentTabs studentHandle={studentHandle} active="report" />
       <div className="mx-auto w-full max-w-5xl px-5 pb-10 md:px-10">
-        <div className="mt-6 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">学生 · 测评报告</h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              该学生的整章自我测评汇总报告（教师视图，仅展示已授权、可追溯的学习事实）。
-            </p>
-          </div>
-          <Button variant="ghost" size="icon" onClick={() => void query.refetch()} aria-label="刷新">
-            <RefreshCwIcon className={cn("size-4", query.isFetching && "animate-spin motion-reduce:animate-none")} />
-          </Button>
-        </div>
-
-        {query.isPending && (
-          <div className="mt-10 flex items-center justify-center gap-2 text-muted-foreground">
-            <Loader2Icon className="size-5 animate-spin motion-reduce:animate-none" />正在读取测评报告
-          </div>
-        )}
-        {query.error && (
-          <div className="mt-10 rounded-2xl border bg-muted/30 px-4 py-6 text-center">
-            <p className="text-sm text-muted-foreground">
-              {query.error instanceof SelfTestApiError && query.error.status === 404
-                ? "该学生还没有完成整章测评（需累计至少 3 轮），暂无报告可查看。"
-                : "读取测评报告失败，请稍后重试。"}
-            </p>
-            <Button variant="outline" className="mt-4" onClick={() => void query.refetch()}>重试</Button>
-          </div>
-        )}
-        {query.data && (
-          <div className="mt-6 flex flex-col gap-4">
-            <div className="rounded-xl border bg-muted/30 px-3.5 py-2.5 text-sm">
-              最近整章测评：共 {query.data.round_no} 轮 · {query.data.student.displayName}
-            </div>
-            <div className="rounded-xl border bg-muted/30 px-3.5 py-2.5">
-              <SelfTestMarkdown text={query.data.report} />
-            </div>
-            {query.data.report_payload && <ReportDetail payload={query.data.report_payload} />}
-          </div>
-        )}
+        <SelfTestMemory studentHandle={studentHandle} />
       </div>
     </div>
   );
@@ -474,23 +431,31 @@ function History({ data }: { data: Record<string, unknown> }) {
   );
 }
 
-function SelfTestMemory() {
+function SelfTestMemory({ studentHandle }: { studentHandle?: string } = {}) {
   const { principal } = useAuth();
-  const query = useQuery({ queryKey: ["learning", "self-test-profile", principal?.tenantId, principal?.uid], queryFn: selfTestApi.profile, retry: 1 });
-  const profile = query.data?.profile;
+  const query = useQuery({
+    queryKey: ["learning", "self-test-profile", "full-report", principal?.tenantId, principal?.uid, studentHandle],
+    queryFn: () => studentHandle ? selfTestApi.teacherReport(studentHandle) : selfTestApi.studentReport(),
+    retry: (count, error) => !(error instanceof SelfTestApiError && error.status === 404) && count < 1,
+  });
+  const report = query.data;
+  const noReport = query.error instanceof SelfTestApiError && query.error.status === 404;
+  const Heading = studentHandle ? "h1" : "h2";
   return <section id="assessment-profile" className="mt-8 scroll-mt-20 rounded-2xl border p-4 sm:p-6" aria-labelledby="assessment-profile-title">
-    <h2 id="assessment-profile-title" className="text-lg font-semibold">测评六维画像</h2>
-    <p className="text-muted-foreground mt-1 text-sm">跨对话保留测评结果，查看最近一次活动的画像与学习计划。</p>
-    {query.isPending && <p role="status" className="mt-4 text-sm">正在读取测评画像…</p>}
-    {query.error && <div role="alert" className="mt-4"><p className="text-sm">测评画像读取失败，请重试。</p><Button variant="outline" className="mt-2" onClick={() => void query.refetch()}>重试</Button></div>}
-    {query.data && !profile && <div className="mt-4"><p className="text-muted-foreground text-sm">还没有测评记录。在对话中告诉数学智元想测什么，完成作答后会在这里形成画像。</p><TextLink href="/">前往对话开始测评</TextLink></div>}
-    {profile && <div className="mt-4 space-y-4">
+    <div className="flex items-center justify-between gap-3">
+      <Heading id="assessment-profile-title" className="text-lg font-semibold">{studentHandle ? "学生 · " : ""}测评报告</Heading>
+      <Button variant="ghost" size="icon" onClick={() => void query.refetch()} aria-label="刷新测评报告"><RefreshCwIcon className="size-4" /></Button>
+    </div>
+    <p className="text-muted-foreground mt-1 text-sm">整章自我测评汇总报告：文字总结、六维画像、知识点掌握与学习计划。{studentHandle && "仅展示获授权学生的真实记录。"}</p>
+    {query.isPending && <p role="status" className="mt-4 text-sm">正在读取测评报告…</p>}
+    {query.error && !noReport && <div role="alert" className="mt-4"><p className="text-sm">测评报告读取失败，请重试。</p><Button variant="outline" className="mt-2" onClick={() => void query.refetch()}>重试</Button></div>}
+    {noReport && <div className="mt-4"><p className="text-muted-foreground text-sm">{studentHandle ? "该学生" : "你"}还没有完成整章测评（需累计至少 3 轮），暂无报告可查看。已有作答记录仍保留在学习历史中。</p>{!studentHandle && <TextLink href="/">前往对话继续测评</TextLink>}</div>}
+    {report && <div className="mt-4 space-y-4">
       <div className="rounded-xl bg-muted/40 p-3 text-sm">
-        <p>{profile.status === "active" ? "测评进行中" : profile.status === "cancelled" ? "本轮已终止，已答记录保留" : "本轮已结束"} · 第 {profile.round_no} 轮</p>
-        {profile.provisional && <p className="text-muted-foreground mt-1">阶段画像：当前证据尚不充分，不代表完整整章测评结论。完成更多独立作答后再复核。</p>}
-        <div className="mt-2"><TextLink href={`/c/${encodeURIComponent(profile.threadId)}`}>返回测评对话</TextLink></div>
+        <p>最近整章测评：共 {report.round_no} 轮{"student" in report && ` · ${(report.student as { displayName: string }).displayName}`}</p>
       </div>
-      {profile.report_payload.chapter.totalAnswered > 0 ? <ReportDetail payload={profile.report_payload} /> : <p className="text-muted-foreground text-sm">尚无已判答题目，暂不展示能力分数。</p>}
+      <div className="rounded-xl border bg-muted/30 px-3.5 py-2.5"><SelfTestMarkdown text={report.report} /></div>
+      {report.report_payload && <ReportDetail payload={report.report_payload} />}
     </div>}
   </section>;
 }

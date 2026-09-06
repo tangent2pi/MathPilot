@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import type { CommandCapability, DomainUIPart } from "../contracts";
 import { LearningApiError, learningApi, learningKeys } from "../data/client";
 import { TeachingArtifactMessage } from "./teachingArtifactRegistry";
+import { TeacherCandidateReviewCard } from "./TeacherCandidateReviewCard";
 
 const mathOptions = {
   delimiters: [
@@ -34,6 +35,15 @@ const mathOptions = {
 };
 
 export function DomainMessagePart({ name, data }: { name: string; data: unknown }) {
+  if (name === "mathpilot-teacher-review" && data && typeof data === "object" && "candidateSetId" in data && typeof data.candidateSetId === "string") {
+    return <TeacherCandidateReviewCard candidateSetId={data.candidateSetId} />;
+  }
+  if (name === "mathpilot-operation-status" && data && typeof data === "object") {
+    const state = data as { title: string; message: string; status: string };
+    return <div role="status" aria-live="polite" className={cn("py-2 text-sm text-muted-foreground", state.status === "failed" && "text-destructive")}>
+      {state.title}：{state.message}
+    </div>;
+  }
   if (name === "mathpilot-domain-ui" && isDomainUIPart(data)) {
     switch (data.view_kind) {
       case "question": return <QuestionCard part={data} />;

@@ -7,6 +7,9 @@ export type TeacherChatMessage = {
   role: string;
   content: unknown;
   timestamp?: number;
+  toolCallId?: string;
+  isError?: boolean;
+  errorMessage?: string;
 };
 
 export type TeacherChatThreadSummary = {
@@ -18,6 +21,7 @@ export type TeacherChatThreadSummary = {
 export type TeacherChatThreadDetail = {
   thread_id: string;
   messages: TeacherChatMessage[];
+  status?: "idle" | "running" | "failed";
 };
 
 export type TeacherChatCreateReceipt = {
@@ -29,6 +33,7 @@ export type TeacherChatCreateReceipt = {
 export type TeacherChatSendReceipt = {
   thread_id: string;
   messages: TeacherChatMessage[];
+  status?: "idle" | "running" | "failed";
 };
 
 export class TeacherChatApiError extends Error {
@@ -75,6 +80,8 @@ export type TeacherParseStatus = {
   stage: "none" | "parsing" | "reviewing" | "er" | "done";
   command_status?: string | null;
   last_error?: string | null;
+  ktq_candidate?: { candidate_set_id: string; status: string; item_count: number } | null;
+  er_candidate?: { candidate_set_id: string; status: string; item_count: number } | null;
   package?: { package_id?: string; status?: string } | null;
 };
 

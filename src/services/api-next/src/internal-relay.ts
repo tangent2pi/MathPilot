@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { Readable } from "node:stream";
 import type {
   InternalActor,
   InternalEdgeId,
@@ -52,6 +53,7 @@ const relay = async (
   if (request.raw.aborted) abort();
   else request.raw.once("aborted", abort);
   reply.raw.once("close", close);
+  let streaming = false;
   try {
     // OCR 作业可能轮询数分钟；教师对话需要等待 Pi 完整一轮（问题目/讲解）；
     // 组卷答案解析的 AI 补全与 XeLaTeX 出片同样耗时；其余 content 转发保持默认 30s。
@@ -62,8 +64,14 @@ const relay = async (
       signal: cancellation.signal,
       timeoutMs,
     });
-    const bytes = Buffer.from(await response.arrayBuffer());
     const responseType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (response.ok && responseType === "text/event-stream" && response.body) {
+      streaming = true;
+      reply.raw.once("close", () => request.raw.removeListener("aborted", abort));
+      reply.type("text/event-stream").header("cache-control", "no-cache, no-transform").header("x-accel-buffering", "no");
+      return reply.send(Readable.fromWeb(response.body as any));
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
     if (response.status >= 400) {
       if (responseType !== "application/problem+json" || !isProblemBody(bytes, response.status)) {
         request.log.error({ upstreamStatus: response.status, edge }, "internal service returned a non-conforming error");
@@ -84,8 +92,10 @@ const relay = async (
     }
     return reply.send(bytes);
   } finally {
-    request.raw.removeListener("aborted", abort);
-    reply.raw.removeListener("close", close);
+    if (!streaming) {
+      request.raw.removeListener("aborted", abort);
+      reply.raw.removeListener("close", close);
+    }
   }
 };
 

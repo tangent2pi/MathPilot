@@ -3,6 +3,7 @@ import { internalServiceContext } from "@mathpilot/internal-service/fastify";
 import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } from "fastify";
 import type { CandidateRepository } from "./candidate-repository.ts";
 import { newId, type Principal } from "./lib.ts";
+import { Readable } from "node:stream";
 
 // 教师对话透传层：content-next 是 pi-chat-runtime（content-to-pi 边）的唯一
 // 合法调用方。api-next 通过 /api/content/* 中继到这里的 /teacher-chat/*，
@@ -17,13 +18,21 @@ const teacherChatForward = async (
   reply: FastifyReply,
 ): Promise<FastifyReply> => {
   const includesBody = request.body !== undefined && !["GET", "HEAD"].includes(request.method);
+  const cancellation = new AbortController();
+  const abort = () => cancellation.abort();
+  reply.raw.once("close", abort);
   const response = await runtime.request("content-to-pi", actor, path, {
     method: request.method,
     ...(includesBody ? { json: request.body } : {}),
     timeoutMs: 600_000,
+    signal: cancellation.signal,
   });
   const contentType = response.headers.get("content-type");
   if (contentType) reply.header("content-type", contentType);
+  if (response.ok && contentType?.startsWith("text/event-stream") && response.body) {
+    reply.header("cache-control", "no-cache, no-transform").header("x-accel-buffering", "no");
+    return reply.send(Readable.fromWeb(response.body as any));
+  }
   return reply.code(response.status).send(Buffer.from(await response.arrayBuffer()));
 };
 
@@ -85,6 +94,13 @@ export function registerTeacherChatRoutes(
     if (!actor) return reply.code(403).send({ error: "teacher principal required" });
     const threadId = String((request.params as { threadId: unknown }).threadId ?? "");
     return teacherChatForward(runtime, actor, `/internal/teacher-chat/threads/${encodeURIComponent(threadId)}`, request, reply);
+  });
+
+  server.get("/teacher-chat/threads/:threadId/events", { preHandler: fromApi }, async (request, reply) => {
+    const actor = requireTeacher(request);
+    if (!actor) return reply.code(403).send({ error: "teacher principal required" });
+    const threadId = String((request.params as { threadId: unknown }).threadId ?? "");
+    return teacherChatForward(runtime, actor, `/internal/teacher-chat/threads/${encodeURIComponent(threadId)}/events`, request, reply);
   });
 
   // 解析任务状态：供对话内任务卡轮询。

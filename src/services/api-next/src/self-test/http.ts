@@ -41,6 +41,17 @@ export function registerSelfTestHttp(
     catch (error) { return problem(reply, error); }
   });
 
+  app.get("/api/learning/self-test/report", async (request, reply) => {
+    const principal = await principalOf(request, reply); if (!principal) return;
+    try {
+      const latest = await service.studentReport(principal);
+      if (!latest) return reply.code(404).type("application/problem+json").send({
+        type: "https://mathpilot.dev/problems/no_report", title: "还没有整章测评报告", status: 404, code: "no_report",
+      });
+      return reply.send(latest);
+    } catch (error) { return problem(reply, error); }
+  });
+
   // 知识树（章节→模块→知识点，只看可抽）
   app.get("/api/learning/self-test/knowledge-tree", async (request, reply) => {
     const principal = await principalOf(request, reply); if (!principal) return;
@@ -76,6 +87,14 @@ export function registerSelfTestHttp(
         type: "https://mathpilot.dev/problems/no_report", title: "该线程还没有整章测评报告", status: 404, code: "no_report",
       });
       return reply.send(latest);
+    } catch (error) { return problem(reply, error); }
+  });
+
+  app.get("/api/learning/self-test/teacher/profile", async (request, reply) => {
+    const principal = await principalOf(request, reply); if (!principal) return;
+    try {
+      const studentId = typeof query(request).student_id === "string" ? query(request).student_id as string : "";
+      return reply.send(await service.profile(principal, studentId));
     } catch (error) { return problem(reply, error); }
   });
 

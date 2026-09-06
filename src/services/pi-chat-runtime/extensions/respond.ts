@@ -104,7 +104,7 @@ export default async (pi: ExtensionAPI) => {
     name: "respond",
     label: "Respond",
     description:
-      "提交最终结果。KTQ/ER 必须引用已经由对应 Skill 验证的工作区文件；其他任务可使用 output。",
+      "注册已校验的结果，不结束对话。KTQ/ER 必须引用已验证文件。成功后用自然语言总结实际抽取数量、去重和待复核项，告知教师在审核卡确认；不要重复注册，也不要宣称已批准或已入库。",
     parameters: Type.Object({
       output: Type.Optional(Type.Unknown()),
       result_file: Type.Optional(Type.String()),
@@ -180,12 +180,12 @@ export default async (pi: ExtensionAPI) => {
             resultFile: validated.resultFile,
             validationFile: validated.validationFile,
             sha256: validated.sha256,
+            next_action: "请给教师简短的自然语言总结，然后等待审核卡上的人工批准；不要重复调用 respond，不要自行开始下一阶段。",
           })
         : "responded";
       return {
         content: [{ type: "text", text: content }],
         details: registered ? { ...validated, ...registered } : validated ?? params,
-        terminate: true,
       };
     },
   });

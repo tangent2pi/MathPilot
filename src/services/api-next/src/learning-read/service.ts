@@ -179,7 +179,52 @@ export class LearningReadService {
         version: Number(row.version),
         action_capabilities: [],
       }));
+      const displayRows = (await client.query<{ triggering_message_id: string; thinking: string }>(
+        `select request.triggering_message_id,artifact.payload->>'thinking' as thinking
+           from science_v3_foreground_request request
+           left join science_v3_agent_artifact artifact on artifact.tenant_id=request.tenant_id and artifact.operation_id=request.operation_id
+             and artifact.schema_uri='https://schemas.mathpilot.dev/foreground-display/v1'
+          where request.tenant_id=$1 and request.conversation_thread_id=$2
+            and request.triggering_message_id=any($3::text[])
+          order by artifact.created_at`,
+        [principal.tenantId, threadId, messages.flatMap((message) => message.reply_to_message_id ? [message.reply_to_message_id] : [])],
+      )).rows;
+      for (const message of messages) {
+        const display = displayRows.find((row) => row.triggering_message_id === message.reply_to_message_id);
+        if (message.author_kind === "assistant" && display?.thinking) message.thinking = display.thinking;
+      }
+      // Recover still-available historical traces; never fabricate already-purged thinking.
+      const transient = (await client.query<{ triggering_message_id: string; thinking: string }>(
+        `select request.triggering_message_id,string_agg(delta.delta,'' order by delta.sequence) as thinking
+           from science_v3_foreground_request request join science_v3_foreground_live_delta delta using(tenant_id,operation_id)
+          where request.tenant_id=$1 and request.conversation_thread_id=$2 and delta.kind='thinking'
+            and request.triggering_message_id=any($3::text[]) group by request.triggering_message_id`,
+        [principal.tenantId, threadId, messages.filter((message) => !message.thinking).flatMap((message) => message.reply_to_message_id ? [message.reply_to_message_id] : [])],
+      )).rows;
+      for (const message of messages) {
+        const recovered = transient.find((row) => row.triggering_message_id === message.reply_to_message_id)?.thinking;
+        if (message.author_kind === "assistant" && !message.thinking && recovered) message.thinking = recovered;
+      }
       const lastSequence = messages.at(-1)?.sequence ?? after;
+      // Preserve canonical audit messages; expose explicit causal links for a single reply bubble.
+      // This also covers old cards after their operations fall outside the latest-20 window.
+      const presentationLinks = (await client.query<{
+        resource_ref: string; next_intent_ref: string | null;
+        foreground_operation_id: string; triggering_message_id: string;
+      }>(
+        `select action.result_resource_ref as resource_ref,cut.next_intent_ref,
+                request.operation_id as foreground_operation_id,request.triggering_message_id
+           from science_v3_foreground_request request
+           join science_v3_learning_action action
+             on action.tenant_id=request.tenant_id and action.foreground_request_id=request.foreground_request_id
+           left join science_v3_cut_request cut
+             on cut.tenant_id=action.tenant_id and 'cut-request:'||cut.cut_request_id=action.result_resource_ref
+          where request.tenant_id=$1 and request.conversation_thread_id=$2 and action.accepted
+          order by action.occurred_at`,
+        [principal.tenantId, threadId],
+      )).rows.flatMap(({ next_intent_ref, ...link }) => [link,
+        ...(next_intent_ref ? [{ ...link, resource_ref: next_intent_ref }] : []),
+      ]);
       const sendDisabled = subject.threadStatus !== "active" ? "对话已归档" : undefined;
       return learningView({
         kind: "thread_messages", resourceKind: "conversation-thread", resourceId: threadId,
@@ -189,6 +234,7 @@ export class LearningReadService {
         data: {
           thread: { id: threadId, title: subject.threadTitle, status: subject.threadStatus, version: subject.threadVersion },
           messages,
+          presentation_links: presentationLinks,
           operations: operations.map(operationViewData),
           next_cursor: encodeCursor(lastSequence),
           has_more: hasMore,
@@ -1095,11 +1141,13 @@ export class LearningReadService {
     cursor: string; operation_id: string; sequence: number; kind: string; delta: string;
   }>> {
     return withPrincipal(this.pool, principal, async (client) => (await client.query(
-      `select id::text as cursor,operation_id,sequence,kind,delta
-         from science_v3_foreground_live_delta
-        where tenant_id=$1 and id>$2 and created_at > now() - interval '5 minutes'
-        order by id limit $3`,
-      [principal.tenantId, afterId, Math.min(Math.max(limit, 1), 100)],
+      `select delta.id::text as cursor,delta.operation_id,delta.sequence,delta.kind,delta.delta
+         from science_v3_foreground_live_delta delta
+         join science_v3_foreground_request request using(tenant_id,operation_id)
+         join science_v3_student student on student.tenant_id=request.tenant_id and student.student_id=request.student_id
+        where delta.tenant_id=$1 and delta.id>$2 and delta.created_at > now() - interval '5 minutes' and student.user_id=$4
+        order by delta.id limit $3`,
+      [principal.tenantId, afterId, Math.min(Math.max(limit, 1), 100), principal.userId],
     )).rows);
   }
 
@@ -1121,7 +1169,10 @@ export class LearningReadService {
 
   async purgeExpiredForegroundDeltas(): Promise<void> {
     await this.pool.query(
-      `delete from science_v3_foreground_live_delta where created_at < now() - interval '30 minutes'`,
+      `delete from science_v3_foreground_live_delta delta where created_at < now() - interval '30 minutes'
+        and (kind<>'thinking' or exists(select 1 from science_v3_agent_artifact artifact
+          where artifact.tenant_id=delta.tenant_id and artifact.operation_id=delta.operation_id
+            and artifact.schema_uri='https://schemas.mathpilot.dev/foreground-display/v1'))`,
     );
   }
 

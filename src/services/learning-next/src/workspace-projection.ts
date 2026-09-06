@@ -1,5 +1,6 @@
 import type pg from "pg";
 import type { TaskSpec, WorkspaceProjection } from "./runtime-types.ts";
+import { foregroundDialogue } from "./foreground-dialogue.ts";
 
 interface ProjectionRequest {
   tenantId: string;
@@ -396,6 +397,12 @@ export async function compileWorkspaceProjection(
     messagesByThread.set(message.conversation_thread_id, values);
   }
   const files: Array<{ path: string; content: string }> = [];
+  if (request.triggeringMessageId) {
+    files.push({
+      path: "current/dialogue.json",
+      content: json(foregroundDialogue(messages, request.conversationThreadId, request.triggeringMessageId)),
+    });
+  }
   const sessionIndex = authorizedThreads.map((value) => {
     const threadMessages = messagesByThread.get(value.conversation_thread_id) ?? [];
     const titleSource = threadMessages.find((message) => message.author_kind === "student");

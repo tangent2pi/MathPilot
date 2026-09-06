@@ -7,12 +7,14 @@ import { LearningSidebar } from "./learning/components/LearningSidebar";
 import { LearningContextPanel } from "./learning/components/LearningContextPanel";
 import { LearningRuntimeProvider } from "./learning/runtime/LearningRuntimeProvider";
 import { LearningThreadProvider } from "./learning/runtime/LearningThreadContext";
+import { useAuth } from "./auth";
 
 /**
  * App owns routing, thread lists and canonical data. assistant-ui is the
  * message/composer presentation runtime only.
  */
 export const Assistant = () => {
+  const { principal } = useAuth();
   const threadMatch = useMatch("/c/:threadId");
   const threadId = threadMatch?.params.threadId;
   return (
@@ -26,7 +28,7 @@ export const Assistant = () => {
           <div className="flex h-full min-w-0">
             <LearningThreadProvider value={threadId}>
               <div className="min-w-0 flex-1"><Thread /></div>
-              <LearningContextPanel threadId={threadId} />
+              {principal?.roles.includes("student") && !principal.roles.includes("teacher") && <LearningContextPanel threadId={threadId} />}
             </LearningThreadProvider>
           </div>
         </SidebarInset>

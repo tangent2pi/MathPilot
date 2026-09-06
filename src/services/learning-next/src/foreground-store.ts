@@ -3,6 +3,7 @@ import { MATH_DERIVATION_ARTIFACT_SCHEMA_URI } from "@mathpilot/contracts";
 import { digestJson, encodeArtifact, verifiedArtifactPayload } from "./artifact-integrity.ts";
 import pg from "pg";
 import { performAssessment, type AssessmentAction } from "@mathpilot/self-test/model";
+import { loadKnowledgeTree, loadDrawablePool, loadQuestionMaterial, loadGradeBasis } from "@mathpilot/self-test/content";
 import { parseForegroundTeachingOutput } from "./foreground-core.ts";
 import type {
   CommitForegroundResponseInput,
@@ -54,6 +55,48 @@ export class PostgresForegroundStore implements ForegroundStore {
 
   async assessment(input: { tenantId: string; operationId: string; agentAttemptId: string; action: AssessmentAction }): Promise<unknown> {
     const context = await this.withTenant(input.tenantId, (client) => this.context(client, input, false));
+    if (input.action.action === "practice_question" || input.action.action === "practice_current") {
+      return this.withTenant(input.tenantId, async (client) => {
+        if (context.request_status !== "running" || context.attempt_status !== "started") throw new Error("foreground request is no longer active");
+        await client.query("select set_config('app.current_user',$1,true),set_config('app.current_roles','student',true)", [context.user_id]);
+        const schema = "https://schemas.mathpilot.dev/agent/practice-material/v1";
+        const previous = (await client.query<{ operation_id: string; payload: { question_revision_id: string; knowledge_ids: string[] } }>(
+          `select artifact.operation_id,artifact.payload from science_v3_agent_artifact artifact
+             join science_v3_foreground_request request using(tenant_id,operation_id)
+             join science_v3_canonical_message message on message.tenant_id=request.tenant_id and message.message_id=request.triggering_message_id
+            where artifact.tenant_id=$1 and request.conversation_thread_id=$2 and artifact.schema_uri=$3
+              and message.sequence <= (select sequence from science_v3_canonical_message where tenant_id=$1 and message_id=$4)
+            order by artifact.created_at desc limit 100`,
+          [input.tenantId, context.conversation_thread_id, schema, context.triggering_message_id],
+        )).rows;
+        const tree = await loadKnowledgeTree(client, input.tenantId, context.user_id);
+        const ids = input.action.knowledge_ids?.length ? input.action.knowledge_ids : previous[0]?.payload.knowledge_ids;
+        if (!ids?.length) return { question: null, knowledge_tree: tree, next_action: "clarify_scope_then_select" };
+        if (ids.length > 4 || ids.some((id) => !tree.some((node) => node.knowledgeId === id))) throw new Error("请选择知识树中的 1–4 个可用知识点");
+        const pools: Awaited<ReturnType<typeof loadDrawablePool>> = [];
+        for (const id of ids) pools.push(...await loadDrawablePool(client, input.tenantId, context.user_id, id));
+        const used = new Set(previous.map((row) => row.payload.question_revision_id));
+        const difficulty = input.action.difficulty ?? 0.25;
+        const alreadySelected = previous.find((row) => row.operation_id === input.operationId);
+        const candidate = input.action.action === "practice_question" && alreadySelected
+          ? pools.find((question) => question.questionRevisionId === alreadySelected.payload.question_revision_id)
+          : input.action.action === "practice_current"
+          ? pools.find((question) => question.questionRevisionId === previous[0]?.payload.question_revision_id)
+          : pools.filter((question) => !used.has(question.questionRevisionId))
+            .sort((a, b) => Math.abs(a.difficulty - difficulty) - Math.abs(b.difficulty - difficulty))[0];
+        if (!candidate) return { question: null, reason: input.action.action === "practice_current" ? "no_current_question" : "question_pool_exhausted", knowledge_tree: tree };
+        const question = await loadQuestionMaterial(client, input.tenantId, candidate.questionRevisionId);
+        const reference = await loadGradeBasis(client, input.tenantId, candidate.questionRevisionId);
+        if (!question || !reference) throw new Error("题目或参考答案不可用");
+        if (input.action.action === "practice_question" && !alreadySelected) {
+          const artifact = encodeArtifact({ question_revision_id: candidate.questionRevisionId, knowledge_ids: ids });
+          await client.query(`insert into science_v3_agent_artifact(artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256)
+            values($1,$2,$3,'structured_output',$4,$5::jsonb,$6)`,
+          [idFrom("art", `${input.agentAttemptId}:${candidate.questionRevisionId}`), input.tenantId, input.operationId, schema, artifact.json, artifact.sha256]);
+        }
+        return { question, reference_for_grading: reference, mode: "practice", instructions: "仅通过普通聊天展示题干和选项，等待学生回答后由你解释对错。不要泄露参考答案，不生成题卡、不要求按钮提交。普通练习反馈不冒充正式测评画像。" };
+      });
+    }
     return performAssessment(this.pool, {
       principal: { tenantId: input.tenantId, userId: context.user_id, roles: ["student"] },
       operationId: input.operationId, agentAttemptId: input.agentAttemptId,
@@ -213,6 +256,17 @@ export class PostgresForegroundStore implements ForegroundStore {
         [input.tenantId, input.operationId, input.outputRef],
       )).rows[0];
       if (!producingAttempt) throw new Error("foreground output is not owned by a completed AgentAttempt");
+      const displayRows = (await client.query<{ delta: string }>(
+        `select delta from science_v3_foreground_live_delta where tenant_id=$1 and operation_id=$2 and kind='thinking' order by sequence`,
+        [input.tenantId, input.operationId],
+      )).rows;
+      if (displayRows.length) {
+        const display = encodeArtifact({ thinking: displayRows.map((row) => row.delta).join("") });
+        await client.query(`insert into science_v3_agent_artifact(artifact_id,tenant_id,operation_id,artifact_kind,schema_uri,payload,sha256)
+          values($1,$2,$3,'structured_output','https://schemas.mathpilot.dev/foreground-display/v1',$4::jsonb,$5)
+          on conflict (artifact_id) do nothing`,
+        [idFrom("art", `${producingAttempt.agent_attempt_id}:display`), input.tenantId, input.operationId, display.json, display.sha256]);
+      }
       const output = parseForegroundTeachingOutput(artifact.payload, {
         conversationThreadId: request.conversation_thread_id,
         foregroundEpochId: request.foreground_epoch_id,

@@ -33,6 +33,7 @@ import type {
 } from "../contracts";
 import { learningApi, learningKeys, newIdempotencyKey } from "../data/client";
 import { TeacherChatRuntimeProvider } from "./TeacherChatRuntime";
+import { mergeReplyPresentations } from "./replyPresentation";
 
 const ACTIVE_OPERATION_STATUSES = new Set(["accepted", "running", "needs_input"]);
 
@@ -212,9 +213,7 @@ function AuthenticatedLearningRuntime({
     const streamedCanonicalMessageIds = new Set(
       [...streamedCanonicalReplies.values()].map((message) => message.message_id),
     );
-    // 前台教学（foreground_teaching）不渲染占位操作卡：实时内容由流式
-    // 增量气泡呈现，终态与失败由权威 canonical 消息呈现；其余后台任务
-    // （选题/收口/记忆整理）保留占位卡作为运行指示。
+    // 后台任务只提供真实状态；稍后按因果关联归入发起它的回复，题卡替换选题状态。
     const visibleOperations = operations.filter((operation) => operation.kind !== "foreground_teaching");
     const items: ThreadMessage[] = [
       ...canonical
@@ -236,12 +235,12 @@ function AuthenticatedLearningRuntime({
       if (!streaming?.content.length) continue;
       items.push(streamingTimelineMessage(operation, streaming, streamedCanonicalReplies.get(operation.operation_id)));
     }
-    return items.sort((left, right) => {
+    return mergeReplyPresentations(items, canonical, operations, view?.data.presentation_links ?? []).sort((left, right) => {
       const time = left.createdAt.getTime() - right.createdAt.getTime();
       if (time !== 0) return time;
       return left.role === "user" && right.role !== "user" ? -1 : 1;
     });
-  }, [activeOperation, operations, pending, streamingByOperation, threadId, view?.data.messages]);
+  }, [activeOperation, operations, pending, streamingByOperation, threadId, view?.data.messages, view?.data.presentation_links]);
 
   const onNew = useCallback(async (message: AppendMessage) => {
     const key = newIdempotencyKey("message");
@@ -420,7 +419,7 @@ function canonicalMessage(
     id: message.message_id,
     role: "assistant",
     createdAt,
-    content: message.parts.flatMap<ThreadAssistantMessagePart>((part) => {
+    content: [...(message.thinking ? [{ type: "reasoning" as const, text: message.thinking, status: { type: "complete" as const } }] : []), ...message.parts.flatMap<ThreadAssistantMessagePart>((part) => {
       if (part.type === "text") return [{ type: "text", text: part.text }];
       if (part.type === "attachment") return [{
         type: "file", data: part.attachment_ref, filename: part.name,
@@ -443,7 +442,7 @@ function canonicalMessage(
         }));
       }
       return [{ type: "data", name: "mathpilot-teaching-artifact", data: part }];
-    }),
+    })],
     status: message.lifecycle === "streaming"
       ? { type: "running" }
       : message.lifecycle === "failed"
@@ -514,27 +513,15 @@ function operationMessage(operation: ThreadOperation): ThreadMessage {
   const failed = operation.status === "failed";
   const cancelled = operation.status === "cancelled";
   const title = operationTitle(operation.kind);
-  const args = { operation_id: operation.operation_id, title };
   return {
     id: `operation:${operation.operation_id}`,
     role: "assistant",
     createdAt: new Date(operation.started_at),
     content: [
       {
-        type: "reasoning",
-        text: operation.user_message,
-        status: active ? { type: "running" } : { type: "complete" },
-      },
-      {
-        type: "tool-call",
-        toolCallId: operation.operation_id,
-        toolName: `mathpilot.operation.${operation.kind}`,
-        args,
-        argsText: JSON.stringify(args),
-        ...(active ? {} : {
-          result: { status: operation.status, user_message: operation.user_message },
-          ...(failed ? { isError: true } : {}),
-        }),
+        type: "data",
+        name: "mathpilot-operation-status",
+        data: { title, message: operation.user_message, status: operation.status },
       },
     ],
     status: active

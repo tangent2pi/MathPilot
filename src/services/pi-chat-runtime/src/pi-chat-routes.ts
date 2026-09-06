@@ -4,12 +4,14 @@ import type { InternalActor, InternalServiceRuntime } from "@mathpilot/internal-
 import { internalServiceContext, internalServiceGuard } from "@mathpilot/internal-service/fastify";
 import type { FastifyInstance } from "fastify";
 import { createHash, randomUUID } from "node:crypto";
+import { PassThrough } from "node:stream";
 import type { PiClient } from "@assistant-ui/react-pi";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiThreadStore, type PiPrincipal, type PiThreadRecord } from "./pi-thread-store.ts";
 import { assemblePiChatWorkspace, bindPiThreadWorkspace } from "./pi-chat-workspace.ts";
 import type { PiChatRuntime } from "./pi-chat-server.ts";
 import { writeHostPrincipal } from "../extensions/lib/host-principal.ts";
+import { savePendingAttachment, bindAttachmentTurn } from "../extensions/attachments/manifest.ts";
 
 // The host principal is deliberately persisted outside the model workspace so
 // extensions can read it without exposing it to Bash. A thread must therefore
@@ -50,7 +52,7 @@ async function materializeTeacherAttachment(
   actor: InternalActor,
   workspace: string,
   attachmentRef: string,
-): Promise<{ workspacePath: string; note: string; objectId: string; originalName: string; mimeType: string; byteSize: number; sha256: string }> {
+): Promise<{ workspacePath: string; note: string; objectId: string; versionId: string; originalName: string; mimeType: string; byteSize: number; sha256: string }> {
   const objectMatch = attachmentRefPattern.exec(attachmentRef);
   if (!objectMatch) throw new Error("invalid storage-object attachment reference");
   const objectId = objectMatch[1]!;
@@ -67,6 +69,7 @@ async function materializeTeacherAttachment(
   const byteSize = Number(metadata.byte_size);
   const sha256 = typeof metadata.sha256 === "string" ? metadata.sha256 : "";
   const downloadUrl = typeof metadata.download_url === "string" ? metadata.download_url : "";
+  const versionId = typeof metadata.version_id === "string" ? metadata.version_id : "";
   if (metadata.object_id !== objectId || !downloadUrl || !Number.isSafeInteger(byteSize) || byteSize < 1 || !/^[0-9a-f]{64}$/.test(sha256)) {
     throw new Error("storage-next object metadata does not match the attachment reference");
   }
@@ -88,6 +91,7 @@ async function materializeTeacherAttachment(
     workspacePath,
     note: `- ${workspacePath}（原名：${originalName}；MIME：${mimeType}；${byteSize} 字节；SHA-256：${sha256.slice(0, 12)}…）`,
     objectId,
+    versionId,
     originalName,
     mimeType,
     byteSize,
@@ -680,12 +684,14 @@ export function registerPiChatRoutes(
     }
     const key = `${principal.tenantId}\u0000${threadId}`;
     let operation = teacherChatLocks.get(key);
+    if (operation) return reply.code(409).send({ error: "teacher chat thread is busy" });
     if (!operation) {
       operation = (async () => {
         // 只允许教师在“自己拥有”的会话中发消息，ACL 写入（学生证据等）不适用。
         const record = await store.deletable(principal, threadId);
         if (!record) throw new Error("teacher chat thread is not owned by this teacher");
         if (!await localThreadAvailable(runtime, record, pi)) throw new Error("teacher chat session is not recoverable");
+        if ((await pi.getThread(threadId)).metadata.status === "running") throw new Error("当前任务仍在执行，请等待完成后再发送");
         const workspace = workspaceOf(runtime, record);
         const releasePrincipal = reserveThread(activePrincipalByThread, threadId, principal);
         if (!releasePrincipal) throw new Error("teacher chat thread is busy");
@@ -694,14 +700,17 @@ export function registerPiChatRoutes(
           let prompt = content;
           if (attachments.length > 0) {
             const files: string[] = [];
+            const attachmentIds: string[] = [];
             let totalBytes = 0;
             for (const attachmentRef of attachments) {
               const materialized = await materializeTeacherAttachment(internalService, actor, workspace, attachmentRef);
               if (totalBytes + materialized.byteSize > 48 * 1024 * 1024) throw new Error("teacher chat attachments exceed 48 MiB per turn");
               totalBytes += materialized.byteSize;
               files.push(materialized.note);
+              if (!materialized.versionId) throw new Error("teacher attachment has no immutable storage version");
+              const attachmentId = randomUUID();
               await store.createAttachment(principal, {
-                attachmentId: randomUUID(),
+                attachmentId,
                 threadId,
                 workspacePath: materialized.workspacePath,
                 originalName: materialized.originalName,
@@ -710,8 +719,16 @@ export function registerPiChatRoutes(
                 sha256: materialized.sha256,
                 storageObjectId: materialized.objectId,
               });
+              await savePendingAttachment(workspace, {
+                id: attachmentId, storageObjectId: materialized.objectId, versionId: materialized.versionId,
+                sha256: materialized.sha256, originalName: materialized.originalName,
+                workspacePath: materialized.workspacePath, mimeType: materialized.mimeType,
+                byteSize: materialized.byteSize, uploadedAt: new Date().toISOString(),
+              });
+              attachmentIds.push(attachmentId);
             }
-            prompt = `${content || "请阅读随消息附带的文件。"}\n\n本次消息附带文件：\n${files.join("\n")}\n请按需读取这些文件（例如先用内容工具查看 PDF 或图片版面）。\n请全程使用简体中文回复，不要在回复中夹杂英文。`;
+            await bindAttachmentTurn(workspace, { version: 1, id: randomUUID(), prompt: content, attachmentIds, createdAt: new Date().toISOString() });
+            prompt = `${content || "请将附件抽取到我的题库。"}\n\n本次消息附带文件：\n${files.join("\n")}\n这是教师资料导入。除非教师明确要求只阅读或讲解，否则读取 ktq-extraction Skill，从这些文件抽取知识点、题型和题目，执行校验，并调用 respond 注册候选集；不能只口头承诺稍后抽取。不要自行生成来源中不存在的题目。后续入库由宿主推进。\n请全程使用简体中文回复。`;
           }
           await pi.sendMessage(threadId, { content: prompt });
           return { record, snapshot: await pi.getThread(threadId) };
@@ -728,6 +745,7 @@ export function registerPiChatRoutes(
       return {
         thread_id: result.record.threadId,
         messages: result.snapshot.messages,
+        status: result.snapshot.metadata.status,
       };
     } catch (error) {
       request.log.error({ err: error, threadId }, "teacher chat send failed");
@@ -747,10 +765,66 @@ export function registerPiChatRoutes(
       return {
         thread_id: record.threadId,
         messages: snapshot.messages,
+        status: snapshot.metadata.status,
       };
     } catch (error) {
       request.log.error({ err: error, threadId }, "teacher chat read failed");
       return reply.code(502).send({ error: "teacher chat read failed" });
     }
+  });
+
+  // Teacher-owned SSE: same snapshot shape for initial read, live display and reconnect.
+  // Never subscribe before ownership is checked; disconnecting must not cancel the Agent.
+  app.get("/internal/teacher-chat/threads/:threadId/events", { preHandler: contentGuard }, async (request, reply) => {
+    const actor = internalServiceContext(request).actor;
+    if (!actor.roles.includes("teacher")) return reply.code(403).send({ error: "teacher principal required" });
+    const threadId = String((request.params as Record<string, unknown>).threadId ?? "");
+    const record = await store.deletable(piPrincipal(actor), threadId);
+    if (!record) return reply.code(404).send({ error: "thread not found" });
+    const stream = new PassThrough();
+    let closed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let reading = false;
+    let partialMessage: PiSnapshot["messages"][number] | undefined;
+    const send = (event: string, data: unknown) => {
+      if (!closed && !stream.destroyed) stream.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const snapshot = async () => {
+      timer = undefined;
+      if (reading || closed) return;
+      reading = true;
+      try {
+        const state = await pi.getThread(threadId);
+        const messages = [...state.messages];
+        if (partialMessage && state.metadata.status === "running") {
+          const index = messages.findIndex((message) => message.role === partialMessage!.role && message.timestamp === partialMessage!.timestamp);
+          if (index >= 0) messages[index] = partialMessage;
+          else messages.push(partialMessage);
+        }
+        send("thread.snapshot", { thread_id: threadId, messages, status: state.metadata.status });
+      } catch { send("thread.error", { message: "读取执行状态失败，请重连后重试" }); }
+      finally { reading = false; }
+    };
+    const unsubscribe = pi.subscribe(threadId, (event) => {
+      if ((event.type === "message_start" || event.type === "message_update") && event.message.role === "assistant") partialMessage = event.message;
+      if (event.type === "message_end" || event.type === "agent_end" || event.type === "agent_settled") partialMessage = undefined;
+      if (event.type === "error") send("thread.error", { message: "模型执行发生错误，请查看消息或重试" });
+      if (!timer) timer = setTimeout(() => void snapshot(), 120);
+    });
+    const heartbeat = setInterval(() => { if (!closed) stream.write(": heartbeat\n\n"); }, 15_000);
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      if (timer) clearTimeout(timer);
+      clearInterval(heartbeat);
+      unsubscribe();
+      stream.destroy();
+    };
+    reply.raw.once("close", cleanup);
+    stream.once("close", cleanup);
+    stream.write(": connected\n\n");
+    void snapshot();
+    reply.type("text/event-stream").header("cache-control", "no-cache, no-transform").header("x-accel-buffering", "no");
+    return reply.send(stream);
   });
 }

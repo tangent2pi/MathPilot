@@ -7,28 +7,28 @@ import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
   type AppendMessage,
-  type ThreadAssistantMessagePart,
   type ThreadMessage,
-  type ThreadUserMessagePart,
 } from "@assistant-ui/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeftIcon } from "lucide-react";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { UnifiedAttachmentAdapter } from "@/AttachmentAdapter";
 import { Button } from "@/components/ui/button";
 import {
   teacherChatApi,
   teacherChatKeys,
-  teacherChatText,
   type TeacherChatAttachmentPart,
   type TeacherParseStatus,
+  type TeacherChatThreadDetail,
 } from "../data/teacherChatClient";
+import { teacherTranscript } from "./teacherTranscript";
 
 type PendingMessage = {
   key: string;
   threadId?: string;
   message: ThreadMessage;
+  canonicalUserCount: number;
 };
 
 export function TeacherChatRuntimeProvider({
@@ -41,19 +41,38 @@ export function TeacherChatRuntimeProvider({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<PendingMessage | null>(null);
+  const [streamError, setStreamError] = useState("");
   const attachmentAdapter = useMemo(() => new UnifiedAttachmentAdapter(), []);
   const query = useQuery({
     queryKey: threadId ? teacherChatKeys.thread(threadId) : teacherChatKeys.all,
     queryFn: () => teacherChatApi.threadMessages(threadId!),
     enabled: Boolean(threadId),
     retry: 1,
+    refetchInterval: (state) => state.state.data?.status === "running" ? 1500 : 5000,
   });
+  useEffect(() => {
+    if (!threadId) return;
+    setStreamError("");
+    const events = new EventSource(`/api/content/teacher-chat/threads/${encodeURIComponent(threadId)}/events`);
+    events.addEventListener("thread.snapshot", (event) => {
+      const snapshot = JSON.parse((event as MessageEvent).data) as TeacherChatThreadDetail;
+      if (snapshot.thread_id !== threadId || !Array.isArray(snapshot.messages)) return;
+      queryClient.setQueryData(teacherChatKeys.thread(threadId), snapshot);
+      if (snapshot.status !== "running") {
+        void queryClient.invalidateQueries({ queryKey: ["teacher-chat", "parse", threadId] });
+        void queryClient.invalidateQueries({ queryKey: ["teacher", "library"] });
+      }
+    });
+    events.addEventListener("thread.error", () => setStreamError("执行发生错误，请查看消息或重试。"));
+    events.onopen = () => setStreamError("");
+    // Browser reconnect + periodic snapshots recover without cancelling the server task.
+    return () => events.close();
+  }, [queryClient, threadId]);
 
   const canonical = useMemo(
-    () => (query.data?.messages ?? []).map((message, index) => teacherMessage(message, `${threadId ?? "thread"}:${index}`)),
-    [query.data?.messages, threadId],
+    () => teacherTranscript(query.data?.messages ?? [], threadId ?? "thread", query.data?.status === "running"),
+    [query.data?.messages, query.data?.status, threadId],
   );
-  const canonicalIds = useMemo(() => new Set(canonical.map((message) => message.id)), [canonical]);
 
   const parseQuery = useQuery({
     queryKey: threadId ? ["teacher-chat", "parse", threadId] : ["teacher-chat", "parse", "none"],
@@ -62,18 +81,27 @@ export function TeacherChatRuntimeProvider({
     retry: 1,
     refetchInterval: (state) => {
       const stage = (state.state.data as TeacherParseStatus | undefined)?.stage;
-      return stage === "parsing" || stage === "reviewing" || stage === "er" ? 3000 : false;
+      return stage === "done" ? 10000 : 3000;
     },
   });
   const parseStage = threadId ? parseQuery.data?.stage ?? "none" : "none";
-  const parseSteps = ["上传资料", "解析抽取中", "写入资料库", "完成"];
-  const parseStepIndex = ({ parsing: 1, reviewing: 2, er: 2, done: 3 } as Record<string, number>)[parseStage] ?? -1;
+  const stageMessage = ({ parsing: "正在解析抽取", reviewing: "等待教师审核，批准后继续", er: parseQuery.data?.er_candidate?.status === "pending_review" ? "ER 已生成，等待教师审核" : "正在生成错因与诊断规则", done: "私有题库包已就绪" } as Record<string, string>)[parseStage];
 
   const messages = useMemo(() => {
-    if (!pending || (pending.threadId && pending.threadId !== threadId)) return canonical;
-    if (pending.threadId || canonicalIds.has(pending.message.id)) return canonical;
-    return [...canonical, pending.message];
-  }, [canonical, canonicalIds, pending, threadId]);
+    const base = [...canonical];
+    const last = base.at(-1);
+    if (last?.role === "assistant" && last.status.type !== "running" && stageMessage) {
+      const content = [...last.content, { type: "data" as const, name: "mathpilot-operation-status", data: { title: "题库进度", message: stageMessage, status: parseStage } }];
+      const er = parseQuery.data?.er_candidate;
+      if (er && !base.some(message => message.content.some(part => part.type === "data" && part.name === "mathpilot-teacher-review" && (part.data as { candidateSetId?: string })?.candidateSetId === er.candidate_set_id))) {
+        content.push({ type: "data", name: "mathpilot-teacher-review", data: { candidateSetId: er.candidate_set_id } });
+      }
+      base[base.length - 1] = { ...last, content };
+    }
+    if (!pending || (pending.threadId && pending.threadId !== threadId)) return base;
+    if (canonical.filter((message) => message.role === "user").length > pending.canonicalUserCount) return base;
+    return [...base, pending.message];
+  }, [canonical, pending, threadId, stageMessage, parseStage, parseQuery.data?.er_candidate]);
 
   const onNew = useCallback(async (message: AppendMessage) => {
     const text = message.content
@@ -103,30 +131,32 @@ export function TeacherChatRuntimeProvider({
       attachments: message.attachments ?? [],
       metadata: { custom: { teacherChatOptimistic: true }, isOptimistic: true },
     };
-    setPending({ key, threadId, message: optimistic });
+    setStreamError("");
+    setPending({ key, threadId, message: optimistic, canonicalUserCount: canonical.filter((item) => item.role === "user").length });
     try {
       let targetThreadId = threadId;
       if (!targetThreadId) {
         const created = await teacherChatApi.createThread();
         targetThreadId = created.thread_id;
+        setPending((current) => current?.key === key ? { ...current, threadId: targetThreadId } : current);
         navigate(`/c/${encodeURIComponent(targetThreadId)}`, { replace: true });
       }
-      const receipt = await teacherChatApi.sendMessage(targetThreadId, text, attachmentParts);
+      await teacherChatApi.sendMessage(targetThreadId, text, attachmentParts);
+      await queryClient.invalidateQueries({ queryKey: teacherChatKeys.thread(targetThreadId) });
       setPending((current) => current?.key === key ? null : current);
-      queryClient.setQueryData(teacherChatKeys.thread(targetThreadId), receipt);
       await queryClient.invalidateQueries({ queryKey: teacherChatKeys.threads });
     } catch (error) {
       setPending((current) => current?.key === key ? null : current);
       throw error;
     }
-  }, [navigate, queryClient, threadId]);
+  }, [canonical, navigate, queryClient, threadId]);
 
   const runtime = useExternalStoreRuntime({
     messages,
     isLoading: Boolean(threadId) && query.isPending && messages.length === 0,
-    isRunning: Boolean(pending),
+    isRunning: Boolean(pending) || query.data?.status === "running",
     isDisabled: false,
-    isSendDisabled: Boolean(pending) || (Boolean(threadId) && !query.data),
+    isSendDisabled: Boolean(pending) || query.data?.status === "running" || (Boolean(threadId) && !query.data),
     onNew,
     onRefetchThread: async () => { await query.refetch(); },
     adapters: { attachments: attachmentAdapter, threadList: { threadId: threadId ?? "new" } },
@@ -148,59 +178,10 @@ export function TeacherChatRuntimeProvider({
 
   return (
     <>
-      {parseStepIndex >= 0 && (
-        <div className="pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center px-4" role="status">
-          <div className="border-border/60 bg-background/95 shadow-sm pointer-events-auto flex max-w-2xl flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-2xl border px-4 py-2.5 text-xs backdrop-blur">
-            {parseSteps.map((step, index) => (
-              <span key={step} className="flex items-center gap-1.5">
-                <span className={index === parseStepIndex ? "text-primary font-semibold" : index < parseStepIndex ? "text-accent2 font-medium" : "text-muted-foreground/70"}>
-                  {index < parseStepIndex ? "✓" : `${index + 1}.`} {step}
-                </span>
-                {index < parseSteps.length - 1 && <span className="text-muted-foreground/40">→</span>}
-              </span>
-            ))}
-            {parseStage === "done" && (
-              <>
-                <Button size="sm" variant="outline" onClick={() => navigate("/teacher/library?paper=auto")}>去组卷</Button>
-                <Button size="sm" variant="outline" onClick={() => navigate("/teacher/library")}>前往我的资料库</Button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {(streamError || parseQuery.data?.last_error) && <div role="alert" className="border-destructive/30 bg-background mx-4 mt-12 rounded-xl border p-3 text-sm">{streamError || parseQuery.data?.last_error}</div>}
       <AssistantRuntimeProvider runtime={runtime}>
         {children}
       </AssistantRuntimeProvider>
     </>
   );
-}
-
-function teacherMessage(message: { role: string; content: unknown; timestamp?: number }, fallbackId: string): ThreadMessage {
-  const createdAt = new Date(typeof message.timestamp === "number" ? message.timestamp : Date.now());
-  if (message.role === "assistant") {
-    const part: ThreadAssistantMessagePart = { type: "text", text: teacherChatText(message) };
-    return {
-      id: `assistant:${fallbackId}`,
-      role: "assistant",
-      createdAt,
-      content: [part],
-      status: { type: "complete", reason: "stop" },
-      metadata: {
-        unstable_state: null,
-        unstable_annotations: [],
-        unstable_data: [],
-        steps: [],
-        custom: { teacherChat: true },
-      },
-    };
-  }
-  const text = message.role === "user" ? teacherChatText(message) : "";
-  return {
-    id: `user:${fallbackId}`,
-    role: "user",
-    createdAt,
-    content: text ? [{ type: "text", text } satisfies ThreadUserMessagePart] : [],
-    attachments: [],
-    metadata: { custom: { teacherChat: true } },
-  };
 }

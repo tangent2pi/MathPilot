@@ -5,7 +5,8 @@ import { withPrincipal } from "./lib.ts";
 import { loadGradeBasis } from "./content.ts";
 
 export interface AssessmentAction {
-  action: "inspect" | "start" | "resume" | "cancel" | "commit_judgment" | "next" | "finish";
+  action: "inspect" | "start" | "resume" | "cancel" | "commit_judgment" | "next" | "skip" | "finish" | "practice_question" | "practice_current";
+  difficulty?: number;
   knowledge_ids?: string[];
   chapter_name?: string;
   goal_score?: number;
@@ -79,6 +80,7 @@ export async function performAssessment(pool: pg.Pool, binding: {
   if (action.action === "finish") return service.finishRun(principal, stored.run_id, false, action.expected_version);
   if (needsResume) throw new SelfTestError(409, "assessment_resume_required", "请先确认继续旧测评并 resume，或 cancel 终止；无需等待后台清理");
   if (action.action === "next") return service.nextQuestion(principal, stored.run_id, action.expected_version!);
+  if (action.action === "skip") return service.nextQuestion(principal, stored.run_id, action.expected_version!, true);
   if (action.action !== "commit_judgment" || !action.question_revision_id || !action.verdict
     || !action.rationale || typeof action.independent !== "boolean" || !action.evidence_message_ids?.length) {
     throw new SelfTestError(422, "judgment_required", "判答需要当前题目、判定、理由、独立性和作答消息引用");

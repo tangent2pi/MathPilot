@@ -23,5 +23,6 @@ This Skill owns error causes and diagnosis rules only. It must not alter the fro
    This writes a matching SHA-256 validation receipt to
    `output/er-result.validation.json`.
 5. Call `respond` exactly once with `{"result_file":"output/er-result.json","validation_file":"output/er-result.validation.json"}`. Do not rewrite validated files afterward.
+6. After successful registration, give a short Chinese final summary of the actual E/R counts and remaining uncertainties. Ask the teacher to review the card; do not claim approval or a ready package before the teacher has approved it.
 
 Every error ID starts with `E_`; every rule ID starts with `R_`; IDs are unique. Each rule has a specific trigger, useful probe, at least one error reference, one or more frozen K/T dimension IDs, and structured citation records.

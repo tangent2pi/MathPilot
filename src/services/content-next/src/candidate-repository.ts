@@ -1088,15 +1088,15 @@ export class CandidateRepository {
           where tenant_id=$1 and owner_teacher_user_id=$2 and target_thread_id=$3`,
         [principal.tenantId, principal.userId, threadId],
       )).rows[0];
-      if (!command) return { stage: "none" };
       const ktq = (await client.query(
         `select candidate_set_id,status,
                 (select count(*)::int from content_candidate_set_item i where i.candidate_set_id=s.candidate_set_id) as item_count
            from content_candidate_set s
           where s.tenant_id=$1 and s.owner_teacher_user_id=$2 and s.thread_id=$3
-          order by s.created_at limit 1`,
+          order by s.created_at desc limit 1`,
         [principal.tenantId, principal.userId, threadId],
       )).rows[0] ?? null;
+      if (!command && !ktq) return { stage: "none" };
       const erThreads = ktq && ktq.status === "approved"
         ? (await client.query(
           `select target_thread_id from content_er_start_command
@@ -1110,7 +1110,7 @@ export class CandidateRepository {
                   (select count(*)::int from content_candidate_set_item i where i.candidate_set_id=s.candidate_set_id) as item_count
              from content_candidate_set s
             where s.tenant_id=$1 and s.owner_teacher_user_id=$2 and s.thread_id=any($3::text[])
-            order by s.created_at limit 1`,
+            order by s.created_at desc limit 1`,
           [principal.tenantId, principal.userId, erThreads],
         )).rows[0] ?? null
         : null;
@@ -1123,14 +1123,14 @@ export class CandidateRepository {
         )).rows[0] ?? null
         : null;
       let stage = "parsing";
-      if (ktq && ktq.status === "pending_review") stage = "reviewing";
-      else if (ktq && ktq.status === "approved" && !er) stage = "er";
-      else if (pkg) stage = "done";
-      else if (command.status === "dispatched") stage = "parsing";
+      if (pkg?.status === "ready") stage = "done";
+      else if (ktq && ktq.status === "pending_review") stage = "reviewing";
+      else if (ktq && ktq.status === "approved") stage = "er";
+      else if (command?.status === "dispatched") stage = "parsing";
       return {
         stage,
-        command_status: command.status,
-        last_error: command.last_error ?? null,
+        command_status: command?.status ?? null,
+        last_error: command?.last_error ?? null,
         ktq_candidate: ktq ?? null,
         er_candidate: er ?? null,
         package: pkg ?? null,

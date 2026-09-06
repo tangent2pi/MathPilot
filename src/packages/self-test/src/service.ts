@@ -183,7 +183,7 @@ interface StoredRun {
   status: string;
   conversation_thread_id: string | null;
   config: RunConfig;
-  state: { runtime: RuntimeState; current_question: CurrentQuestion | null; presented_after_sequence?: number; evidence_thread_id?: string };
+  state: { runtime: RuntimeState; current_question: CurrentQuestion | null; presented_after_sequence?: number; evidence_thread_id?: string; skipped_questions?: Array<{ revision_id: string; skipped_at: string }> };
   version: number;
   created_at: Date;
 }
@@ -484,13 +484,20 @@ export class SelfTestService {
   }
 
   /** Read-only student-wide entry for memory; partial evidence stays labelled. */
-  async profile(principal: PrincipalLike) {
+  async profile(principal: PrincipalLike, studentId?: string) {
     return withPrincipal(this.pool, principal, async (client) => {
+      let subjectPrincipal = principal;
+      if (studentId !== undefined) {
+        if (!principal.roles.includes("teacher") || !this.resolveSubject) throw new SelfTestError(403, "teacher_role_required", "只有获授权教师可查看学生画像");
+        if (!/^stu_[A-Za-z0-9]{8,}$/.test(studentId)) throw new SelfTestError(422, "invalid_student_id", "缺少有效的学生标识");
+        const subject = await this.resolveSubject(client, principal, studentId);
+        subjectPrincipal = { tenantId: principal.tenantId, userId: subject.userId, roles: ["student"] };
+      }
       const row = (await client.query(`${RUN_SELECT} where tenant_id=$1 and user_id=$2
-        order by updated_at desc limit 1`, [principal.tenantId, principal.userId])).rows[0];
+        order by updated_at desc limit 1`, [subjectPrincipal.tenantId, subjectPrincipal.userId])).rows[0];
       if (!row) return { profile: null };
       const stored = parseStoredRun(row);
-      const result = buildFinalReport(await this.reportContext(client, principal, stored));
+      const result = buildFinalReport(await this.reportContext(client, subjectPrincipal, stored));
       return { profile: { runId: stored.run_id, threadId: stored.state.evidence_thread_id ?? stored.conversation_thread_id,
         status: stored.status, round_no: stored.config.round_no ?? 1,
         provisional: stored.status !== "finished" || (stored.config.round_no ?? 1) < 3,
@@ -552,11 +559,23 @@ export class SelfTestService {
       if (!this.resolveSubject) throw new SelfTestError(403, "teacher_access_unavailable", "教师复核只通过报告 API 访问");
       const subject = await this.resolveSubject(client, principal, studentId);
       const studentPrincipal: PrincipalLike = { tenantId: principal.tenantId, userId: subject.userId, roles: ["student"] };
+      const report = await this.latestCompletedReportOf(client, studentPrincipal);
+      return report ? { ...report, student: { userId: subject.userId, displayName: subject.displayName } } : null;
+    });
+  }
+
+  /** Student memory uses the same full report as the authorized teacher view. */
+  async studentReport(principal: PrincipalLike) {
+    if (!principal.roles.includes("student")) throw new SelfTestError(403, "student_role_required", "请使用学生账号查看自己的测评报告");
+    return withPrincipal(this.pool, principal, (client) => this.latestCompletedReportOf(client, principal));
+  }
+
+  private async latestCompletedReportOf(client: Client, studentPrincipal: PrincipalLike) {
       const rows = (await client.query(
         `select run_id, config from science_v3_self_test_run
           where tenant_id=$1 and user_id=$2 and status='finished'
           order by created_at desc limit 30`,
-        [principal.tenantId, subject.userId],
+        [studentPrincipal.tenantId, studentPrincipal.userId],
       )).rows as { run_id: string; config: RunConfig }[];
       // 取最近一份"整章报告"（round_no>=3 的最后一个 finished run）
       let lastId: string | null = null;
@@ -571,9 +590,7 @@ export class SelfTestService {
         report_payload: payload,
         runId: stored.run_id,
         round_no: stored.config.round_no ?? 1,
-        student: { userId: subject.userId, displayName: subject.displayName },
       };
-    });
   }
 
   /**
@@ -707,18 +724,24 @@ export class SelfTestService {
   }
 
   /** Selecting the next question is an explicit Agent action. */
-  async nextQuestion(principal: PrincipalLike, runId: string, expectedVersion: number) {
+  async nextQuestion(principal: PrincipalLike, runId: string, expectedVersion: number, skipCurrent = false) {
     return withPrincipal(this.pool, principal, async (client) => {
       const stored = await this.loadRun(client, principal, runId, true);
       if (stored.status !== "active") throw new SelfTestError(409, "run_not_active", "本轮已结束");
-      if (stored.state.current_question) return { run: await this.runViewOf(client, principal, stored) };
       if (stored.version !== expectedVersion) throw new SelfTestError(409, "stale_run", "测评版本已变化，请重新 inspect", stored.version);
+      if (stored.state.current_question && !skipCurrent) return { run: await this.runViewOf(client, principal, stored) };
       const runtime = stored.state.runtime;
+      const skipped = skipCurrent ? stored.state.current_question : null;
+      if (skipped) {
+        // Replace this slot without manufacturing a wrong answer or changing mastery.
+        runtime.usedRevisions = [...new Set([...runtime.usedRevisions, skipped.revision_id])];
+        runtime.dimServed[skipped.dimension_id] = Math.max(0, (runtime.dimServed[skipped.dimension_id] ?? 0) - 1);
+      }
       const slot = currentSlot(runtime);
       if (!slot) return { next_action: "finish", run: await this.runViewOf(client, principal, stored) };
       const meta = new Map((await loadKnowledgeTree(client, principal.tenantId, principal.userId)).map((row) => [row.knowledgeId, row]));
       const candidate = await pickBySlot(client, principal, slot, meta, stored.config.knowledge_ids, runtime.usedRevisions, null, runtime.dimServed);
-      if (!candidate) return { next_action: "finish", reason: "question_pool_exhausted", run: await this.runViewOf(client, principal, stored) };
+      if (!candidate) return { next_action: "finish", reason: "question_pool_exhausted", run: await this.runViewOf(client, principal, await this.loadRun(client, principal, runId)) };
       runtime.dimServed[candidate.dimensionId] = (runtime.dimServed[candidate.dimensionId] ?? 0) + 1;
       const last = (await client.query<{ sequence: string }>(
         `select coalesce(max(sequence),0)::text sequence from science_v3_canonical_message where tenant_id=$1 and conversation_thread_id=$2`,
@@ -727,6 +750,7 @@ export class SelfTestService {
       await client.query(
         `update science_v3_self_test_run set state=$3::jsonb,version=version+1,updated_at=now() where tenant_id=$1 and run_id=$2`,
         [principal.tenantId, runId, JSON.stringify({ ...stored.state, runtime,
+          ...(skipped ? { skipped_questions: [...(stored.state.skipped_questions ?? []), { revision_id: skipped.revision_id, skipped_at: new Date().toISOString() }] } : {}),
           current_question: { revision_id: candidate.questionRevisionId, dimension_id: candidate.dimensionId },
           presented_after_sequence: Number(last.sequence) })],
       );

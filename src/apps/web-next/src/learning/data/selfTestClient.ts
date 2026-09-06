@@ -229,10 +229,10 @@ export interface CreateRunInput {
 }
 
 export const selfTestApi = {
-  profile: () => requestJson<{ profile: null | {
+  profile: (studentId?: string) => requestJson<{ profile: null | {
     runId: string; threadId: string; status: string; round_no: number;
     provisional: boolean; report_payload: ReportPayload;
-  } }>("/api/learning/self-test/profile"),
+  } }>(studentId ? `/api/learning/self-test/teacher/profile?student_id=${encodeURIComponent(studentId)}` : "/api/learning/self-test/profile"),
   /** 章节 → 模块 → 知识点（仅可抽） */
   knowledgeTree: (chapter?: string) => {
     const suffix = chapter ? `?chapter=${encodeURIComponent(chapter)}` : "";
@@ -303,6 +303,7 @@ export const selfTestApi = {
     ),
 
   /** 教师读取其名下学生的最近一份整章测评报告；无则抛 SelfTestApiError(404 no_report)。 */
+  studentReport: () => requestJson<Omit<TeacherReportResult, "student">>("/api/learning/self-test/report"),
   teacherReport: (studentId: string) =>
     requestJson<TeacherReportResult>(
       `/api/learning/self-test/teacher/report?student_id=${encodeURIComponent(studentId)}`,
