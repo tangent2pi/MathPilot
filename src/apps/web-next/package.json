@@ -8,7 +8,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "test": "node --import tsx --test src/components/assistant-ui/elements/*.test.ts src/learning/runtime/*.test.ts"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.15.17",
@@ -42,6 +43,7 @@
     "@vitejs/plugin-react": "^6.0.5",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
-    "vite": "8.0.10"
+    "vite": "8.0.10",
+    "tsx": "4.20.6"
   }
 }

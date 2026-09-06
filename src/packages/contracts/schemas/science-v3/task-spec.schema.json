@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mathpilot.dev/science-v3/task-spec/v1",
   "title": "Agent Task Specification",
-  "$description": "统一 Runtime 的版本化能力事实源。学习、科学和 Dream Task 不包含 Bash、SQL、任意网络或凭据能力。",
+  "$description": "统一 Runtime 的版本化能力事实源。前台教学可声明受宿主隔离的 sandbox 和 assessment；科学和 Dream Task 无业务工具，不表达 SQL、任意网络或凭据能力。",
   "type": "object",
   "required": [
     "schema_version", "task_type", "spec_version", "purpose", "input_schema", "output_schema",
@@ -23,7 +23,7 @@
       "type": "array",
       "items": { "enum": ["question_catalog", "read", "grep", "learning_action", "delegate", "assessment", "sandbox"] },
       "uniqueItems": true,
-      "maxItems": 3
+      "maxItems": 5
     },
     "allowed_child_task_types": {
       "type": "array",

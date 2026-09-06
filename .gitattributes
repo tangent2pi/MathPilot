@@ -1,0 +1,15 @@
+# Documents, fonts and media are binary resources, even when their headers
+# resemble text. Do not apply line-ending conversion or textual merges.
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.mp4 binary
+*.ttf binary
+*.TTF binary
+*.ttc binary
+*.woff binary
+*.woff2 binary

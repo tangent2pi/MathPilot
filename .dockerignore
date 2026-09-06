@@ -21,8 +21,21 @@ references/qwen-mm-plugins/docs
 design-docs
 competition-info
 deploy
+architecture
+docs
+tests
+.runtime
+.imports
+backups
+db-delivery
+codex-session-*.md
+coverage
+playwright-report
+test-results
+**/dist
+**/__pycache__
+**/*.pyc
+**/*.log
 node_modules
 **/node_modules
 **/*.tsbuildinfo
-# 备份暂存区（清理前废弃代码）不进入任何构建上下文。
-_trash

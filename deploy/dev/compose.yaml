@@ -127,7 +127,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       PGPASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - ../../src/apps/web-next/db:/pi-migrations:ro
+      - ../../db/pi:/pi-migrations:ro
     command:
       - sh
       - -ceu
@@ -139,22 +139,6 @@ services:
         PI_DATABASE_URL="postgres://$${POSTGRES_USER}:$${PGPASSWORD}@postgres:5432/mathpilot_pi" sh /pi-migrations/migrate.sh
         psql -h postgres -U "$${POSTGRES_USER}" -d postgres -v ON_ERROR_STOP=1 -c "grant connect on database mathpilot_pi to mathpilot_app"
         psql -h postgres -U "$${POSTGRES_USER}" -d mathpilot_pi -v ON_ERROR_STOP=1 -c "grant usage on schema public to mathpilot_app; grant select,insert,update,delete on all tables in schema public to mathpilot_app; grant usage,select,update on all sequences in schema public to mathpilot_app; alter default privileges in schema public grant select,insert,update,delete on tables to mathpilot_app; alter default privileges in schema public grant usage,select,update on sequences to mathpilot_app"
-    restart: "no"
-
-  # 仅供确定性回归/演示使用。默认 `docker compose up` 不执行这批合成题；
-  # 显式 `docker compose --profile fixtures run --rm db-fixtures` 才会加载。
-  db-fixtures:
-    profiles: ["fixtures"]
-    image: postgres:16-alpine
-    depends_on:
-      db-seed:
-        condition: service_completed_successfully
-    volumes:
-      - ./seed.sql:/fixtures.sql:ro
-    command:
-      - sh
-      - -ce
-      - psql "host=postgres user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}" -v ON_ERROR_STOP=1 -q -f /fixtures.sql
     restart: "no"
 
   # Validate the complete edge key topology once before any service can become

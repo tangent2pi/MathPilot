@@ -1,47 +1,41 @@
 # ADR-002：仓库布局与契约目录
 
-- 状态：已接受（v1.2：2026-08-20 修订——移除旧前端与未接入部署占位）
-- 日期：2026-08-17
-- 依据：`系统设计v3.3` §2.4、`进一步实施规划v1` §3、§9
-
-## 背景
-
-系统边界多、角色隔离要求强、供应链约束严，仓库布局必须让每个模块能独立替换且不共享私有结构。
+- 状态：已接受；2026-09-06 按当前正式服务更新。
+- 原始决策日期：2026-08-17。
 
 ## 决策
 
-遵循设计文档 §2.4 布局（`apps/`、`services/`、`packages/` 位于 `src/` 之下；`db/`、`deploy/`、`tests/`、`docs/`、`architecture/` 保持仓库根）：
+应用、服务和共享包置于 `src/`；数据库迁移归 `db/`，部署组合归 `deploy/dev/`。
 
 ```text
 src/
-  apps/
-    web/                 # 唯一正式前端
+  apps/web-next/          # 唯一应用前端
+    public/defense/       # 已上线答辩静态页及引用资源
   services/
-    api/                 # 统一 HTTP 网关、认证与领域授权
-    agent-runtime/       # Pi SDK/RPC 适配、Session 编排、沙箱 Broker
-    content/             # OCR、KTQ/ER、复核、发布
-    learning/            # 单题 Session、模型主判、教学
-    profile/             # 双产物、EvidenceBundle、Decision 校验、快照
-    review/              # 教师复核、supersede、重放
+    api-next/            # 认证、授权、HTTP 网关与学习读模型
+    learning-next/       # 学习、Temporal、科学内核与 Dream
+    pi-chat-runtime/     # 教师 Pi 对话、宿主能力与沙箱
+    content-next/        # 内容导入、候选复核、题库与试卷
+    storage-next/        # 私有对象控制面
+    group-next/          # PDF 渲染
   packages/
-    contracts/           # JSON Schema、OpenAPI、Provider 接口、事件名
-    providers/           # model / ocr 宿主侧实现；其余能力由运行时装配
-    mastery/             # 程序科学评价（BKT/保持率/错因统计）
-db/
-  migrations/          # PostgreSQL 迁移（含 RLS、函数与权限）
-deploy/
-  dev/                 # 唯一 Compose 组合根（全服务 + PostgreSQL）
-tests/
-  e2e/                 # 学生/教师/内容/画像四类流程
-docs/
-  数据整理说明.md       # 结构化数据来源与导出说明
-architecture/
-  decisions/           # 本目录（ADR）
-  glossary.md          # 统一术语表
+    contracts/           # Schema、类型与协议错误
+    content-integrity/   # 内容摘要与发布边界
+    internal-service/    # 服务间认证和公共设施
+    self-test/           # 测评共享领域实现
+    providers/ocr/       # OCR 宿主适配
+ db/                     # 主库 migrations/、线程库 pi/、清单 migration-data/、工具 tools/
+ deploy/dev/             # 唯一 Compose 组合根
+ tests/e2e/              # 在线/容器验证入口
+ docs/                   # 当前开发、部署、数据操作说明
+ design-docs/            # 产品规格、设计与答辩材料
+ architecture/           # ADR、术语和历史审计
 ```
 
 ## 后果
 
-- `references/` 仅只读参考（已在 `.gitignore`），任何实现不得直接 import。
-- 服务间禁止共享 PostgreSQL 私有表结构；只交换版本化契约对象与事件。
-- 前端不持有模型密钥、不直连数据库。
+- `-next` 标识仍被 workspace、Compose、内部服务协议和镜像引用，整理保持这些标识稳定。
+- `references/` 仅作本地参考，不入库，不可由产品源码直接 import。
+- 前端不持有模型密钥、不直连数据库；Pi 迁移由根入口 `pnpm db:migrate:pi` 执行。
+- 临时浏览器探针、个别数据行修补及本地备份不属于开发组合根。
+- 历史契约、SQL 迁移、赛题原始资料和只读需求档案按其追溯用途保存。

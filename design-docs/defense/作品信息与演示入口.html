@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>数学智元（MathPilot）· 作品信息与演示入口</title>
+<meta name="description" content="参赛作品信息与演示入口：路演答辩演示、在线 Demo 与测试账号、开源地址。排雷派对 · 命题式赛道 · 高中数学知识掌握诊断与学习规划 Agent">
+<style>
+  :root{
+    --paper:#f6f3ec;   /* 米白 */
+    --card:#fffdf8;
+    --line:#e4ded1;    /* 浅灰边线 */
+    --ink:#1d1c18;     /* 深色笔迹 */
+    --ink-soft:#5f5c52;
+    --blue:#3f6aa5;    /* 中性蓝 */
+    --blue-deep:#314f7c;
+    --orange:#b9713a;  /* 待确认橙 */
+    --green:#4a7a55;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--paper);color:var(--ink);
+    font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding:32px 20px 48px;
+  }
+  main{max-width:760px;margin:0 auto;background:var(--card);border:1px solid var(--line);
+    border-radius:18px;box-shadow:0 20px 55px rgba(29,28,24,.08);overflow:hidden}
+  .head{padding:36px 44px 28px;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:14px;margin-bottom:10px}
+  .mark{flex:none;width:46px;height:46px;border-radius:12px;background:var(--ink);color:#f6f3ec;
+    display:grid;place-items:center;font-weight:600;font-size:20px}
+  .brand h1{font-size:24px;font-weight:700;letter-spacing:.4px}
+  .brand small{display:block;font-size:13.5px;font-weight:500;color:var(--ink-soft);letter-spacing:1.2px;margin-top:1px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 14px}
+  .chip{font-size:13px;padding:3px 12px;border-radius:999px;border:1px solid var(--line);color:var(--ink-soft);background:#faf8f2}
+  .chip b{color:var(--ink);font-weight:600}
+  .pitch{color:var(--ink);font-size:15.5px}
+  .pitch .hl{color:var(--blue);font-weight:600}
+  .body{padding:30px 44px 36px;display:grid;gap:26px}
+  .entries{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .btn{display:flex;flex-direction:column;gap:2px;padding:18px 22px;border-radius:14px;
+    text-decoration:none;border:1px solid transparent;transition:transform .1s ease,box-shadow .15s ease}
+  .btn:active{transform:translateY(1px)}
+  .btn .t{font-size:16.5px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .btn .d{font-size:13px;opacity:.85;font-family:var(--mono);word-break:break-all}
+  .btn-primary{background:var(--blue);color:#fff;box-shadow:0 8px 22px rgba(63,106,165,.28)}
+  .btn-primary:hover{background:var(--blue-deep)}
+  .btn-ghost{background:#f3efe6;color:var(--ink);border-color:var(--line)}
+  .btn-ghost:hover{border-color:var(--blue);color:var(--blue-deep)}
+  .arrow{margin-left:auto}
+  section h2{font-size:14px;font-weight:700;letter-spacing:1.5px;color:var(--ink-soft);text-transform:uppercase;margin-bottom:14px;
+    display:flex;align-items:center;gap:10px}
+  section h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  .account{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+  .acc{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:#fbf9f4}
+  .acc .role{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700}
+  .tag{font-size:12px;padding:1px 9px;border-radius:999px;color:#fff}
+  .tag.student{background:var(--blue)}
+  .tag.teacher{background:var(--green)}
+  .acc .line{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:14px}
+  .acc .k{color:var(--ink-soft);flex:none}
+  .acc code{font-family:var(--mono);font-size:13.5px;background:#f1ede3;border:1px solid var(--line);
+    padding:2px 8px;border-radius:7px;word-break:break-all;color:var(--ink)}
+  .note{font-size:12.5px;color:#8d897d;margin-top:12px}
+  .links{display:grid;gap:8px}
+  .links .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14.5px}
+  .links .k{color:var(--ink-soft);flex:none;min-width:6.2em}
+  .url{color:var(--blue);text-decoration:none;font-family:var(--mono);font-size:13.5px;word-break:break-all}
+  .url:hover{color:var(--blue-deep);text-decoration:underline}
+  .foot{padding:0 44px 34px;text-align:center;font-size:12.5px;color:#8d897d}
+  @media (max-width:640px){
+    .head,.body,.foot{padding-left:22px;padding-right:22px}
+    .entries,.account{grid-template-columns:1fr}
+    .brand h1{font-size:20px}
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="head">
+    <div class="brand">
+      <div class="mark">数</div>
+      <h1>数学智元（MathPilot）
+        <small>高中数学知识掌握诊断与学习规划 AGENT</small>
+      </h1>
+    </div>
+    <div class="meta">
+      <span class="chip">团队 <b>排雷派对</b></span>
+      <span class="chip">赛道 <b>命题式赛道</b></span>
+      <span class="chip">方向 <b>高中数学知识掌握诊断与学习规划 Agent</b></span>
+    </div>
+    <p class="pitch">不止判断答案对错，更把学生的思考过程变成<span class="hl">可诊断、可追溯、可复核</span>的学习证据——
+    聊天式一题一诊断、错因归因追问、BKT/保持率科学基准、Dream 画像与 1–4 周学习计划，全程可解释。</p>
+  </div>
+
+  <div class="body">
+    <div class="entries">
+      <a class="btn btn-primary" href="https://mathpilot.tangentpi.com/defense/" target="_blank" rel="noopener">
+        <span class="t">路演答辩演示 <span class="arrow">→</span></span>
+        <span class="d">10 分钟 · 叙事 → 实机 → 架构 → 未来扩展</span>
+      </a>
+      <a class="btn btn-ghost" href="https://mathpilot.tangentpi.com/" target="_blank" rel="noopener">
+        <span class="t">在线 Demo <span class="arrow">→</span></span>
+        <span class="d">https://mathpilot.tangentpi.com/</span>
+      </a>
+    </div>
+
+    <section>
+      <h2>测试账号</h2>
+      <div class="account">
+        <div class="acc">
+          <span class="role"><span class="tag student">学</span>学生端</span>
+          <div class="line"><span class="k">账号</span><code>student@mathpilot.local</code></div>
+          <div class="line"><span class="k">密码</span><code>请向演示维护者获取</code></div>
+        </div>
+        <div class="acc">
+          <span class="role"><span class="tag teacher">教</span>教师端</span>
+          <div class="line"><span class="k">账号</span><code>teacher@mathpilot.local</code></div>
+          <div class="line"><span class="k">密码</span><code>请向演示维护者获取</code></div>
+        </div>
+      </div>
+      <p class="note">以上为评审专用演示环境账号。体验建议：学生端走完「答题 → 追问 → 诊断报告 → 学习计划」，再换教师端查看「复核与证据重放」。</p>
+    </section>
+
+    <section>
+      <h2>开源与材料</h2>
+      <div class="links">
+        <div class="row"><span class="k">开源地址</span>
+          <a class="url" href="https://github.com/tangent2pi/MathPilot" target="_blank" rel="noopener">https://github.com/tangent2pi/MathPilot</a>
+        </div>
+        <div class="row"><span class="k">离线材料</span>
+          <span style="color:var(--ink-soft)">本压缩包内 README、技术方案、数据整理说明与演示视频（联网受限时请以此为准）</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <p class="foot">参赛作品 · 长株潭 Agent 训练营暨创新开发大赛 · 展示表达材料</p>
+</main>
+</body>
+</html>

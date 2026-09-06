@@ -39,11 +39,11 @@ src/packages/contracts/
 `ConversationThreadId`、`ForegroundEpochId`、`QuestionSessionId`、`WorkflowId` 与
 `AgentAttemptId`，不复用旧 `session_id/mode/run/PUD` 语义。其命令联合中不存在直接写
 M/R/C_e、FSRS Card 或编辑 Annotation 的动作；`DomainUIPart` 只接受
-`origin=domain_projector`；学习 TaskSpec 不表达 Bash、SQL、任意网络或凭据能力。
+`origin=domain_projector`；前台教学可声明受宿主隔离的 `sandbox` 和 `assessment`，
+科学和 Dream Task 无业务工具。TaskSpec 不表达 SQL、任意网络或凭据能力。
 
-下面的 `learning/`、`profile/` 首批冻结清单属于旧实现协议，只服务尚未退役的旧路径；
-Next 服务不得新增引用。完成 v3 切换后按 GOAL 的 Removal gate 删除或只读归档，而不是
-建立兼容转换或双写。
+下面的 `learning/`、`profile/` 首批冻结清单保留用于历史迁移和数据的协议追溯；
+对应旧服务已退役。当前服务不新增引用，也不建立转换或双写路径。
 
 ## 旧首批冻结清单（实施规划 v1 §11）
 

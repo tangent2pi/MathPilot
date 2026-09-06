@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="scholar-teal">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-content-type" content="presentation" />
+<meta name="x-presentation-version" content="1.0" />
+<meta name="x-presentation-indicator" content="deck-stage .slide" />
+<title>MathPilot · 答辩演示</title>
+<link rel="stylesheet" href="./_shared/fonts.css">
+<link rel="stylesheet" href="./_shared/base.css">
+<link id="theme-link" rel="stylesheet" href="./_shared/themes/scholar-teal.css">
+<link rel="stylesheet" href="./_shared/animations/animations.css">
+<style>
+  /* ===== MathPilot 专属视觉微调（叠在主题之上，只用 token） ===== */
+  html,body{background:var(--bg)}
+  /* 封面：深夜青渐变 + 淡草稿纹理，与 scholar-teal 一致 */
+  .cover-wrap{position:absolute;inset:0;overflow:hidden;background:
+    radial-gradient(90% 70% at 18% 16%,rgba(45,212,191,.28),transparent 62%),
+    radial-gradient(70% 60% at 85% 78%,rgba(234,88,12,.16),transparent 60%),
+    linear-gradient(135deg,#042f2e 0%,#0f3d3a 46%,#115e59 100%)}
+  .cover-wrap::after{content:"";position:absolute;inset:0;opacity:.5;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cpath d='M20 100 90 22l-8 78z' fill='none' stroke='%23ffffff' stroke-opacity='.05'/%3E%3Ccircle cx='90' cy='22' r='3' fill='%23ffffff' fill-opacity='.08'/%3E%3C/svg%3E")}
+  .cover-wrap{display:flex;flex-direction:column;justify-content:center;padding:0 110px;color:#fff}
+  .cover-wrap .k{color:rgba(255,255,255,.66);font-size:15px;letter-spacing:.22em;text-transform:uppercase}
+  .cover-wrap h1{font-family:var(--font-serif);font-weight:700;font-size:86px;line-height:1.06;letter-spacing:-.01em;margin:22px 0 10px;color:#fff}
+  .cover-wrap h1 em{font-style:italic;background:linear-gradient(100deg,#5eead4,#fdba74);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .cover-wrap .sub{font-size:23px;color:rgba(255,255,255,.82);max-width:54ch;line-height:1.7}
+  .cover-wrap .meta{position:absolute;left:110px;right:110px;bottom:54px;display:flex;justify-content:space-between;font-size:14px;color:rgba(255,255,255,.55);letter-spacing:.06em}
+  /* 章节页大数字 */
+  .big-num{font-family:var(--font-serif);font-weight:700;font-size:190px;line-height:.9;color:var(--accent);opacity:.9}
+  /* 真伪标记徽章：LIVE / EVIDENCE / CONCEPT */
+  .badge{display:inline-block;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.14em;vertical-align:middle;border:1px solid}
+  .badge.live{color:#fff;background:var(--good);border-color:var(--good)}
+  .badge.ev{color:#fff;background:var(--accent);border-color:var(--accent)}
+  .badge.ct{color:#fff;background:#8b5cf6;border-color:#8b5cf6}
+  /* K/T/E 三层归属 chip */
+  .chip{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;padding:6px 12px;border-radius:8px;background:var(--surface-2);color:var(--text-2)}
+  .chip b{color:var(--accent);font-weight:800}
+  .chip.warn b{color:var(--warn)} .chip.ok b{color:var(--good)}
+  /* 模拟界面卡（统一浅色卡，仅示意布局） */
+  .mock{font-family:var(--font-mono);font-size:15px;line-height:1.9;background:var(--surface-2);border-radius:var(--radius-sm);padding:20px 24px;color:var(--text-2)}
+  .mock .hl{color:var(--warn);font-weight:700}
+  .mock .ok{color:var(--good);font-weight:700}
+  .mock .ag{color:var(--accent);font-weight:700}
+  .panel-label{font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--text-3);margin-bottom:10px}
+  /* 分幕徽标下划线 */
+  .act-kicker{display:inline-flex;align-items:center;gap:14px}
+  .act-no{font-family:var(--font-serif);font-size:18px;font-weight:700;color:var(--accent)}
+  .divider-accent{margin:22px 0 0}
+  /* 表格与 ledgers 统一字距 */
+  .num-tab{font-variant-numeric:tabular-nums}
+  /* 逐条主张要点 */
+  .assert li{font-size:19px;line-height:1.7;color:var(--text-1);margin-bottom:10px}
+  .assert li b{color:var(--text-1)}
+  /* 幕6 视频播放器 */
+  .vid{position:relative;width:860px;max-width:100%;margin:22px auto 0;border-radius:var(--radius-lg);overflow:hidden;
+    background:#042f2e;box-shadow:var(--shadow-lg);border:1px solid rgba(255,255,255,.14)}
+  .vid video{display:block;width:100%;height:auto;aspect-ratio:16/9;background:#042f2e}
+  .vid-veil{position:absolute;inset:0;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;
+    background:radial-gradient(70% 80% at 50% 40%,rgba(45,212,191,.18),rgba(4,47,46,.82) 72%);cursor:pointer;color:#fff}
+  .vid-veil .playb{width:92px;height:92px;border-radius:50%;background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.55);
+    display:flex;align-items:center;justify-content:center;font-size:34px;padding-left:8px;backdrop-filter:blur(4px);transition:transform .2s var(--ease)}
+  .vid-veil:hover .playb{transform:scale(1.08);background:rgba(45,212,191,.32)}
+  .vid-veil .lbl{font-size:15px;letter-spacing:.1em;color:rgba(255,255,255,.85)}
+  /* 幕5 · 章节数据交互 */
+  .seg-tabs{display:inline-flex;border:1px solid var(--border-strong);border-radius:999px;overflow:hidden;background:var(--surface)}
+  .seg-tabs button{border:none;background:transparent;color:var(--text-2);font-size:14px;font-weight:600;padding:7px 20px;cursor:pointer;transition:all .2s var(--ease)}
+  .seg-tabs button.on{background:var(--accent);color:#fff}
+  .kpi-num{font-size:52px;font-weight:800;line-height:.95;font-variant-numeric:tabular-nums;color:var(--accent);transition:color .3s}
+  .kpi-sub{font-size:13px;color:var(--text-3);margin-top:6px}
+  .pipe{display:flex;flex-direction:column;gap:0;margin-top:6px}
+  .pipe-step{display:grid;grid-template-columns:38px 1fr;gap:14px;align-items:center;padding:9px 2px}
+  .pipe-ic{width:38px;height:38px;border-radius:10px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--accent);font-weight:800}
+  .pipe-step.hot .pipe-ic{background:var(--accent);color:#fff}
+  .pipe-step h4{font-size:16px;margin:0 0 2px}
+  .pipe-step p{font-size:12.5px;color:var(--text-3);margin:0;line-height:1.45}
+  .pipe-arrow{height:20px;display:flex;justify-content:center;color:var(--text-3);font-size:15px;opacity:.7;margin-left:19px}
+  .metric-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .metric{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;display:flex;gap:14px;align-items:flex-start;box-shadow:var(--shadow)}
+  .metric .mic{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:19px;color:#fff;flex-shrink:0}
+  .metric h4{font-size:15px;margin:0 0 4px}
+  .metric p{font-size:12.5px;color:var(--text-3);margin:0;line-height:1.5}
+  .tag-tech{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;padding:4px 12px;border-radius:999px;color:#fff}
+  .tag-a{background:#8b5cf6}.tag-b{background:#0d9488}.tag-c{background:#ea580c}
+  /* Excel 数据预览 overlay */
+  .kbov{position:fixed;inset:0;z-index:300;background:rgba(6,18,20,.78);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center}
+  .kbov.open{display:flex}
+  .kbov-card{width:1720px;max-width:94vw;height:86vh;background:var(--surface);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;overflow:hidden}
+  .kbov-head{display:flex;align-items:center;justify-content:space-between;padding:16px 26px;border-bottom:1px solid var(--border)}
+  .kbov-head h3{margin:0;font-size:20px}
+  .kbov-close{border:1px solid var(--border-strong);background:transparent;color:var(--text-1);width:38px;height:38px;border-radius:10px;font-size:18px;cursor:pointer}
+  .kbov-bar{display:flex;gap:10px;padding:12px 26px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap}
+  .kbov-bar .seg-tabs button{font-size:13px;padding:6px 16px}
+  .kb-sheet-tab{border:1px solid var(--border);background:var(--surface-2);color:var(--text-2);font-size:13px;border-radius:8px;padding:6px 14px;cursor:pointer;font-weight:600}
+  .kb-sheet-tab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .kbov-count{font-size:12.5px;color:var(--text-3);margin-left:auto;font-variant-numeric:tabular-nums}
+  .kbov-body{flex:1;overflow:auto}
+  .kb-table{width:100%;border-collapse:collapse;font-size:13px;min-width:1100px}
+  .kb-table th{position:sticky;top:0;background:var(--surface-2);color:var(--text-2);text-align:left;padding:10px 12px;font-weight:700;white-space:nowrap;border-bottom:2px solid var(--border-strong);z-index:1}
+  .kb-table td{padding:8px 12px;border-bottom:1px solid var(--border);color:var(--text-2);vertical-align:top}
+  .kb-table tr:hover td{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+  /* 第13页 · 真实报告 PDF 物证（①顶置横排） */
+  .rep-grid{display:grid;grid-template-columns:minmax(360px,430px) minmax(0,1fr);gap:30px;align-items:stretch}
+  .rep-text{display:flex;flex-direction:column;justify-content:center}
+  .rep-view{display:flex;flex-direction:column;border:1px solid var(--border-strong);border-radius:14px;overflow:hidden;background:var(--surface-2)}
+  .rep-bar{display:flex;align-items:center;gap:7px;padding:9px 14px;background:var(--surface-2);border-bottom:1px solid var(--border)}
+  .rep-bar .dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0}
+  .rep-name{font-family:var(--font-mono);font-size:12px;color:var(--text-2);margin-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rep-pages{margin-left:auto;font-size:11px;color:var(--text-3);flex-shrink:0}
+  .rep-view iframe{width:100%;height:296px;border:none;display:block;background:#fff}
+  .rep-external{display:inline-flex;align-items:center;gap:6px;margin-left:12px;border:1px solid var(--border-strong);background:transparent;color:var(--accent);border-radius:999px;padding:3px 12px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap;transition:all .2s var(--ease)}
+  .rep-external:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .rep-open{display:inline-flex;align-items:center;gap:8px;border:1.5px solid var(--accent);background:transparent;color:var(--accent);border-radius:999px;padding:8px 20px;font-size:14px;font-weight:700;text-decoration:none;transition:all .2s var(--ease)}
+  .rep-open:hover{background:var(--accent);color:#fff}
+  /* 第17页 · 靶向组卷资产展台（左逻辑列 + 右资产展台） */
+  .compose-stage{display:grid;grid-template-columns:minmax(330px,1fr) minmax(0,2.05fr);gap:26px;align-items:stretch}
+  .pipe-col{display:flex;flex-direction:column;gap:14px}
+  .pipe-card{display:flex;gap:16px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow)}
+  .pipe-card .step{flex:0 0 auto;width:40px;height:40px;border-radius:12px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;font-family:var(--font-serif)}
+  .pipe-card.w2{border-left-color:var(--warn)} .pipe-card.w2 .step{background:var(--warn)}
+  .pipe-card.w3{border-left-color:var(--good)} .pipe-card.w3 .step{background:var(--good)}
+  .pipe-card h4{font-size:18px;margin:0 0 4px}
+  .pipe-card p{font-size:13px;line-height:1.6;color:var(--text-3);margin:0}
+  .stage-right{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .stage-label{display:flex;align-items:center;gap:12px;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3)}
+  .stage-label .live-line{flex:1;height:1px;background:linear-gradient(90deg,var(--border-strong),transparent)}
+  .paper-rack{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+  .paper-tile{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--surface);box-shadow:var(--shadow);transition:transform .25s var(--ease),box-shadow .25s var(--ease);cursor:pointer;text-align:left;padding:0;font:inherit;color:inherit}
+  .paper-tile:hover{transform:translateY(-5px);box-shadow:var(--shadow-lg)}
+  .paper-tile .pt-cap{position:relative;overflow:hidden;border-bottom:1px solid var(--border);background:var(--surface-2)}
+  .paper-tile .pt-cap img{display:block;width:100%;height:250px;object-fit:cover;object-position:top;filter:saturate(.96)}
+  .paper-tile .pt-tag{position:absolute;left:10px;top:10px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:800;color:#fff;background:var(--accent);letter-spacing:.06em}
+  .paper-tile .pt-tag.t2{background:var(--warn)} .paper-tile .pt-tag.t3{background:#8b5cf6}
+  .paper-tile .pt-meta{padding:11px 14px 13px}
+  .paper-tile .pt-meta h4{font-size:15.5px;margin:0 0 2px}
+  .paper-tile .pt-meta p{font-size:12px;color:var(--text-3);margin:0;line-height:1.5}
+  .preview-dock{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border:1px solid var(--border);background:linear-gradient(180deg,var(--surface-2),transparent 120%);border-radius:var(--radius);padding:13px 18px}
+  .preview-dock .pd-hint{font-size:12.5px;color:var(--text-3);line-height:1.5}
+  .preview-dock .pd-btns{display:flex;gap:10px;flex-wrap:wrap}
+  .btn-pdf{display:inline-flex;align-items:center;gap:8px;border:1.5px solid var(--accent);background:transparent;color:var(--accent);border-radius:999px;padding:9px 20px;font-size:14px;font-weight:800;cursor:pointer;transition:all .2s var(--ease);text-decoration:none}
+  .btn-pdf:hover{background:var(--accent);color:#fff}
+  .btn-pdf.alt{border-color:var(--good);color:var(--good)} .btn-pdf.alt:hover{background:var(--good)}
+  /* ===== 第4页 · 开场核心案例：手写证据卡 vs AI 侦探标注 ===== */
+  .ct4-stage{display:grid;grid-template-columns:minmax(0,1fr) 180px minmax(0,1fr);gap:22px;align-items:stretch;margin-top:22px}
+  .ct4-paper{position:relative;background:
+      repeating-linear-gradient(transparent 0 33px, rgba(13,148,136,.10) 33px 34px),
+      linear-gradient(#fffdf8,#fbfaf4);border-radius:6px;box-shadow:0 18px 40px rgba(13,148,136,.16),0 2px 6px rgba(13,148,136,.10);
+    padding:20px 26px 22px;font-family:'KaiTi','STKaiti','楷体','Kaiti SC','Noto Serif SC',serif;transform:rotate(-.5deg);color:#35504a;
+    border:1px solid rgba(13,148,136,.18);min-height:0}
+  .ct4-paper::before{content:"";position:absolute;left:10px;top:0;bottom:0;width:1px;background:rgba(13,148,136,.35)}
+  .ct4-q{font-size:17px;line-height:1.5;color:#2a3532}
+  .ct4-q b{font-family:'Noto Sans SC',sans-serif;color:#0d9488;font-weight:800}
+  .ct4-lines{font-family:'JetBrains Mono','IBM Plex Mono',monospace;font-size:16.5px;line-height:34px;color:#2e3835;margin:6px 0 0}
+  .ct4-lines .hl-red{color:#0f766e;font-weight:800;text-decoration:underline wavy #14b8a6 1.5px;text-underline-offset:4px}
+  .ct4-tick{position:absolute;right:16px;bottom:10px;width:74px;height:74px;border-radius:50%;border:5px solid #059669;color:#059669;background:rgba(255,255,255,.55);display:flex;align-items:center;justify-content:center;font-size:52px;font-weight:900;font-family:sans-serif;line-height:1;transform:rotate(8deg);opacity:.95}
+  .ct4-stamp{position:absolute;right:18px;top:14px;padding:3px 12px;border:2px solid #0d9488;color:#0f766e;background:rgba(255,255,255,.7);border-radius:6px;font-size:13px;font-weight:800;font-family:'Noto Sans SC',sans-serif;letter-spacing:.1em;transform:rotate(4deg)}
+  .ct4-warn{position:absolute;left:-12px;bottom:16px;display:inline-flex;gap:7px;align-items:center;background:#ecfdf5;border:1.5px solid #0d9488;color:#134e4a;border-radius:10px;padding:6px 12px;font-size:13.5px;font-weight:800;font-family:'Noto Sans SC',sans-serif;box-shadow:0 6px 18px rgba(13,148,136,.28);transform:rotate(-2deg)}
+  .ct4-warn b{color:#0f766e}
+  .ct4-catch{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center}
+  .ct4-arrow{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:18px 16px;border-radius:18px;background:linear-gradient(160deg,color-mix(in srgb,var(--accent) 20%,transparent),color-mix(in srgb,#059669 12%,transparent));border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);animation:ct4-pulse 1.9s var(--ease) infinite}
+  .ct4-arrow .ar-head{display:flex;align-items:center;gap:8px;white-space:nowrap}
+  .ct4-arrow .ic{font-size:30px;line-height:1}
+  .ct4-arrow .lbl{font-size:16px;font-weight:800;color:var(--text-1);letter-spacing:.02em}
+  .ct4-arrow .gt{font-size:20px;color:var(--accent);font-weight:900;line-height:1}
+  .ct4-arrow .sub{font-size:11.5px;line-height:1.5;color:var(--text-3);text-align:center}
+  @keyframes ct4-pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 38%,transparent)}50%{box-shadow:0 0 0 16px color-mix(in srgb,var(--accent) 0%,transparent)}}
+  .ct4-detective{position:relative;display:flex;flex-direction:column;gap:12px;background:linear-gradient(165deg,rgba(13,148,136,.08),transparent 60%),var(--surface);border:1px solid var(--border-strong);border-top:3px solid var(--accent);border-radius:var(--radius);padding:20px 22px;box-shadow:var(--shadow)}
+  .ct4-radar{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:800;color:#fff;background:linear-gradient(90deg,#0d9488,#14b8a6);padding:5px 14px;border-radius:999px;letter-spacing:.08em}
+  .ct4-verdict{font-size:17.5px;line-height:1.7;color:var(--text-1)}
+  .ct4-verdict b{color:#fff;background:linear-gradient(90deg,#0f766e,#0d9488);padding:1px 8px;border-radius:6px;font-weight:900;box-shadow:0 2px 10px rgba(13,148,136,.35)}
+  .ct4-quote{position:relative;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:14px;padding:13px 16px 13px 20px;font-size:15.5px;line-height:1.7;color:var(--text-1);margin-top:2px}
+  .ct4-quote::before{content:"";position:absolute;left:-7px;top:18px;width:12px;height:12px;background:var(--surface-2);border-left:1px solid var(--border-strong);border-bottom:1px solid var(--border-strong);transform:rotate(45deg)}
+  .ct4-quote .who{display:block;font-size:11.5px;color:var(--text-3);margin-top:7px;letter-spacing:.08em}
+  .ct4-dots{display:inline-flex;gap:5px;margin-right:8px}
+  .ct4-dots i{width:9px;height:9px;border-radius:50%;background:var(--border-strong);display:inline-block}
+  .ct4-vs{display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:center;margin-top:24px}
+  .ct4-vs .side{border-radius:14px;padding:13px 20px;display:flex;align-items:center;gap:12px;border:1px solid var(--border)}
+  .ct4-vs .side.old{background:color-mix(in srgb,var(--text-3) 6%,transparent);border-color:var(--border)}
+  .ct4-vs .side.new{background:color-mix(in srgb,var(--good) 12%,transparent);border-color:color-mix(in srgb,var(--good) 45%,transparent)}
+  .ct4-vs .side .k{flex:0 0 auto;font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;letter-spacing:.1em}
+  .ct4-vs .side.old .k{background:var(--surface-2);color:var(--text-2)}
+  .ct4-vs .side.new .k{background:var(--good);color:#fff}
+  .ct4-vs .side .t{font-size:15.5px;line-height:1.5;color:var(--text-1)}
+  .ct4-vs .side .t b{color:var(--good)}
+  .ct4-vs .side.old .t{color:var(--text-2)}
+  .ct4-vs .vs-tag{font-family:var(--font-serif);font-weight:800;color:var(--text-3);font-size:20px}
+  /* ===== 第5页 · 幕1 三个致命问题：警示痛点 ➔ 破局 ➔ 唯一主张 ===== */
+  .pain-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin-top:40px}
+  .pain-card{position:relative;overflow:hidden;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--border));border-radius:var(--radius);background:linear-gradient(180deg,color-mix(in srgb,#0d9488 6%,transparent),transparent 70%),var(--surface);padding:26px 28px 24px;box-shadow:var(--shadow);display:flex;flex-direction:column}
+  .pain-card .prow{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+  .pain-card .pno{font-family:var(--font-serif);font-weight:800;font-size:52px;line-height:1;color:color-mix(in srgb,var(--accent) 55%,#134e4a);letter-spacing:-.02em;text-shadow:0 0 18px color-mix(in srgb,var(--accent) 35%,transparent)}
+  .pain-card .pbadge{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(90deg,#0d9488,#0f766e);color:#fff;border-radius:8px;padding:5px 13px;font-size:12.5px;font-weight:800;letter-spacing:.12em}
+  .pain-card h4{font-size:24px;margin:18px 0 10px;color:var(--text-1);line-height:1.4}
+  .pain-card h4 mark{background:linear-gradient(90deg,#0f766e,#0d9488);color:#fff;border-radius:6px;padding:0 8px;font-weight:900}
+  .pain-card p{font-size:16px;line-height:1.8;color:var(--text-2);margin:0;flex:1}
+  .pain-card .pfoot{margin-top:16px;height:5px;border-radius:3px;background:linear-gradient(90deg,#0d9488,color-mix(in srgb,#14b8a6 45%,transparent))}
+  .pierce{display:flex;align-items:center;justify-content:center;gap:18px;margin:34px auto 0;max-width:1500px;position:relative}
+  .pierce .beam{flex:1;height:3px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--accent) 30%,#2dd4bf 70%,transparent);position:relative;overflow:visible}
+  .pierce .beam::after{content:"";position:absolute;top:-3px;left:0;right:0;height:9px;border-radius:9px;background:linear-gradient(90deg,transparent,rgba(45,212,191,.9) 32%,rgba(45,212,191,.95) 68%,transparent);filter:blur(6px);animation:beam-flow 2.2s var(--ease) infinite}
+  @keyframes beam-flow{0%{opacity:.35;transform:scaleX(.6)}50%{opacity:1;transform:scaleX(1)}100%{opacity:.35;transform:scaleX(.6)}}
+  .pierce .pill-core{display:inline-flex;align-items:center;gap:12px;flex-shrink:0;background:linear-gradient(120deg,var(--accent),#0f766e 60%,#134e4a);color:#fff;border-radius:999px;padding:16px 38px;font-size:26px;font-weight:900;letter-spacing:.06em;box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 18%,transparent),0 10px 34px rgba(13,148,136,.45);animation:pierce-glow 2.2s var(--ease) infinite}
+  @keyframes pierce-glow{0%,100%{box-shadow:0 0 0 5px color-mix(in srgb,var(--accent) 14%,transparent),0 10px 34px rgba(13,148,136,.35)}50%{box-shadow:0 0 0 12px color-mix(in srgb,var(--accent) 0%,transparent),0 14px 44px rgba(13,148,136,.5)}}
+  .pierce .pill-core .gt{font-size:30px}
+  .claim-hero{margin:34px auto 0;max-width:1560px;border-radius:22px;padding:34px 46px;background:linear-gradient(135deg,#022c22 0%,#064e3b 55%,#065f46 100%);border:1px solid rgba(52,211,153,.35);box-shadow:0 24px 60px rgba(2,44,34,.55),inset 0 1px 0 rgba(255,255,255,.12);position:relative;overflow:hidden;display:flex;align-items:center;gap:30px}
+  .claim-hero::before{content:"";position:absolute;inset:0;background:radial-gradient(80% 140% at 12% 0%,rgba(45,212,191,.22),transparent 55%)}
+  .claim-hero .ch-chip{flex-shrink:0;display:inline-flex;align-items:center;gap:8px;background:#a7f3d0;color:#022c22;border-radius:999px;padding:10px 20px;font-size:17px;font-weight:900;letter-spacing:.1em}
+  .claim-hero .ch-body{position:relative;font-size:23px;line-height:1.8;color:#ecfdf5}
+  .claim-hero .ch-body strong{color:#6ee7b7}
+  .claim-hero .ch-tags{position:relative;display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .claim-hero .ch-tags span{display:inline-flex;gap:7px;align-items:center;border:1px solid rgba(110,231,183,.4);color:#a7f3d0;border-radius:999px;padding:5px 15px;font-size:14px;font-weight:700}
+  /* ===== 第11页 · 幕4 证据链：极简时间轴 + 铁律 Pill ===== */
+  .ev-mini{display:flex;align-items:stretch;gap:0;margin-top:40px}
+  .ev-node{flex:1;min-width:0;position:relative;background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:22px 18px 20px;box-shadow:0 1px 3px rgba(15,23,42,.05);text-align:center;transition:box-shadow .25s var(--ease),transform .25s var(--ease)}
+  .ev-node:hover{box-shadow:0 10px 28px rgba(13,148,136,.10);transform:translateY(-3px)}
+  .ev-node .tag{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:30px;border-radius:9px;font-family:var(--font-mono);font-size:13px;font-weight:700;color:#0d9488;background:#f0fdfa;border:1px solid #99f6e4;margin-bottom:12px}
+  .ev-node h4{font-size:17px;font-weight:700;color:#1f2937;margin:0 0 6px;line-height:1.4}
+  .ev-node p{font-size:12px;color:#94a3b8;margin:0;line-height:1.55}
+  .ev-node .under{margin:13px auto 0;width:28px;height:2px;border-radius:2px;background:linear-gradient(90deg,#0d9488,#2dd4bf)}
+  .ev-node.hot h4{color:#0f766e}
+  .ev-bridge{flex:0 0 44px;align-self:center;position:relative;height:1px;background:#e5e7eb;overflow:visible}
+  .ev-bridge::after{content:"";position:absolute;top:-1.5px;left:-14%;width:34%;height:4px;border-radius:4px;background:linear-gradient(90deg,transparent,#2dd4bf);filter:blur(1.5px);animation:ev-flow 2s linear infinite}
+  @keyframes ev-flow{0%{left:-14%}100%{left:108%}}
+  .ev-bridge::before{content:"";position:absolute;right:-1px;top:-3px;width:6px;height:6px;border-radius:50%;background:#0d9488;opacity:.45}
+  .ev-pills{margin-top:40px;display:flex;justify-content:center;gap:18px;flex-wrap:wrap}
+  .ev-pills span{display:inline-flex;align-items:center;gap:9px;padding:10px 24px;border-radius:999px;border:1px solid #e5e7eb;background:#fff;color:#334155;font-size:14.5px;font-weight:600;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .ev-pills span::before{content:"";width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#0d9488,#2dd4bf)}
+  /* ===== 顶栏：kicker 左 + 浅绿状态 Pill 右 ===== */
+  .hd-row{display:flex;align-items:center;justify-content:space-between;gap:20px}
+  .hd-row + h2.h2{margin-top:16px}
+  .hd-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:999px;background:#ecfdf5;border:1px solid #99f6e4;color:#0f766e;font-size:14px;font-weight:800;letter-spacing:.04em;white-space:nowrap;box-shadow:0 1px 3px rgba(13,148,136,.10)}
+  .hd-badge::before{content:"";width:7px;height:7px;border-radius:50%;background:linear-gradient(135deg,#0d9488,#2dd4bf)}
+  /* ===== 第8页 · 学生端测评机制：2x2 极简白卡 + 底部墨绿悬浮总结 ===== */
+  .p8-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;margin-top:26px}
+  .p8-card{position:relative;overflow:hidden;background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 1px 3px rgba(15,23,42,.05);padding:26px 30px 22px}
+  .p8-card .num{position:absolute;right:14px;top:0;font-family:var(--font-serif);font-weight:900;font-size:88px;line-height:1;color:rgba(13,148,136,.16);user-select:none;pointer-events:none}
+  .p8-card h4{position:relative;font-size:19px;font-weight:800;color:#0f172a;margin:0 0 10px;line-height:1.45;padding-right:64px}
+  .p8-card p{position:relative;font-size:14.5px;line-height:1.75;color:#64748b;margin:0 0 16px}
+  .p8-pill{position:relative;display:inline-flex;align-items:center;gap:8px;padding:7px 16px;border-radius:999px;font-size:13px;font-weight:800;letter-spacing:.04em}
+  .p8-pill::before{content:"";width:6px;height:6px;border-radius:50%}
+  .p8-pill.mint{background:#d1fae5;color:#065f46;border:1px solid #a7f3d0}.p8-pill.mint::before{background:#10b981}
+  .p8-pill.amber{background:#fef3c7;color:#92400e;border:1px solid #fde68a}.p8-pill.amber::before{background:#f59e0b}
+  .p8-pill.blue{background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe}.p8-pill.blue::before{background:#3b82f6}
+  .p8-summ{margin:28px auto 0;max-width:1580px;width:100%;box-sizing:border-box;border-radius:20px;padding:24px 38px;background:linear-gradient(135deg,#064e3b,#022c22 70%);border:1px solid rgba(45,212,191,.32);box-shadow:0 18px 44px rgba(2,44,34,.42),inset 0 1px 0 rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:26px;position:relative;overflow:hidden}
+  .p8-summ::before{content:"";position:absolute;inset:0;background:radial-gradient(70% 130% at 10% 0%,rgba(45,212,191,.18),transparent 55%)}
+  .p8-summ .txt{position:relative;font-size:19px;line-height:1.85;color:#ecfdf5}
+  .p8-summ .txt b{color:#6ee7b7}
+  .p8-summ .seal{position:relative;flex-shrink:0;display:inline-flex;align-items:center;gap:9px;background:linear-gradient(90deg,#059669,#10b981);color:#fff;border-radius:999px;padding:11px 24px;font-size:15.5px;font-weight:900;letter-spacing:.1em;box-shadow:0 0 0 5px rgba(16,185,129,.22)}
+  /* ===== 第10页 · Kernel：三色算力卡 + 墨绿玻璃流水线 ===== */
+  .kr-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;margin-top:24px}
+  .kr-card{position:relative;display:flex;flex-direction:column;background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 1px 3px rgba(15,23,42,.05);padding:24px 26px 22px}
+  .kr-card .k-label{font-size:15px;font-weight:900;letter-spacing:.08em;margin:0 0 12px}
+  .kr-card.g .k-label{color:#059669}.kr-card.b .k-label{color:#2563eb}.kr-card.y .k-label{color:#d97706}
+  .kr-card h4{font-size:19px;font-weight:800;color:#0f172a;margin:0 0 10px;line-height:1.4}
+  .kr-card p{font-size:14px;line-height:1.7;color:#64748b;margin:0 0 16px;flex:1}
+  .kr-pill{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;padding:7px 16px;border-radius:999px;font-size:13px;font-weight:800;letter-spacing:.03em}
+  .kr-pill.g{background:#d1fae5;color:#065f46;border:1px solid #a7f3d0}
+  .kr-pill.b{background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe}
+  .kr-pill.yg{background:linear-gradient(90deg,#fef3c7,#d1fae5 70%);color:#78350f;border:1px solid #fcd34d}
+  .kr-pipe{margin:30px auto 0;max-width:1580px;width:100%;box-sizing:border-box;border-radius:20px;padding:22px 26px;background:linear-gradient(135deg,#064e3b,#022c22 70%);border:1px solid rgba(45,212,191,.32);box-shadow:0 18px 44px rgba(2,44,34,.42),inset 0 1px 0 rgba(255,255,255,.08);display:flex;align-items:center;gap:0;position:relative;overflow:hidden}
+  .kr-pipe::before{content:"";position:absolute;inset:0;background:radial-gradient(70% 130% at 12% 0%,rgba(45,212,191,.16),transparent 55%)}
+  .kr-stage{position:relative;flex:1;min-width:0;text-align:center;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.13);border-radius:14px;padding:17px 12px 15px}
+  .kr-stage.hl{background:rgba(45,212,191,.12);border-color:rgba(45,212,191,.5)}
+  .kr-stage h4{font-size:17px;font-weight:800;color:#ecfdf5;margin:0 0 5px;line-height:1.4}
+  .kr-stage p{font-size:12.5px;color:#a7f3d0;margin:0;line-height:1.5;opacity:.9}
+  .kr-arr{position:relative;flex:0 0 60px;display:flex;align-items:center;justify-content:center;color:#34d399;font-size:26px;font-weight:900}
+  /* ===== Dream 页 · 跨题语义记忆层（学生端测量 → 确定性内核之间） ===== */
+  .dm-flow{display:flex;align-items:stretch;margin-top:22px}
+  .dm-card{position:relative;flex:1;min-width:0;background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 1px 3px rgba(15,23,42,.05);padding:20px 22px 18px}
+  .dm-card .tag{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;background:#f0fdfa;border:1px solid #99f6e4;color:#0f766e;font-size:12.5px;font-weight:800;letter-spacing:.05em;margin-bottom:11px}
+  .dm-card h4{font-size:17.5px;font-weight:800;color:#0f172a;margin:0 0 8px;line-height:1.4}
+  .dm-card p{font-size:13px;line-height:1.72;color:#64748b;margin:0}
+  .dm-card.hot{border-color:rgba(13,148,136,.4);box-shadow:0 6px 20px rgba(13,148,136,.10)}
+  .dm-card.hot h4{color:#0f766e}
+  .dm-arr{flex:0 0 54px;display:flex;align-items:center;justify-content:center;color:#14b8a6;font-size:24px;font-weight:900}
+  .dm-split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;margin-top:22px}
+  .dm-panel{background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 1px 3px rgba(15,23,42,.05);padding:16px 20px 15px;display:flex;flex-direction:column;gap:10px}
+  .dm-panel.ro{background:linear-gradient(180deg,#f8fafc,#fff);border-style:dashed}
+  .dm-panel .ph{font-size:13.5px;font-weight:900;letter-spacing:.04em;line-height:1.5}
+  .dm-panel.can .ph{color:#0f766e}.dm-panel.ro .ph{color:#475569}
+  .dm-chips{display:flex;flex-wrap:wrap;gap:8px}
+  .dm-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;font-size:12.5px;font-weight:700;letter-spacing:.02em}
+  .dm-chip.mint{background:#d1fae5;color:#065f46;border:1px solid #a7f3d0}
+  .dm-chip.gray{background:#f1f5f9;color:#475569;border:1px solid #cbd5e1}
+  .dm-panel .pm{font-size:12.5px;line-height:1.7;color:#64748b}
+  .dm-panel.ro .pm b{color:#0f766e}
+  .dm-law{margin-top:20px;display:flex;justify-content:center;gap:14px;flex-wrap:wrap}
+  .dm-law span{display:inline-flex;align-items:center;gap:7px;padding:7px 16px;border-radius:999px;border:1px solid #e2e8f0;background:#fff;color:#334155;font-size:12.5px;font-weight:700;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .dm-law span::before{content:"";width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,#0d9488,#2dd4bf)}
+</style>
+</head>
+<body data-themes="scholar-teal,editorial-serif,academic-paper,minimal-white,indigo-code" data-theme-base="./_shared/themes/">
+<deck-stage width="1920" height="1080">
+
+  <!-- ============ 1 · COVER ============ -->
+  <section class="slide active" data-deck-label="封面" style="padding:0">
+    <div class="cover-wrap">
+      <p class="k">长株潭 Agent 训练营暨创新开发大赛 · 现场答辩</p>
+      <h1>MathPilot<em> · </em>看见学生怎么想</h1>
+      <p class="sub">不只看答案对不对，更观察学生是怎样一步步走到这里——基于学情诊断与四库沉淀，实现“过程采集 ➔ 薄弱诊断 ➔ 靶向组卷 ➔ 答案解析”的全链路教学闭环。</p>
+      <div class="meta"><span>高中数学知识掌握诊断与学习规划 Agent</span><span class="slide-number" data-current="1" data-total="19"></span></div>
+    </div>
+    <div class="notes">开场（0:00-0:35）。口播主线：大家好，我们带来的是面向高中数学的教学 Agent「MathPilot」。一句话介绍：它不只判答案，而是把学生解题的过程变成证据。下面用六幕讲清楚：一个反常案例、诊断为什么失效、两端实机、背后的科学内核、以及这套系统怎么迁移到其他章节。</div>
+  </section>
+
+  <!-- ============ 2 · TOC ============ -->
+  <section class="slide" data-deck-label="目录">
+    <p class="kicker">Agenda · 六幕</p>
+    <h2 class="h2">今天讲六件事</h2>
+    <div class="grid g3 mt-l anim-stagger-list" data-anim-target>
+      <div class="card"><div class="row"><div class="h3 dim2 num-tab" style="width:56px">01</div><div><h4>一案引发</h4><p class="dim">真实作答中的隐性缺口</p></div></div></div>
+      <div class="card"><div class="row"><div class="h3 dim2 num-tab" style="width:56px">02</div><div><h4>痛点诊断</h4><p class="dim">传统「看答案」模式的失效</p></div></div></div>
+      <div class="card"><div class="row"><div class="h3 dim2 num-tab" style="width:56px">03</div><div><h4>过程采集</h4><p class="dim">学生多知识点交互测量与状态计算</p></div></div></div>
+      <div class="card"><div class="row"><div class="h3 dim2 num-tab" style="width:56px">04</div><div><h4>科学诊断</h4><p class="dim">报告复核与人机信任留痕</p></div></div></div>
+      <div class="card"><div class="row"><div class="h3 dim2 num-tab" style="width:56px">05</div><div><h4>引擎迁移</h4><p class="dim">交付完整度与章节包扩展</p></div></div></div>
+      <div class="card"><div class="row"><div class="h3 dim2 num-tab" style="width:56px">06</div><div><h4>靶向组卷</h4><p class="dim">诊断结果驱动 · 一卷针对薄弱点</p></div></div></div>
+    </div>
+    <div class="deck-footer"><span class="dim2">MathPilot · 答辩</span><span class="slide-number" data-current="2" data-total="19"></span></div>
+    <div class="notes">0:35-0:50。快速过六幕，每句不超过五秒。提示评委：整场有一条主线，可以随时在任一环节打断提问。</div>
+  </section>
+
+  <!-- ============ 3 · SECTION 01 ============ -->
+  <section class="slide center tc" data-deck-label="章节 01" style="--bg-texture: radial-gradient(60% 60% at 50% 40%, rgba(45,212,191,.10), transparent 70%);">
+    <div>
+      <div class="row" style="justify-content:center"><span class="act-no">01</span><p class="kicker" style="margin:0">开场案例</p></div>
+      <h1 class="h1 anim-rise-in" data-anim="rise-in" style="font-size:92px;margin-top:18px">一道做对、却没做懂的题</h1>
+      <div class="divider-accent" style="margin:26px auto 0"></div>
+      <p class="lede" style="margin:22px auto 0">答案是验证，过程才是诊断的入口。</p>
+    </div>
+    <div class="deck-footer"><span class="dim2">01 · 一案引发</span><span class="slide-number" data-current="3" data-total="19"></span></div>
+    <div class="notes">幕前 · 开场案例（0:00-0:50）。翻入案例，念题前停顿一拍，让评委先看到「做对了」的结果；随后抛出问题句「如果只看答案，你已经给他打勾了，但过程里有东西不对」。</div>
+  </section>
+
+  <!-- ============ 4 · 开场案例详情（幕0 侦探抓包） ============ -->
+  <section class="slide" data-deck-label="案例：对的答案与过程疑点">
+    <p class="kicker">Case · 一个真实的作答瞬间</p>
+    <h2 class="h2">答案判对的那一刻，系统在过程里标了一处疑点</h2>
+
+    <div class="ct4-stage anim-stagger-list" data-anim-target>
+      <!-- 左侧：拟物学生手写作答卡 -->
+      <div class="ct4-paper anim-fade-left" data-anim="fade-left">
+        <div class="ct4-q">在 <b>△ABC</b> 中，已知 <b>b=2，c=√6，B=45°</b>，求 <b>C</b>。</div>
+        <div class="ct4-lines">
+          <div>由正弦定理：<span class="hl-red">b/sinB = c/sinC</span></div>
+          <div>sinC = c·sinB / b = √3/2</div>
+          <div>∴ C = <span class="hl-red">60°</span>（写到这里就停了……）</div>
+        </div>
+        <div class="ct4-tick">✓</div>
+        <div class="ct4-stamp">答案：正确</div>
+        <div class="ct4-warn">⚠️ 过程疑点 · 只写 60°，漏了讨论</div>
+      </div>
+
+      <!-- 中间：过程抓包高能箭头 -->
+      <div class="ct4-catch anim-rise-in" data-anim="rise-in">
+        <div class="ct4-arrow">
+          <span class="ar-head"><span class="ic">🔍</span><span class="lbl">过程抓包</span><span class="gt">➔</span></span>
+          <span class="sub">只看答案：✓ 放行<br>看过程：⚠️ 有遗漏</span>
+        </div>
+      </div>
+
+      <!-- 右侧：AI 侦探标注 -->
+      <div class="ct4-detective anim-fade-right" data-anim="fade-right">
+        <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div class="ct4-radar">🔍 AI 判定 · 命中过程疑点</div>
+          <span class="chip" style="font-size:12px"><b>题型</b>· 三角形个数判断</span>
+        </div>
+        <p class="ct4-verdict">学生只写了 <b>C = 60°</b>——但 <b>c·sinB &lt; b &lt; c</b> 时本应存在 <b>两解</b>，他还漏掉了 <b>C = 120°</b>。结果判对，判别过程却缺失。</p>
+        <div class="ct4-quote"><span class="ct4-dots"><i></i><i></i><i></i></span>系统随即发起追问：「另一个角为什么舍去？」<span class="who">→ 判定到底算对了，还是只是碰巧？</span></div>
+      </div>
+    </div>
+
+    <!-- 底部：传统 vs MathPilot 一句话对比 -->
+    <div class="ct4-vs anim-fade-up" data-anim="fade-up">
+      <div class="side old"><span class="k">传统</span><span class="t">看答案判对 → 打勾放行 → 疑点漏过</span></div>
+      <span class="vs-tag">VS</span>
+      <div class="side new"><span class="k">MathPilot</span><span class="t">判过程 → 当场抓包 → 追问消歧 → <b>证据留痕</b></span></div>
+    </div>
+
+    <div class="deck-footer"><span class="dim2">01 · 一案引发</span><span class="slide-number" data-current="4" data-total="19"></span></div>
+    <div class="notes">幕前 · 开场案例（0:00-0:50）。演示口径：本页为示意题，用于演示「答案正确但过程缺判别」的判定机制；若要强调真实性，答辩前替换为系统内导出的真实学生作答截图或录屏回放，并口播说明学生账号与轮次。本页只放两件事——答案正确 + 过程疑点；若评委问「怎么知道是漏判不是计算跳步」，答：看后续追问与草稿时序，学生端一幕会展示。</div>
+  </section>
+
+  <!-- ============ 5 · SECTION 02（幕1） ============ -->
+  <section class="slide center tc" data-deck-label="章节 02" style="--bg-texture: radial-gradient(60% 60% at 50% 40%, rgba(234,88,12,.08), transparent 70%);">
+    <div>
+      <div class="row" style="justify-content:center"><span class="act-no">02</span><p class="kicker" style="margin:0">痛点诊断</p></div>
+      <h1 class="h1 anim-rise-in" data-anim="rise-in" style="font-size:92px;margin-top:18px">海量刷题，不如一次轻量化测量</h1>
+      <div class="divider-accent" style="margin:26px auto 0"></div>
+      <p class="lede" style="margin:22px auto 0">传统「看答案」式诊断：反馈慢、归因粗、结论无证据。</p>
+    </div>
+    <div class="deck-footer"><span class="dim2">02 · 痛点诊断</span><span class="slide-number" data-current="5" data-total="19"></span></div>
+    <div class="notes">幕1 · 痛点分析（0:50-1:40，约 50 秒）。章节过渡页，语速放稳，三秒后翻下一页讲三个致命问题。结尾强调与传统「海量刷题 + 看答案」的对比。</div>
+  </section>
+
+  <!-- ============ 6 · 三个致命问题（幕1） ============ -->
+  <section class="slide" data-deck-label="三个致命问题">
+    <p class="kicker">Why · 传统诊断的失效</p>
+    <h2 class="h2">传统诊断，面临三个致命问题</h2>
+    <div class="pain-grid anim-stagger-list" data-anim-target>
+      <div class="pain-card"><div class="prow"><span class="pno">01</span><span class="pbadge">致命 · 痛点</span></div><h4><mark>题海战术</mark>，反馈太慢</h4><p>靠做完整套试卷才能看到学情，反馈周期太长，错过的黄金干预窗口补不回来。</p><div class="pfoot"></div></div>
+      <div class="pain-card"><div class="prow"><span class="pno">02</span><span class="pbadge">致命 · 痛点</span></div><h4><mark>归因模糊</mark>，打不中靶心</h4><p>计算失误被笼统归因成「公式不会」，教学资源全部打偏，学生反复练早已会的东西。</p><div class="pfoot"></div></div>
+      <div class="pain-card"><div class="prow"><span class="pno">03</span><span class="pbadge">致命 · 痛点</span></div><h4><mark>结论凭空</mark>，不可信</h4><p>大模型一句话给出的评分没有证据链支撑：老师不敢用，学生不服气。</p><div class="pfoot"></div></div>
+    </div>
+
+    <!-- 破局穿透线 -->
+    <div class="pierce anim-rise-in" data-anim="rise-in">
+      <span class="beam"></span>
+      <span class="pill-core">⚡ MathPilot 破局重构 <span class="gt">➔</span></span>
+      <span class="beam"></span>
+    </div>
+
+    <!-- 唯一主张：墨绿高亮悬浮 -->
+    <div class="claim-hero anim-fade-up" data-anim="fade-up">
+      <span class="ch-chip">唯一主张</span>
+      <div class="ch-body">
+        <div>不做海量题海，不做随口打分的对话框——用 <strong>多知识点轻量化交互测量</strong>，以最少的题目精准锚定知识漏洞。</div>
+        <div class="ch-tags"><span>可追溯</span><span>可复核</span><span>可重放</span></div>
+      </div>
+    </div>
+    <div class="deck-footer"><span class="dim2">02 · 痛点诊断</span><span class="slide-number" data-current="6" data-total="19"></span></div>
+    <div class="notes">幕1 · 痛点分析（0:50-1:40，约 50 秒）。视觉：切 PPT——传统海量刷题 vs MathPilot 轻量化诊断对比图。口播逐条念三个致命问题，每条约 6 秒；最后一段放慢语速念「唯一主张」，这是全场第一次抛出主论点，务必完整、有力。</div>
+  </section>
+
+  <!-- ============ 7 · SECTION 03 ============ -->
+  <section class="slide center tc" data-deck-label="章节 03" style="--bg-texture: radial-gradient(60% 60% at 50% 40%, rgba(5,150,105,.10), transparent 70%);">
+    <div>
+      <div class="row" style="justify-content:center"><span class="act-no">03</span><p class="kicker" style="margin:0">学生端 · 实机演示 <span class="badge live">LIVE</span></p></div>
+      <h1 class="h1 anim-rise-in" data-anim="rise-in" style="font-size:88px;margin-top:18px">过程采集</h1>
+      <div class="divider-accent" style="margin:26px auto 0"></div>
+      <p class="lede" style="margin:22px auto 0">1 轮 15 题 × 至少 3 轮，分层梯次测量，覆盖整章核心知识点。</p>
+    </div>
+    <div class="deck-footer"><span class="dim2">03 · 过程采集</span><span class="slide-number" data-current="7" data-total="19"></span></div>
+    <div class="notes">幕2 · 学生端实机演示（1:40-3:40，约 2 分钟）。目标：展示「1 轮 15 题、至少 3 轮 45 题、覆盖多知识点」的轻量化测评过程。切到学生端 LIVE 实机界面。</div>
+  </section>
+
+  <!-- ============ 8 · 学生端测评机制（幕2） ============ -->
+  <section class="slide" data-deck-label="学生端分层测评机制">
+    <div class="hd-row"><p class="kicker" style="margin:0">Student · 轻量化交互测量机制</p><span class="hd-badge">15 题快速拉开覆盖面</span></div>
+    <h2 class="h2">目标分 ➔ 分层梯次 ➔ 逐题消歧 ➔ 多轮交叉</h2>
+    <div class="p8-grid anim-stagger-list" data-anim-target>
+      <div class="p8-card"><span class="num">01</span><h4>① 设定目标分，启动整章分层测评</h4><p>学生登录后设定目标分（如 75 分），系统不泛泛推题，针对目标启动分层测评。</p><span class="p8-pill mint">画像只定起点</span></div>
+      <div class="p8-card"><span class="num">02</span><h4>② 第一轮 15 题：入门 ➔ 进阶 ➔ 综合</h4><p>智能分层出题按三层梯次爬升，快速拉开知识点覆盖面。</p><span class="p8-pill mint">每轮 15 题</span></div>
+      <div class="p8-card"><span class="num">03</span><h4>③ 答错不抛答案，弹出追问消歧卡片</h4><p>通过 1-3 轮追问，精准区分「正弦定理变形错」还是「拆角技巧不会」。</p><span class="p8-pill amber">错因归因到点</span></div>
+      <div class="p8-card"><span class="num">04</span><h4>④ 至少 3 轮、累计 45 题交叉测量</h4><p>多轮递进交叉验证，深度覆盖章节内 17 个乃至更多核心知识点。</p><span class="p8-pill blue">45 题 vs 几百道题海</span></div>
+    </div>
+    <div class="p8-summ anim-fade-up" data-anim="fade-up">
+      <div class="txt">💡 <b>测量核心原则：</b>不用海量题海耗尽学生热情，用 <b>3 轮 45 题</b> 即可高置信度完成全章 <b>40 个知识点与错因穿透</b>。</div>
+      <span class="seal">轻量测量 · 高质诊断</span>
+    </div>
+    <div class="deck-footer"><span class="dim2">03 · 过程采集</span><span class="slide-number" data-current="8" data-total="19"></span></div>
+    <div class="notes">幕2 实机（1:40-3:40，约 2 分钟）。口播动作顺序：①切到学生端 LIVE 实机界面；②展示学生初始化目标分（75 分）；③展示对话测评界面与题目卡片；④现场走完一道答错题的追问消歧。收口句：用 45 道精心编排的交互题，替代过去几百道盲目刷题——这就是我们的轻量化测评。若实机失败：切同路径录屏，口播「我们用同一条路径的实机录屏继续」。</div>
+  </section>
+
+  <!-- ============ 9 · Dream：跨题语义记忆层（新增） ============ -->
+  <section class="slide" data-deck-label="Dream：跨题语义记忆层">
+    <div class="hd-row"><p class="kicker" style="margin:0">Dream · 跨题语义记忆层</p><span class="hd-badge">不重算 · 不覆盖 · 可撤销</span></div>
+    <h2 class="h2">把跨题规律，整理成「有范围、可撤销、可追溯」的语义附注</h2>
+
+    <div class="dm-flow anim-stagger-list" data-anim-target>
+      <div class="dm-card"><span class="tag">01 · Light · 逐题整理</span><h4>答题会话 → 证据原子</h4><p>每个成功关闭的会话编译为 LearningEvidenceAtom；不合格只标记 incomplete，绝不伪造摘要。</p></div>
+      <div class="dm-arr">➔</div>
+      <div class="dm-card"><span class="tag">02 · REM · 跨题反思</span><h4>聚合窗口 · 冲突即提候选</h4><p>按 学生 × 主题 聚合；支持与反证冲突时提出候选 recommended_action，只提议、不越 Deep 门禁。</p></div>
+      <div class="dm-arr">➔</div>
+      <div class="dm-card hot"><span class="tag">03 · Deep · 有界长期写入</span><h4>唯一长期写入口</h4><p>确定性门禁通过后仅执行四种操作：add / supersede / keep / propose_review。</p></div>
+    </div>
+
+    <div class="dm-split">
+      <div class="dm-panel can">
+        <div class="ph">✓ 能写 · 三类语义附注（唯一写入口：Deep）</div>
+        <div class="dm-chips">
+          <span class="dm-chip mint">DimensionAnnotation 维度观察</span>
+          <span class="dm-chip mint">ErrorAnnotation 错因规律</span>
+          <span class="dm-chip mint">StudentTraitClaim 学习特质主张</span>
+        </div>
+        <div class="pm">每条附注自带 scope（≤ 24 facets）、支持与反证引用、confidence、supersession 链——任何投影都可解释。</div>
+      </div>
+      <div class="dm-panel ro">
+        <div class="ph">✕ 永远只读 · 科学状态（只由确定性程序结算）</div>
+        <div class="dm-chips">
+          <span class="dm-chip gray">M 掌握度 · BKT</span>
+          <span class="dm-chip gray">R 保持率 · FSRS</span>
+          <span class="dm-chip gray">C<sub>e</sub> 错因状态</span>
+        </div>
+        <div class="pm">权限由 <b>数据库角色 + API + schema</b> 共同执行，不只靠提示词。模型不是 reducer，Dream 也不是 reducer。</div>
+      </div>
+    </div>
+
+    <div class="dm-law anim-fade-up" data-anim="fade-up">
+      <span>范围 ≤ 24 facets</span>
+      <span>支持 + 反证证据</span>
+      <span>supersession 可撤销</span>
+      <span>任何投影可解释</span>
+      <span>失败保留旧记忆</span>
+    </div>
+    <div class="deck-footer"><span class="dim2">03 · 过程采集</span><span class="slide-number" data-current="9" data-total="19"></span></div>
+    <div class="notes">幕3 支撑页 · 新增（学生端测量之后、确定性内核之前）。口径：Dream 是跨题语义记忆层，只写三类语义附注，永远不重算、不覆盖科学状态（M / R / Ce 只读；权限由 DB 角色 + API + schema 共同执行）。固定三步 Light → REM → Deep；Deep 是唯一长期写入口，门禁通过后仅 add / supersede / keep / propose_review，任何结论可回放到证据。勿用「Dream 每日异步画像」「Dream 重算掌握度」等 v1 老口径。</div>
+  </section>
+
+  <!-- ============ 10 · M/R/Ce（幕4） ============ -->
+  <section class="slide" data-deck-label="M 与 R 与 C">
+    <div class="hd-row"><p class="kicker" style="margin:0">Kernel · science-v3 三层确定性程序</p><span class="hd-badge">确定性计算 · 模型仅提议</span></div>
+    <h2 class="h2">掌握度 <span class="serif" style="font-style:italic">M</span> ｜ 保持率 <span class="serif" style="font-style:italic">R</span> ｜ 错因 <span class="serif" style="font-style:italic">C<sub>e</sub></span></h2>
+    <div class="kr-cards anim-stagger-list" data-anim-target>
+      <div class="kr-card g"><span class="k-label">掌握度（<span class="serif" style="font-style:italic">M</span>）</span><h4>BKT 贝叶斯知识追踪</h4><p>基于 OATutor 的 BKT 模型，由后端程序根据答题事实进行确定性计算；与 pyBKT 黄金对拍误差 <span class="mono">&lt; 10⁻⁹</span>。</p><span class="kr-pill g">算力归属 · 确定性程序</span></div>
+      <div class="kr-card b"><span class="k-label">保持率（<span class="serif" style="font-style:italic">R</span>）</span><h4>FSRS 间隔重复调度</h4><p>复用 ts-fsrs，精准预测知识点的遗忘曲线，按需推送复习队列，决定何时复测。</p><span class="kr-pill b">算力归属 · 确定性程序</span></div>
+      <div class="kr-card y"><span class="k-label">错因（<span class="serif" style="font-style:italic">C<sub>e</sub></span>）</span><h4>可证伪假设 + Reducer</h4><p>将错因看作可证伪假设，通过追加证据和确定性 Reducer 推进状态更新，而非会话末尾贴标签。</p><span class="kr-pill yg">算力归属 · LLM 提议 + 程序更新</span></div>
+    </div>
+    <div class="kr-pipe anim-fade-up" data-anim="fade-up">
+      <div class="kr-stage"><h4>大模型提取语义</h4><p>仅做判断，无写入权</p></div>
+      <div class="kr-arr">➔</div>
+      <div class="kr-stage hl"><h4>程序校验与状态更新</h4><p>BKT / FSRS / Reducer</p></div>
+      <div class="kr-arr">➔</div>
+      <div class="kr-stage"><h4>PostgreSQL 事件落盘</h4><p>可追溯 · 可审计</p></div>
+    </div>
+    <div class="deck-footer"><span class="dim2">03 · 过程采集</span><span class="slide-number" data-current="10" data-total="19"></span></div>
+    <div class="notes">幕4 核心页（4:50-6:40，约 1 分 50 秒）。讲三层各一句话 + 底部三段流向：大模型只提取语义（无写入权）→ 程序执行 BKT/FSRS/Reducer 校验与更新 → PostgreSQL 不可变事件落盘。确定性口径必须讲清楚：BKT 基于 OATutor 既有实现并与 pyBKT 黄金对拍（误差 &lt; 1e-9），FSRS 复用 ts-fsrs；创新点在于证据资格、权责隔离与可解释性，绝不宣称自研算法超越 SOTA。</div>
+  </section>
+
+  <!-- ============ 14 · 证据链 ============ -->
+  <section class="slide" data-deck-label="证据链">
+    <p class="kicker">Trace · 证据账本</p>
+    <h2 class="h2">每一条结论，都能回放到它依赖的证据</h2>
+
+    <div class="ev-mini anim-stagger-list" data-anim-target>
+      <div class="ev-node"><span class="tag">01</span><h4>📝 草稿 · 作答</h4><p>Attempt + Observation 追加保存</p><span class="under"></span></div>
+      <div class="ev-bridge"></div>
+      <div class="ev-node"><span class="tag">02</span><h4>🛡️ 证据资格校验</h4><p>无帮助作答，才计为独立掌握</p><span class="under"></span></div>
+      <div class="ev-bridge"></div>
+      <div class="ev-node"><span class="tag">03</span><h4>🏷️ K · T · E 归属</h4><p>知识点 · 题型 · 错因归类</p><span class="under"></span></div>
+      <div class="ev-bridge"></div>
+      <div class="ev-node hot"><span class="tag">04</span><h4>🧮 判定 + 置信度</h4><p>模型提议，程序校验定案</p><span class="under"></span></div>
+      <div class="ev-bridge"></div>
+      <div class="ev-node"><span class="tag">05</span><h4>🎯 状态投影</h4><p>M / R / C<sub>e</sub> 原子更新</p><span class="under"></span></div>
+      <div class="ev-bridge"></div>
+      <div class="ev-node"><span class="tag">06</span><h4>📒 追加式证据账本</h4><p>版本 · 来源 · supersession</p><span class="under"></span></div>
+    </div>
+
+    <!-- 底部：三大铁律 · 轻量 Pill -->
+    <div class="ev-pills anim-fade-up" data-anim="fade-up">
+      <span>事实先于状态</span>
+      <span>一题一 Session</span>
+      <span>证据不可原地改史</span>
+    </div>
+    <div class="deck-footer"><span class="dim2">03 · 过程采集</span><span class="slide-number" data-current="11" data-total="19"></span></div>
+    <div class="notes">幕4 支撑页（4:50-6:40，约 1 分 50 秒内）。配合 Science-v3 架构图讲解证据链：草稿/作答 → 证据资格校验 → KTE 归属 → 判定 → 状态投影 → 证据账本。强调「追加式账本」——任何修正都产生 supersession、不覆盖历史，这是教师复核能被信任的前提。若时间紧可跳过本页，直接由上一页的三段流向带过。</div>
+  </section>
+
+  <!-- ============ 10 · SECTION 04 ============ -->
+  <section class="slide center tc" data-deck-label="章节 04" style="--bg-texture: radial-gradient(60% 60% at 50% 40%, rgba(13,148,136,.12), transparent 70%);">
+    <div>
+      <div class="row" style="justify-content:center"><span class="act-no">04</span><p class="kicker" style="margin:0">教师端 · 实机演示 <span class="badge live">LIVE</span></p></div>
+      <h1 class="h1 anim-rise-in" data-anim="rise-in" style="font-size:92px;margin-top:18px">科学诊断</h1>
+      <div class="divider-accent" style="margin:26px auto 0"></div>
+      <p class="lede" style="margin:22px auto 0">测评报告 + 证据链溯源 + 教师改判重放，历史永不覆盖。</p>
+    </div>
+    <div class="deck-footer"><span class="dim2">04 · 科学诊断</span><span class="slide-number" data-current="12" data-total="19"></span></div>
+    <div class="notes">幕3 · 教师端实机演示（3:40-4:50，约 1 分 10 秒）。切到教师端/测评报告 LIVE 界面。开场句：3 轮测评结束后，系统会立刻生成整章自我测评汇总报告。强调一句话：这不是给家长看的漂亮话，是给老师复核用的证据文件。</div>
+  </section>
+
+  <!-- ============ 11 · 教师端报告与裁决（幕3） ============ -->
+  <section class="slide" data-deck-label="教师端报告与裁决">
+    <p class="kicker">Teacher · 汇总报告与改判重放</p>
+    <h2 class="h2">六维画像 + 知识点判定表 + 4 周计划，全部可溯源</h2>
+    <div class="stack anim-stagger-list" data-anim-target style="gap:20px;margin-top:18px">
+      <!-- ① 顶置横排：整章汇总报告 + 真实 PDF 实物预览 -->
+      <div class="card" style="border-top:3px solid var(--accent)">
+        <div class="rep-grid">
+          <div class="rep-text">
+            <div class="panel-label">① 整章自我测评汇总报告 · 真实报告实物</div>
+            <h4>六维画像雷达图 + 知识点判定表 + 4 周学习计划</h4>
+            <p class="dim mt-s" style="font-size:15px;line-height:1.75">整章掌握度、覆盖广度、薄弱集中度一目了然；每个知识点带作答次数与判定状态，例如「正弦定理 答 9 对 1 → 判定薄弱」。下方为系统导出的真实学生测评报告（Demo Student · 解三角形 · 3 轮 45 题），可直接滚动翻看。</p>
+            <div class="row mt-m" style="gap:10px;flex-wrap:wrap">
+              <div class="chip ok"><b>自动生成 4 周学习计划</b></div>
+              <div class="chip"><b>判定全部可溯源</b></div>
+            </div>
+          </div>
+          <div class="rep-view">
+            <div class="rep-bar">
+              <span class="dot" style="background:#f87171"></span>
+              <span class="dot" style="background:#fbbf24"></span>
+              <span class="dot" style="background:#34d399"></span>
+              <span class="rep-name">测评报告_DemoStudent.pdf</span>
+              <span class="rep-pages">共 4 页</span>
+              <a class="rep-external" href="assets/report-DemoStudent.pdf" target="_blank" rel="noopener">打开原版 PDF ↗</a>
+            </div>
+            <iframe src="assets/report-DemoStudent.pdf" title="测评报告 Demo Student" loading="lazy"></iframe>
+          </div>
+        </div>
+      </div>
+
+      <!-- ② ③ 并排下行 -->
+      <div class="grid g2">
+        <div class="card" style="border-top:3px solid var(--good)">
+          <div class="panel-label">② 教师溯源与改判</div>
+          <h4>点击任意诊断，回放原始证据</h4>
+          <p class="dim mt-s" style="font-size:15px;line-height:1.7">老师在教师视图点击一项诊断，即可回放学生当时作答的原始证据；若判定只是输入手误，可直接改判。</p>
+          <div class="chip mt-m"><b>AI 原结论保留 · 理由留痕</b></div>
+        </div>
+        <div class="card" style="border-top:3px solid var(--warn)">
+          <div class="panel-label">③ 确定性重放机制</div>
+          <h4>改判后重新计算，历史永不覆盖</h4>
+          <p class="dim mt-s" style="font-size:15px;line-height:1.7">确定性重放重新计算掌握度与六维画像；原判定以 supersession 追加保留，可随时回放对比，每一步都有血缘可审计。</p>
+          <div class="row mt-m" style="gap:10px;flex-wrap:wrap">
+            <div class="chip ok"><b>证据账本不可改史</b></div>
+            <div class="chip"><b>supersede 重放</b></div>
+            <div class="chip warn"><b>最终裁决在教师</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="deck-footer"><span class="dim2">04 · 科学诊断</span><span class="slide-number" data-current="13" data-total="19"></span></div>
+    <div class="notes">幕3 实机（3:40-4:50，约 1 分 10 秒）。动作顺序：①展示整章自我测评汇总报告（六维画像雷达图 + 知识点表格）；②指出「正弦定理 答 9 对 1 → 薄弱」这类判定状态；③展示依据目标差距自动生成的 4 周个性化学习计划；④切到教师溯源视图，点击一项诊断回放原始证据；⑤现场演示改判一次（手误场景），说明系统通过确定性重放机制重算掌握度与六维画像，历史记录永不覆盖。口播金句：老师保留最终裁决权！</div>
+  </section>
+
+  <!-- ============ 14 · SECTION 05 · 引擎迁移 ============ -->
+  <section class="slide center tc" data-deck-label="章节 05" style="--bg-texture: radial-gradient(60% 60% at 50% 40%, rgba(13,148,136,.12), transparent 70%);">
+    <div>
+      <div class="row" style="justify-content:center"><span class="act-no">05</span><p class="kicker" style="margin:0">交付完整度 · 章节包扩展</p></div>
+      <h1 class="h1 anim-rise-in" data-anim="rise-in" style="font-size:92px;margin-top:18px">引擎迁移</h1>
+      <div class="divider-accent" style="margin:26px auto 0"></div>
+      <p class="lede" style="margin:22px auto 0">不是一个孤立 Demo，而是一条内容生产线——跨章节迁移不需要改写代码，只需装载新的内容包。</p>
+    </div>
+    <div class="deck-footer"><span class="dim2">05 · 引擎迁移</span><span class="slide-number" data-current="14" data-total="19"></span></div>
+    <div class="notes">幕5 · 完成度与内容迁移（6:40-7:40，约 1 分钟）。开场句：MathPilot 并不是一个孤立的 Demo，它具备极强的完成度与内容扩展能力。本页口播约 10 秒后切数据页。</div>
+  </section>
+
+  <!-- ============ 16 · 四库资源与内容生产线（幕5） ============ -->
+  <section class="slide" data-deck-label="数据规模与内容生产线">
+    <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px">
+      <div>
+        <p class="kicker" style="margin:0">Assets · 四库资源全自动化生成</p>
+        <h2 class="h2" style="font-size:40px;margin:8px 0 0">从试点「解三角形」到「导数」的泛化迁移</h2>
+      </div>
+      <div class="row" style="gap:10px">
+        <span class="tag-tech tag-a">双 LLM</span>
+        <span class="tag-tech tag-b">100% 配图</span>
+        <span class="tag-tech tag-c">零代码无缝迁移</span>
+      </div>
+    </div>
+
+    <div class="grid g2 mt-m anim-stagger-list" data-anim-target style="margin-top:24px">
+      <!-- 左：章节数据交互 -->
+      <div class="card" style="display:flex;flex-direction:column">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <div class="panel-label" style="margin:0">内容包数据规模</div>
+          <div class="seg-tabs" id="ch-tabs">
+            <button class="on" data-ch="triangle" type="button">解三角形</button>
+            <button data-ch="derivative" type="button">导数</button>
+          </div>
+        </div>
+        <div class="grid g2 mt-m" style="gap:12px;flex:1;align-content:center">
+          <div class="card-soft" style="padding:18px 20px"><div class="kpi-num" data-k="q" data-a="139" data-b="116">139</div><p class="kpi-sub">题库样本（道）</p></div>
+          <div class="card-soft" style="padding:18px 20px"><div class="kpi-num" data-k="t" data-a="36" data-b="19">36</div><p class="kpi-sub">题型（条）</p></div>
+          <div class="card-soft" style="padding:18px 20px"><div class="kpi-num" data-k="k" data-a="49" data-b="32">49</div><p class="kpi-sub">知识点（条）</p></div>
+          <div class="card-soft" style="padding:18px 20px"><div class="kpi-num" data-k="e" data-a="73" data-b="22">73</div><p class="kpi-sub">错因（条）</p></div>
+        </div>
+        <div class="row mt-m" style="justify-content:space-between;align-items:center">
+          <span class="dim" style="font-size:13px" id="ch-desc">试点章节 · 覆盖五个专题</span>
+          <button type="button" id="kb-open-btn" style="border:1.5px solid var(--accent);background:transparent;color:var(--accent);border-radius:999px;padding:7px 18px;font-size:13px;font-weight:700;cursor:pointer">查看 Excel 数据表</button>
+        </div>
+      </div>
+
+      <!-- 右：生产线 Pipeline -->
+      <div class="card anim-fade-right" data-anim="fade-right" style="border-top:3px solid var(--good);display:flex;flex-direction:column">
+        <div class="panel-label">自研「教学资料结构化生产线」</div>
+        <div class="pipe" style="flex:1;justify-content:center">
+          <div class="pipe-step"><div class="pipe-ic">1</div><div><h4>上传普通讲义 PDF</h4><p>输入：教师日常使用的普通讲义，无需额外标注</p></div></div>
+          <div class="pipe-arrow">↓</div>
+          <div class="pipe-step hot"><div class="pipe-ic">2</div><div><h4>OCR 识别 + 自动切图配图</h4><p>处理：自动 OCR 识别与切题，题目 100% 配套高清图</p></div></div>
+          <div class="pipe-arrow">↓</div>
+          <div class="pipe-step hot"><div class="pipe-ic">3</div><div><h4>双 LLM 联合抽取</h4><p>处理：两个大模型交叉校验，抽取结构化字段</p></div></div>
+          <div class="pipe-arrow">↓</div>
+          <div class="pipe-step"><div class="pipe-ic">4</div><div><h4>输出结构化四库</h4><p>输出：知识点 K / 题型 T / 错因 E / 题库 Q</p></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部：迁移成果指标 -->
+    <div class="metric-grid mt-m anim-stagger-list" data-anim-target style="margin-top:22px">
+      <div class="metric"><div class="mic" style="background:#0d9488">①</div><div><h4>迁移章节 · 导数</h4><p>高中数学难度巅峰章节，完成全流程验证</p></div></div>
+      <div class="metric"><div class="mic" style="background:#8b5cf6">②</div><div><h4>迁移成果 · 116 道入库</h4><p>116 道复杂综合题 100% 结构化入库，含配套四库</p></div></div>
+      <div class="metric"><div class="mic" style="background:#ea580c">③</div><div><h4>扩展性验证 · 零代码</h4><p>解三角形 → 导数 → 函数/数列… 无缝装载新章节包</p></div></div>
+    </div>
+
+    <div class="deck-footer"><span class="dim2">05 · 引擎迁移</span><span class="slide-number" data-current="15" data-total="19"></span></div>
+    <div class="notes">幕5（6:40-7:40，约 1 分钟）。操作顺序：①点 Tab「导数」切换，让数字滚动 139/36/49/73 → 116/19/32/22；②讲解右侧四步流水线（PDF → OCR/切图配图 → 双 LLM → 四库）；③念底部三个迁移指标；④点「查看 Excel 数据表」打开真实数据预览（解三角形/导数 × 4 个工作表）。收口句：跨章节迁移不需要改写代码，只需装载新的内容包。</div>
+  </section>
+  <!-- ============ 16 · SECTION 06 · 靶向组卷 ============ -->
+  <section class="slide center tc" data-deck-label="章节 06" style="--bg-texture: radial-gradient(60% 60% at 50% 40%, rgba(234,88,12,.10), transparent 70%);">
+    <div>
+      <div class="row" style="justify-content:center"><span class="act-no">06</span><p class="kicker" style="margin:0">靶向组卷 <span class="badge live">LIVE</span></p></div>
+      <h1 class="h1 anim-rise-in" data-anim="rise-in" style="font-size:92px;margin-top:18px">诊断结束，就是组卷开始</h1>
+      <div class="divider-accent" style="margin:26px auto 0"></div>
+      <p class="lede" style="margin:22px auto 0">从漏洞清单到一张针对薄弱点的练习卷，系统自动完成。</p>
+    </div>
+    <div class="deck-footer"><span class="dim2">06 · 靶向组卷</span><span class="slide-number" data-current="16" data-total="19"></span></div>
+    <div class="notes">幕6 · 靶向组卷（6:40-7:30，约 50 秒）。开场句：诊断不是终点——诊断报告里的每一处薄弱点，都要能立刻变成下一张练习卷。</div>
+  </section>
+
+  <!-- ============ 17 · 靶向组卷示意（幕6） ============ -->
+  <section class="slide" data-deck-label="靶向组卷示意">
+    <p class="kicker">Compose · 诊断结果驱动组卷</p>
+    <h2 class="h2">漏洞清单 → 靶向选题 → 一键成卷</h2>
+    <div class="compose-stage mt-l anim-stagger-list" data-anim-target>
+      <!-- 左栏：组卷流水线逻辑 -->
+      <div class="pipe-col">
+        <div class="pipe-card"><div class="step">1</div><div><h4>读取诊断结论</h4><p>从最新诊断报告读取薄弱知识点、题型与错因，作为组卷依据。</p><div class="chip mt-m" style="margin-top:10px"><b>数据来源：报告</b></div></div></div>
+        <div class="pipe-card w2"><div class="step">2</div><div><h4>靶向选题</h4><p>按知识点 / 题型 / 错因标签从题库精确抽题，优先命中未掌握项。</p><div class="chip warn mt-m" style="margin-top:10px"><b>标签化题库</b></div></div></div>
+        <div class="pipe-card w3"><div class="step">3</div><div><h4>一键成卷</h4><p>编排难度梯度并输出试卷与配套解析，直接用于下一轮练习与复测。</p><div class="chip ok mt-m" style="margin-top:10px"><b>闭环到学习计划</b></div></div></div>
+      </div>
+      <!-- 右栏：生成资产展示区 -->
+      <div class="stage-right">
+        <div class="stage-label">Generated Assets · 3 卷 PDF 实物<span class="live-line"></span></div>
+        <div class="paper-rack">
+          <button class="paper-tile" type="button" data-pdf="assets/target-paper-1.pdf" data-ptitle="靶向试卷（一） · 阶段性测试" aria-label="预览靶向试卷（一）">
+            <span class="pt-cap"><img src="assets/thumb1.png" alt="靶向试卷（一）首页"><span class="pt-tag">试卷 · 一</span></span>
+            <span class="pt-meta"><h4>阶段性测试</h4><p>高一年级第一次阶段性测试 · 6 页</p></span>
+          </button>
+          <button class="paper-tile" type="button" data-pdf="assets/target-paper-2.pdf" data-ptitle="靶向试卷（二） · 解三角形水平测试" aria-label="预览靶向试卷（二）">
+            <span class="pt-cap"><img src="assets/thumb2.png" alt="靶向试卷（二）首页"><span class="pt-tag t2">试卷 · 二</span></span>
+            <span class="pt-meta"><h4>解三角形水平测试卷</h4><p>漏洞清零 · 基础巩固 · 5 页</p></span>
+          </button>
+          <button class="paper-tile" type="button" data-pdf="assets/target-paper-3.pdf" data-ptitle="靶向试卷（三） · 解三角形水平测试（二）" aria-label="预览靶向试卷（三）">
+            <span class="pt-cap"><img src="assets/thumb3.png" alt="靶向试卷（三）首页"><span class="pt-tag t3">试卷 · 三</span></span>
+            <span class="pt-meta"><h4>解三角形水平测试卷（二）</h4><p>薄弱点复测 · 变式提升 · 5 页</p></span>
+          </button>
+        </div>
+        <div class="preview-dock">
+          <div class="pd-hint"><b style="color:var(--accent)">示例配对</b>：试卷 + 配套答案解析，一键在线预览，原版可另开新标签。</div>
+          <div class="pd-btns">
+            <button class="btn-pdf" type="button" data-pdf="assets/demo-paper.pdf" data-ptitle="解三角形水平测试卷（一） · 试卷">👁 在线预览试卷</button>
+            <button class="btn-pdf alt" type="button" data-pdf="assets/demo-answer.pdf" data-ptitle="解三角形水平测试卷（一） · 答案解析">👁 在线预览答案解析</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="deck-footer"><span class="dim2">06 · 靶向组卷</span><span class="slide-number" data-current="17" data-total="19"></span></div>
+    <div class="notes">幕6 示意页（6:40-7:30，约 50 秒）。本页为示意流程；若教师端组卷已实机可用，可替换为真实操作录屏或截图，并在口播中说明。收口句：诊断指向哪里，练习就生成在哪里——这才是从测量到进步的完整闭环。</div>
+  </section>
+
+
+  <!-- ============ 17 · 收束（幕6） ============ -->
+  <section class="slide tc" data-deck-label="收束" style="--bg-texture: radial-gradient(70% 60% at 50% 30%, rgba(45,212,191,.10), transparent 70%);justify-content:center">
+    <p class="kicker">收束 · 从诊断到告别题海</p>
+    <h1 class="h1 anim-fade-up" data-anim="fade-up" style="font-size:64px;line-height:1.2;max-width:1280px;margin:8px auto 0">从一次针对性的轻量诊断，<br>到告别漫无目的的题海战术。</h1>
+    <p class="dim" style="font-size:21px;margin:14px auto 0;letter-spacing:.02em">事实驱动诊断 · 结论可追溯、可复核、可重放</p>
+    <div class="row mt-m" style="justify-content:center;gap:14px;flex-wrap:wrap">
+      <div class="pill pill-accent">3 轮 45 题 → 替代盲目刷题</div>
+      <div class="pill pill-accent">BKT + 确定性程序 → 替代凭空打分</div>
+      <div class="pill pill-accent">可溯源报告 + 教师改判 → 可信闭环</div>
+    </div>
+    <div class="vid anim-rise-in" data-anim="rise-in">
+      <video id="demo-video" playsinline preload="metadata" src="assets/mathpilot-live-demo.mp4"></video>
+      <div class="vid-veil" id="demo-veil" role="button" aria-label="播放实机演示视频">
+        <div class="playb">▶</div>
+        <div class="lbl">MathPilot 实机演示 · 点击播放</div>
+      </div>
+    </div>
+    <div class="deck-footer"><span class="dim2">收束 · Live Demo</span><span class="slide-number" data-current="18" data-total="19"></span></div>
+    <div class="notes">幕6 · 收束与愿景（7:40-8:20，约 40 秒）。口播顺序：①总结三句（轻量化替代题海 / 确定性程序替代凭空打分 / 可溯源报告构建可信闭环）；②放慢语速念「告别海量刷题，实现精准诊断。这是 MathPilot 迈出的第一步」；③讲到这里点屏幕中央 ▶ 播放视频；④视频结束后翻致谢页收尾并进入 Q&A。若现场无声卡，视频默认带声，需提前确认输出设备。</div>
+  </section>
+
+  <!-- ============ 18 · THANKS ============ -->
+  <section class="slide center tc" data-deck-label="致谢">
+    <div>
+      <h1 class="h1 anim-fade-up" data-anim="fade-up" style="font-size:170px;line-height:1"><span class="gradient-text">谢谢聆听</span></h1>
+      <p class="lede" style="margin:20px auto 0">恳请各位评委指正 · 欢迎体验 MathPilot</p>
+      <div class="row mt-l" style="justify-content:center;gap:28px">
+        <span class="badge live">学生端实机</span>
+        <span class="badge live">教师端复核</span>
+        <span class="badge ev">三轮报告</span>
+      </div>
+      <div class="deck-footer"><span class="dim2">谢谢聆听 · Q&A</span><span class="slide-number" data-current="19" data-total="19"></span></div>
+    </div>
+    <div class="notes">幕6 收尾（8:10-8:20）。视频播放结束后停在致谢页：口播「感谢各位评委，欢迎现场体验我们的真实系统」，停顿后进入 Q&A。准备应答卡（准确率、与直接调大模型区别、草稿识别错误、换章节耗时、数据来源、为何选解三角形）。</div>
+  </section>
+
+</deck-stage>
+
+<!-- ============ Excel 数据预览 Overlay（幕5 弹层） ============ -->
+<div class="kbov" id="kb-overlay" role="dialog" aria-label="知识库 Excel 数据预览">
+  <div class="kbov-card">
+    <div class="kbov-head">
+      <h3><span class="gradient-text">知识库数据预览</span> · MathPilot 结构化四库</h3>
+      <button class="kbov-close" id="kb-close" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="kbov-bar">
+      <div class="seg-tabs" id="kb-ch-tabs">
+        <button class="on" data-ch="triangle" type="button">解三角形</button>
+        <button data-ch="derivative" type="button">导数</button>
+      </div>
+      <span id="kb-sheet-tabs" style="display:inline-flex;gap:8px"></span>
+      <span class="kbov-count" id="kb-count"></span>
+    </div>
+    <div class="kbov-body" id="kb-body"></div>
+  </div>
+</div>
+
+<!-- ============ PDF 在线预览 Overlay（第17页 · 试卷与解析） ============ -->
+<div class="kbov" id="pdf-overlay" role="dialog" aria-label="试卷 PDF 在线预览">
+  <div class="kbov-card">
+    <div class="kbov-head">
+      <h3><span class="gradient-text">试卷在线预览</span> · <span id="pdf-ov-title">解三角形试卷</span></h3>
+      <div style="display:flex;gap:12px;align-items:center">
+        <a class="rep-external" id="pdf-ov-open" href="#" target="_blank" rel="noopener">打开原版 PDF ↗</a>
+        <button class="kbov-close" id="pdf-ov-close" type="button" aria-label="关闭">×</button>
+      </div>
+    </div>
+    <div class="kbov-bar"><span class="kbov-count" id="pdf-ov-src"></span></div>
+    <div class="kbov-body" id="pdf-ov-body" style="display:flex;flex-direction:column"></div>
+  </div>
+</div>
+
+<script src="./assets/kb-data.js"></script>
+<script>
+/* ============ 幕5 · 章节数据交互 + Excel 数据预览 ============ */
+(function () {
+  var DATA = window.__MATHKB || null;
+  var ch = 'triangle';
+
+  /* --- 章节 Tab 与 KPI 数字滚动 --- */
+  var chTabs = document.getElementById('ch-tabs');
+  var desc = document.getElementById('ch-desc');
+  var nums = Array.prototype.slice.call(document.querySelectorAll('.kpi-num'));
+  var chapterMeta = {
+    triangle:   { q:139, t:36,  k:49, e:73,  desc:'试点章节 · 覆盖五个专题' },
+    derivative: { q:116, t:19,  k:32, e:22,  desc:'迁移验证章节 · 导数（高中数学难度巅峰）' }
+  };
+  function animateNum(el, to) {
+    var from = parseInt(el.getAttribute('data-cur') || el.textContent, 10) || 0;
+    if (from === to) { el.textContent = to; return; }
+    var t0 = null, dur = 600;
+    function step(ts) {
+      if (!t0) t0 = ts;
+      var p = Math.min((ts - t0) / dur, 1);
+      var eased = 1 - Math.pow(1 - p, 3);
+      var val = Math.round(from + (to - from) * eased);
+      el.textContent = val;
+      if (p < 1) { requestAnimationFrame(step); }
+      else { el.setAttribute('data-cur', to); }
+    }
+    requestAnimationFrame(step);
+  }
+  function setChapter(c) {
+    ch = c;
+    var m = chapterMeta[c];
+    chTabs.querySelectorAll('button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-ch') === c); });
+    desc.textContent = m.desc;
+    nums.forEach(function (el) { animateNum(el, m[el.getAttribute('data-k')]); });
+  }
+  if (chTabs) {
+    chTabs.addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      setChapter(b.getAttribute('data-ch'));
+    });
+  }
+
+  /* --- Excel 数据预览 Overlay --- */
+  var ov = document.getElementById('kb-overlay');
+  var openBtn = document.getElementById('kb-open-btn');
+  var closeBtn = document.getElementById('kb-close');
+  var sheetTabs = document.getElementById('kb-sheet-tabs');
+  var body = document.getElementById('kb-body');
+  var count = document.getElementById('kb-count');
+  var ovChTabs = document.getElementById('kb-ch-tabs');
+  var curSheet = 0;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function renderSheet(si) {
+    if (!DATA) return;
+    curSheet = si;
+    var book = DATA[ch];
+    var sh = book.sheets[si];
+    var html = '<table class="kb-table"><thead><tr>';
+    sh.columns.forEach(function (c) { html += '<th>' + esc(c) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    sh.rows.forEach(function (r) {
+      html += '<tr>';
+      r.forEach(function (cell) { html += '<td>' + esc(cell) + '</td>'; });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+    count.textContent = sh.name + ' · 共 ' + sh.dataRows + ' 条';
+    Array.prototype.forEach.call(sheetTabs.children, function (t) { t.classList.toggle('on', +t.getAttribute('data-i') === si); });
+  }
+  function buildSheetTabs() {
+    if (!DATA || !DATA[ch]) return;
+    sheetTabs.innerHTML = '';
+    DATA[ch].sheets.forEach(function (sh, i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'kb-sheet-tab' + (i === 0 ? ' on' : '');
+      b.setAttribute('data-i', i);
+      b.textContent = sh.name;
+      b.addEventListener('click', function () { renderSheet(i); });
+      sheetTabs.appendChild(b);
+    });
+  }
+  function openOverlay() {
+    if (!DATA) { alert('知识库数据未加载'); return; }
+    ov.classList.add('open');
+    buildSheetTabs();
+    renderSheet(0);
+    document.body.style.overflow = 'hidden';
+  }
+  function closeOverlay() {
+    ov.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  if (openBtn) openBtn.addEventListener('click', openOverlay);
+  if (closeBtn) closeBtn.addEventListener('click', closeOverlay);
+  if (ov) ov.addEventListener('click', function (e) { if (e.target === ov) closeOverlay(); });
+  if (ovChTabs) {
+    ovChTabs.addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      ch = b.getAttribute('data-ch');
+      ovChTabs.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      buildSheetTabs();
+      renderSheet(0);
+    });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && ov && ov.classList.contains('open')) closeOverlay();
+  });
+})();
+</script>
+<script>
+/* 幕6 视频：点击遮罩播放；结束/暂停可重播；切走本页自动暂停 */
+(function () {
+  var video = document.getElementById('demo-video');
+  var veil = document.getElementById('demo-veil');
+  if (!video || !veil) return;
+  function toggle() {
+    if (video.paused) { video.play(); }
+    else { video.pause(); }
+  }
+  veil.addEventListener('click', toggle);
+  video.addEventListener('playing', function () { veil.style.display = 'none'; });
+  video.addEventListener('pause', function () {
+    if (video.ended) { veil.querySelector('.lbl').textContent = '重播 · 点击重新播放'; }
+    veil.style.display = 'flex';
+  });
+  video.addEventListener('ended', function () {
+    veil.style.display = 'flex';
+    veil.querySelector('.lbl').textContent = '重播 · 点击重新播放';
+  });
+  /* 切到别的 slide 时暂停视频，防止跨页出声 */
+  var deck = document.querySelector('deck-stage');
+  if (deck) {
+    new MutationObserver(function () {
+      var s = deck.querySelector('.slide.active');
+      if (s && !s.querySelector('#demo-video') && !video.paused) { video.pause(); }
+    }).observe(deck, { attributes: true, attributeFilter: ['class'], subtree: true });
+  }
+})();
+</script>
+<script>
+/* 第17页 PDF 在线预览：点击试卷缩略卡/预览按钮，弹层内嵌 PDF 查看器 */
+(function () {
+  var ov = document.getElementById('pdf-overlay');
+  if (!ov) return;
+  var titleEl = document.getElementById('pdf-ov-title');
+  var srcEl = document.getElementById('pdf-ov-src');
+  var openEl = document.getElementById('pdf-ov-open');
+  var closeEl = document.getElementById('pdf-ov-close');
+  var bodyEl = document.getElementById('pdf-ov-body');
+  var iframe = null;
+
+  function ensureFrame() {
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.setAttribute('title', 'PDF 在线预览');
+      iframe.style.cssText = 'width:100%;flex:1;border:none;display:block;background:#fff;min-height:0';
+      bodyEl.appendChild(iframe);
+    }
+  }
+  function openPdf(pdfPath, ptitle) {
+    var name = (pdfPath || '').split('/').pop();
+    titleEl.textContent = ptitle || name;
+    srcEl.textContent = 'assets · ' + name;
+    openEl.setAttribute('href', pdfPath || '#');
+    ensureFrame();
+    iframe.setAttribute('src', pdfPath || '');
+    ov.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closePdf() {
+    ov.classList.remove('open');
+    document.body.style.overflow = '';
+    if (iframe) { iframe.removeAttribute('src'); }
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-pdf]');
+    if (!t) return;
+    e.preventDefault();
+    openPdf(t.getAttribute('data-pdf'), t.getAttribute('data-ptitle'));
+  });
+  if (closeEl) closeEl.addEventListener('click', closePdf);
+  if (ov) ov.addEventListener('click', function (e) { if (e.target === ov) closePdf(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && ov.classList.contains('open')) closePdf();
+  });
+})();
+</script>
+<script src="./_shared/runtime.js"></script>
+</body></html>

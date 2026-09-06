@@ -5,6 +5,10 @@ PostgreSQL 是唯一运行时事实源。五份审核过的 `data/*.csv` 仅作�
 
 ## 迁移规范
 
+主库入口为 `sh db/migrate.sh`（`DATABASE_URL`）；独立 Pi 线程库位于 `db/pi/`，
+入口为 `pnpm db:migrate:pi`（`PI_DATABASE_URL`）。Compose 使用同一份 Pi runner。
+历史 SQL 是现存数据库的升级链，不能因旧服务退役而删改编号。
+
 - 迁移文件为纯 SQL，按 `NNNN_name.sql` 编号；Next 内容切换统一由
   `0031_content_pipeline_cutover.sql` 一次收敛，不重新引入废弃的六段纯增量迁移；
 - 每个迁移以 `insert into infra_schema_migration` 结尾（0001 建表除外）；
@@ -40,3 +44,10 @@ PostgreSQL 是唯一运行时事实源。五份审核过的 `data/*.csv` 仅作�
   审核后追加 `--execute`。
 - 误执行的空增量对象和最终旧表清理由 `cutover/README.md` 中的受保护手工脚本处理；自动
   runner 不做猜测性删除。
+
+## 离线数据转换
+
+`nix develop -c python3 db/tools/xlsx-to-csv.py --help` 查看工作簿转换参数。
+默认读取 `data/knowledge-bank/解三角形/` 的固定工作簿，输出 `data/official-content/triangle-kb/`
+及对应 manifest；可用 `--output` 和 `--manifest` 指定仓库内临时目录核验后再替换。
+转换不会连接数据库；转换与执行导入是两个独立步骤。

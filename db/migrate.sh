@@ -3,12 +3,14 @@
 # 已在 infra_schema_migration 登记的版本跳过。
 set -eu
 : "${DATABASE_URL:?DATABASE_URL required}"
+MIGRATION_DIR=${MATHPILOT_MIGRATIONS_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")/migrations" && pwd)}
 
-for f in /migrations/*.sql; do
+for f in "$MIGRATION_DIR"/*.sql; do
+  [ -f "$f" ] || { echo "No SQL migrations found in $MIGRATION_DIR" >&2; exit 1; }
   v=$(basename "$f" .sql)
-  has_table=$(psql "$DATABASE_URL" -tAc "select to_regclass('public.infra_schema_migration')")
+  has_table=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "select to_regclass('public.infra_schema_migration')")
   if [ "$has_table" = "infra_schema_migration" ]; then
-    applied=$(psql "$DATABASE_URL" -tAc "select count(*) from infra_schema_migration where version = '$v'")
+    applied=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "select count(*) from infra_schema_migration where version = '$v'")
   else
     applied=0
   fi

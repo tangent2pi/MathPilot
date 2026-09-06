@@ -9,8 +9,15 @@
     "skill_ref": "skill:question-grade@v1",
     "allowed_capability_tools": [],
     "allowed_child_task_types": [],
-    "model_policy": { "policy_id": "grade-model-v1", "model_family": "reasoning", "allow_fallback": true },
-    "timeout_policy": { "start_to_close_seconds": 180, "heartbeat_seconds": 15 },
+    "model_policy": {
+      "policy_id": "grade-model-v1",
+      "model_family": "reasoning",
+      "allow_fallback": true
+    },
+    "timeout_policy": {
+      "start_to_close_seconds": 180,
+      "heartbeat_seconds": 15
+    },
     "retry_policy": {
       "maximum_attempts": 3,
       "initial_interval_seconds": 2,
@@ -19,8 +26,13 @@
     },
     "data_access_policy": {
       "policy_id": "grade-data-v1",
-      "read_scopes": ["frozen_task_bundle"],
-      "write_scopes": ["structured_result", "attempt_output"],
+      "read_scopes": [
+        "frozen_task_bundle"
+      ],
+      "write_scopes": [
+        "structured_result",
+        "attempt_output"
+      ],
       "history_is_untrusted_data": true
     },
     "workspace_projection_policy": {
@@ -40,10 +52,19 @@
       "input_schema": "https://schemas.mathpilot.dev/science-v3/selector-input/v1",
       "output_schema": "https://schemas.mathpilot.dev/science-v3/selection-decision/v1",
       "skill_ref": "skill:question-selection@v1",
-      "allowed_capability_tools": ["question_catalog"],
+      "allowed_capability_tools": [
+        "question_catalog"
+      ],
       "allowed_child_task_types": [],
-      "model_policy": { "policy_id": "selector-model-v1", "model_family": "reasoning", "allow_fallback": true },
-      "timeout_policy": { "start_to_close_seconds": 300, "heartbeat_seconds": 15 },
+      "model_policy": {
+        "policy_id": "selector-model-v1",
+        "model_family": "reasoning",
+        "allow_fallback": true
+      },
+      "timeout_policy": {
+        "start_to_close_seconds": 300,
+        "heartbeat_seconds": 15
+      },
       "retry_policy": {
         "maximum_attempts": 3,
         "initial_interval_seconds": 2,
@@ -52,13 +73,69 @@
       },
       "data_access_policy": {
         "policy_id": "selector-data-v1",
-        "read_scopes": ["frozen_task_bundle", "question_catalog_pages"],
-        "write_scopes": ["structured_result", "attempt_output"],
+        "read_scopes": [
+          "frozen_task_bundle",
+          "question_catalog_pages"
+        ],
+        "write_scopes": [
+          "structured_result",
+          "attempt_output"
+        ],
         "history_is_untrusted_data": true
       },
       "workspace_projection_policy": {
         "policy_id": "selector-workspace-v1",
         "enabled": true,
+        "read_only": true,
+        "include_authorized_sessions": false,
+        "freshness_required": true
+      }
+    },
+    {
+      "schema_version": 3,
+      "task_type": "foreground_teaching",
+      "spec_version": "v1",
+      "purpose": "通过隔离工具进行前台教学与测评。",
+      "input_schema": "https://schemas.mathpilot.dev/science-v3/grade-input/v1",
+      "output_schema": "https://schemas.mathpilot.dev/science-v3/scientific-fact/v1#/$defs/Judgment",
+      "skill_ref": "skill:foreground-teaching@v1",
+      "allowed_capability_tools": [
+        "read",
+        "grep",
+        "learning_action",
+        "assessment",
+        "sandbox"
+      ],
+      "allowed_child_task_types": [],
+      "model_policy": {
+        "policy_id": "grade-model-v1",
+        "model_family": "reasoning",
+        "allow_fallback": true
+      },
+      "timeout_policy": {
+        "start_to_close_seconds": 180,
+        "heartbeat_seconds": 15
+      },
+      "retry_policy": {
+        "maximum_attempts": 3,
+        "initial_interval_seconds": 2,
+        "backoff_coefficient": 2,
+        "maximum_interval_seconds": 30
+      },
+      "data_access_policy": {
+        "policy_id": "grade-data-v1",
+        "read_scopes": [
+          "frozen_task_bundle"
+        ],
+        "write_scopes": [
+          "structured_result",
+          "attempt_output"
+        ],
+        "history_is_untrusted_data": true
+      },
+      "workspace_projection_policy": {
+        "policy_id": "grade-workspace-v1",
+        "enabled": false,
         "read_only": true,
         "include_authorized_sessions": false,
         "freshness_required": true
@@ -80,10 +157,19 @@
       "input_schema": "https://schemas.mathpilot.dev/science-v3/grade-input/v1",
       "output_schema": "https://schemas.mathpilot.dev/science-v3/scientific-fact/v1",
       "skill_ref": "skill:question-grade@v1",
-      "allowed_capability_tools": ["bash"],
+      "allowed_capability_tools": [
+        "bash"
+      ],
       "allowed_child_task_types": [],
-      "model_policy": { "policy_id": "grade-model-v1", "model_family": "reasoning", "allow_fallback": true },
-      "timeout_policy": { "start_to_close_seconds": 180, "heartbeat_seconds": 15 },
+      "model_policy": {
+        "policy_id": "grade-model-v1",
+        "model_family": "reasoning",
+        "allow_fallback": true
+      },
+      "timeout_policy": {
+        "start_to_close_seconds": 180,
+        "heartbeat_seconds": 15
+      },
       "retry_policy": {
         "maximum_attempts": 3,
         "initial_interval_seconds": 2,
@@ -92,8 +178,12 @@
       },
       "data_access_policy": {
         "policy_id": "grade-data-v1",
-        "read_scopes": ["frozen_task_bundle"],
-        "write_scopes": ["structured_result"],
+        "read_scopes": [
+          "frozen_task_bundle"
+        ],
+        "write_scopes": [
+          "structured_result"
+        ],
         "history_is_untrusted_data": true
       },
       "workspace_projection_policy": {
@@ -113,10 +203,20 @@
       "input_schema": "https://schemas.mathpilot.dev/science-v3/selector-input/v1",
       "output_schema": "https://schemas.mathpilot.dev/science-v3/selection-decision/v1",
       "skill_ref": "skill:question-selection@v1",
-      "allowed_capability_tools": ["question_catalog", "read"],
+      "allowed_capability_tools": [
+        "question_catalog",
+        "read"
+      ],
       "allowed_child_task_types": [],
-      "model_policy": { "policy_id": "selector-model-v1", "model_family": "reasoning", "allow_fallback": true },
-      "timeout_policy": { "start_to_close_seconds": 300, "heartbeat_seconds": 15 },
+      "model_policy": {
+        "policy_id": "selector-model-v1",
+        "model_family": "reasoning",
+        "allow_fallback": true
+      },
+      "timeout_policy": {
+        "start_to_close_seconds": 300,
+        "heartbeat_seconds": 15
+      },
       "retry_policy": {
         "maximum_attempts": 3,
         "initial_interval_seconds": 2,
@@ -125,8 +225,12 @@
       },
       "data_access_policy": {
         "policy_id": "selector-data-v1",
-        "read_scopes": ["frozen_task_bundle"],
-        "write_scopes": ["structured_result"],
+        "read_scopes": [
+          "frozen_task_bundle"
+        ],
+        "write_scopes": [
+          "structured_result"
+        ],
         "history_is_untrusted_data": true
       },
       "workspace_projection_policy": {
@@ -136,6 +240,159 @@
         "include_authorized_sessions": false,
         "freshness_required": true
       }
+    },
+    {
+      "schema_version": 3,
+      "task_type": "foreground_teaching",
+      "spec_version": "v1",
+      "purpose": "通过隔离工具进行前台教学与测评。",
+      "input_schema": "https://schemas.mathpilot.dev/science-v3/grade-input/v1",
+      "output_schema": "https://schemas.mathpilot.dev/science-v3/scientific-fact/v1#/$defs/Judgment",
+      "skill_ref": "skill:foreground-teaching@v1",
+      "allowed_capability_tools": [
+        "read",
+        "grep",
+        "learning_action",
+        "assessment",
+        "sql"
+      ],
+      "allowed_child_task_types": [],
+      "model_policy": {
+        "policy_id": "grade-model-v1",
+        "model_family": "reasoning",
+        "allow_fallback": true
+      },
+      "timeout_policy": {
+        "start_to_close_seconds": 180,
+        "heartbeat_seconds": 15
+      },
+      "retry_policy": {
+        "maximum_attempts": 3,
+        "initial_interval_seconds": 2,
+        "backoff_coefficient": 2,
+        "maximum_interval_seconds": 30
+      },
+      "data_access_policy": {
+        "policy_id": "grade-data-v1",
+        "read_scopes": [
+          "frozen_task_bundle"
+        ],
+        "write_scopes": [
+          "structured_result",
+          "attempt_output"
+        ],
+        "history_is_untrusted_data": true
+      },
+      "workspace_projection_policy": {
+        "policy_id": "grade-workspace-v1",
+        "enabled": false,
+        "read_only": true,
+        "include_authorized_sessions": false,
+        "freshness_required": true
+      },
+      "_reason": "前台教学不得自行取得数据库、任意网络或凭据能力"
+    },
+    {
+      "schema_version": 3,
+      "task_type": "foreground_teaching",
+      "spec_version": "v1",
+      "purpose": "通过隔离工具进行前台教学与测评。",
+      "input_schema": "https://schemas.mathpilot.dev/science-v3/grade-input/v1",
+      "output_schema": "https://schemas.mathpilot.dev/science-v3/scientific-fact/v1#/$defs/Judgment",
+      "skill_ref": "skill:foreground-teaching@v1",
+      "allowed_capability_tools": [
+        "read",
+        "grep",
+        "learning_action",
+        "assessment",
+        "http"
+      ],
+      "allowed_child_task_types": [],
+      "model_policy": {
+        "policy_id": "grade-model-v1",
+        "model_family": "reasoning",
+        "allow_fallback": true
+      },
+      "timeout_policy": {
+        "start_to_close_seconds": 180,
+        "heartbeat_seconds": 15
+      },
+      "retry_policy": {
+        "maximum_attempts": 3,
+        "initial_interval_seconds": 2,
+        "backoff_coefficient": 2,
+        "maximum_interval_seconds": 30
+      },
+      "data_access_policy": {
+        "policy_id": "grade-data-v1",
+        "read_scopes": [
+          "frozen_task_bundle"
+        ],
+        "write_scopes": [
+          "structured_result",
+          "attempt_output"
+        ],
+        "history_is_untrusted_data": true
+      },
+      "workspace_projection_policy": {
+        "policy_id": "grade-workspace-v1",
+        "enabled": false,
+        "read_only": true,
+        "include_authorized_sessions": false,
+        "freshness_required": true
+      },
+      "_reason": "前台教学不得自行取得数据库、任意网络或凭据能力"
+    },
+    {
+      "schema_version": 3,
+      "task_type": "foreground_teaching",
+      "spec_version": "v1",
+      "purpose": "通过隔离工具进行前台教学与测评。",
+      "input_schema": "https://schemas.mathpilot.dev/science-v3/grade-input/v1",
+      "output_schema": "https://schemas.mathpilot.dev/science-v3/scientific-fact/v1#/$defs/Judgment",
+      "skill_ref": "skill:foreground-teaching@v1",
+      "allowed_capability_tools": [
+        "read",
+        "grep",
+        "learning_action",
+        "assessment",
+        "credentials"
+      ],
+      "allowed_child_task_types": [],
+      "model_policy": {
+        "policy_id": "grade-model-v1",
+        "model_family": "reasoning",
+        "allow_fallback": true
+      },
+      "timeout_policy": {
+        "start_to_close_seconds": 180,
+        "heartbeat_seconds": 15
+      },
+      "retry_policy": {
+        "maximum_attempts": 3,
+        "initial_interval_seconds": 2,
+        "backoff_coefficient": 2,
+        "maximum_interval_seconds": 30
+      },
+      "data_access_policy": {
+        "policy_id": "grade-data-v1",
+        "read_scopes": [
+          "frozen_task_bundle"
+        ],
+        "write_scopes": [
+          "structured_result",
+          "attempt_output"
+        ],
+        "history_is_untrusted_data": true
+      },
+      "workspace_projection_policy": {
+        "policy_id": "grade-workspace-v1",
+        "enabled": false,
+        "read_only": true,
+        "include_authorized_sessions": false,
+        "freshness_required": true
+      },
+      "_reason": "前台教学不得自行取得数据库、任意网络或凭据能力"
     }
   ]
 }

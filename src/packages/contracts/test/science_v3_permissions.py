@@ -61,7 +61,7 @@ def main() -> int:
 
     task_spec = load("task-spec.schema.json")
     capability_tools = set(task_spec["properties"]["allowed_capability_tools"]["items"]["enum"])
-    assert capability_tools == {"question_catalog", "read", "grep", "learning_action", "delegate"}
+    assert capability_tools == {"question_catalog", "read", "grep", "learning_action", "delegate", "assessment", "sandbox"}
     assert not {"bash", "sql", "http", "database", "credentials"}.intersection(capability_tools)
 
     domain_part = load("domain-ui-part.schema.json")

@@ -26,7 +26,7 @@
               git
               curl
               jq
-              # 算法侧车（ADR-001）：pyBKT 需 python3 + C++ 编译（venv 内 pip 安装）
+              # Python 用于契约校验、数据转换和离线 pyBKT 对拍。
               python312
               gcc
               # 前端/TS 工具链（P1：nix develop 内可跑 pnpm typecheck/test/contracts:validate）
@@ -35,10 +35,10 @@
               postgresql_16
               # 契约 schema 校验（packages/contracts 测试依赖 jsonschema）
               python312Packages.jsonschema
+              python312Packages.openpyxl
             ];
 
-            # numpy/pyBKT 等 C 扩展依赖 libstdc++/libz 可加载
-            # （侧车 .venv 由 sidecars/pybkt/setup.sh 创建）
+            # 离线科学内核验证中的 Python C 扩展依赖。
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
               pkgs.stdenv.cc.cc.lib
               pkgs.zlib

@@ -11,6 +11,9 @@ importers:
 
   .:
     devDependencies:
+      '@types/cross-spawn':
+        specifier: 6.0.6
+        version: 6.0.6
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
@@ -105,6 +108,9 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+      tsx:
+        specifier: 4.20.6
+        version: 4.20.6
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -187,29 +193,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  src/packages/mastery:
-    devDependencies:
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-
-  src/packages/providers/model:
-    dependencies:
-      undici:
-        specifier: ^8.10.0
-        version: 8.10.0
-    devDependencies:
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-
   src/packages/providers/ocr:
-    devDependencies:
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-
-  src/packages/selector:
     devDependencies:
       typescript:
         specifier: ^5.6.0
@@ -2885,6 +2869,9 @@ packages:
 
   '@types/content-disposition@0.5.9':
     resolution: {integrity: sha512-8uYXI3Gw35MhiVYhG3s295oihrxRyytcRHjSjqnqZVDDy/xcGBRny7+Xj1Wgfhv5QzRtN2hB2dVRBUX9XW3UcQ==}
+
+  '@types/cross-spawn@6.0.6':
+    resolution: {integrity: sha512-fXRhhUkG4H3TQk5dBhQ7m/JDdSNHKwR2BBia62lhwEIq9xGiQKLxd6LymNhn47SjXhsUEPmxi+PKw2OkW4LLjA==}
 
   '@types/debug@4.1.13':
     resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
@@ -7833,6 +7820,10 @@ snapshots:
 
   '@types/content-disposition@0.5.9': {}
 
+  '@types/cross-spawn@6.0.6':
+    dependencies:
+      '@types/node': 24.13.3
+
   '@types/debug@4.1.13':
     dependencies:
       '@types/ms': 2.1.0
@@ -10406,7 +10397,8 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici@8.10.0: {}
+  undici@8.10.0:
+    optional: true
 
   undici@8.9.0: {}
 

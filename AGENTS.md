@@ -30,6 +30,10 @@
 - [`src/`](./src) 存放正式应用、服务和包；[`db/`](./db) 存放 PostgreSQL 迁移；[`deploy/dev/`](./deploy/dev) 是唯一开发组合根。
 - [`competition-info/`](./competition-info) 存放赛题原始资料；[`design-docs/`](./design-docs) 存放产品和架构设计，其中 `原始对话/` 是只读需求档案。
 - [`data/`](./data) 是从 PostgreSQL 导出的结构化快照，不是运行时事实源。
+- `db/pi/` 保存独立 Pi 线程库迁移，`db/tools/` 保存离线数据转换工具。
+- `src/apps/web-next/public/defense/` 保存线上答辩静态页与资源；`design-docs/defense/` 保存答辩稿与信息卡模板。
+- `docs/` 是当前操作说明；设计稿归 `design-docs/`，历史部署和审计记录归 `architecture/review/`。
+- 密钥、运行时数据、会话导出、依赖、构建产物和临时探针不入库；必要源码、环境模板、迁移、锁文件与静态资源必须入库。
 
 ## 命名约定
 

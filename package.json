@@ -7,9 +7,12 @@
   "scripts": {
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test",
-    "contracts:validate": "python3 src/packages/contracts/test/validate_examples.py"
+    "contracts:validate": "python3 src/packages/contracts/test/validate_examples.py",
+    "db:migrate:pi": "sh db/pi/migrate.sh",
+    "test:e2e": "node tests/e2e/current-state-smoke.mjs"
   },
   "devDependencies": {
+    "@types/cross-spawn": "6.0.6",
     "@types/node": "^24.13.3",
     "typescript": "^5.6.0"
   },

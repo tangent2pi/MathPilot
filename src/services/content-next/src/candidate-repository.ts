@@ -1388,13 +1388,6 @@ export class CandidateRepository {
     });
   }
 
-  async pendingAutoPrivateCandidates(): Promise<Array<{ candidate_set_id: string; tenant_id: string; owner_user_id: string; phase: string }>> {
-    return withPrincipal(this.pool, { tenantId: "", userId: "", roles: [] }, async (client) => {
-      const result = await client.query(`select * from mathpilot_pending_auto_private_candidates()`);
-      return result.rows as Array<{ candidate_set_id: string; tenant_id: string; owner_user_id: string; phase: string }>;
-    });
-  }
-
   async pendingFeedbackCommands(): Promise<Array<{
     command_id: string;
     tenant_id: string;

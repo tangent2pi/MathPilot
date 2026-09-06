@@ -1,7 +1,7 @@
 # Pi 对话、鉴权与卡片开发运行
 
-本文描述当前 `web-next + api-next + pi-chat-runtime` 实现。它与旧正式 Web、旧 API
-和批处理 `agent-runtime` 分离；Pi 对话代码不得放回旧服务。
+本文描述教师资料对话的 `web-next + api-next + content-next + pi-chat-runtime` 链路。
+学生学习对话由 `learning-next` 与 Temporal 承载；当前服务组合见 `deploy/dev/README.md`。
 
 ## 服务边界
 
@@ -23,7 +23,7 @@ storage-next ◀──pi-to-storage──┘
 - Better Auth Cookie 只由 `api-next` 解释。所有服务间请求由
   `@mathpilot/internal-service` 签发 60 秒、绑定 edge/主体/method/path/规范 JSON 摘要的断言；
   接收端只从验证后的 service context 读取主体，不接受主体头。
-- 六条生产 edge 各有独立、可轮换 keyring。共同 owner 统一加载、production fail-fast、
+- 八条生产 edge 各有独立、可轮换 keyring。共同 owner 统一加载、production fail-fast、
   JOSE codec、Fastify 401、replay、超时/取消和观测；领域服务只声明 edge 并调用薄 adapter。
 - Pi 不持有 MinIO 管理凭据。对象控制面只经 `pi-to-storage`，实际上传/下载只使用
   Storage 返回的短时效预签名 URL；已退役的 Pi archive/MinIO fallback 不兼容也不恢复。
@@ -57,7 +57,7 @@ storage-next ◀──pi-to-storage──┘
   决定 ID 在 runtime 中幂等，新的 `respond` 结果指向被替代候选集并生成新修订。
 - Core、Search、OCR 通过与上述扩展相同的 Pi `agentDir/extensions` 发现机制加载；
   Core/OCR 只挂载当前线程，Search 不挂载工作区，OCR 长结果由 checkpoint 固化到输出文件。
-- “下一题” fork、后台判答、教学闭环和 Dream 不在本阶段实现范围内。
+- 学生练习、测评、后台科学任务和 Dream 由 `learning-next` 承载，见该服务的任务注册表与 Skills。
 
 ## 数据库初始化
 
@@ -66,10 +66,10 @@ storage-next ◀──pi-to-storage──┘
 ```sh
 nix develop -c createdb -h 127.0.0.1 -p <port> mathpilot_pi
 PI_DATABASE_URL=postgresql://127.0.0.1:<port>/mathpilot_pi \
-  nix develop -c pnpm --filter @mathpilot/web-next db:migrate
+  nix develop -c pnpm db:migrate:pi
 ```
 
-`pnpm ... db:migrate` 与容器中的 `pi-db-migrate` 都通过 schema-aware runner 按当前
+`pnpm db:migrate:pi` 与容器中的 `pi-db-migrate` 都通过 schema-aware runner 使用 `db/pi/migrate.sh` 按当前
 状态执行 `0001_pi_threads.sql` 至 `0005_pi_attachments.sql`，可安全重复运行；它会
 避免在 `student_id` 已移除后重放历史 RLS。容器环境由 `pi-db-migrate` 创建/迁移该库，
 并把最小表权限授予非超级用户 `mathpilot_app`；
@@ -81,8 +81,8 @@ runtime 每个事务仍注入 `mathpilot.tenant_id`、`mathpilot.user_id` 和角
 
 本地必须显式使用 `MATHPILOT_ENVIRONMENT=development` 和
 `MATHPILOT_INTERNAL_REPLAY_MODE=memory-single-replica`。development 可省略 keyring，统一 owner
-会为六条边选择仓库公开且彼此独立的开发值；production 没有这个默认值，必须使用
-[`deploy/dev/.env.example`](../deploy/dev/.env.example) 所列六个独立 keyring。调用方仍必须声明
+会为八条边选择仓库公开且彼此独立的开发值；production 没有这个默认值，必须使用
+[`deploy/dev/.env.example`](../deploy/dev/.env.example) 所列八个独立 keyring。调用方仍必须声明
 自己的最终目标 URL。
 
 ```sh
@@ -121,7 +121,7 @@ DATABASE_URL=postgresql://127.0.0.1:<port>/mathpilot \
   nix develop -c pnpm --filter @mathpilot/content-next start
 ```
 
-`storage-next` 只需自身三条接收 edge 的 keyring；development 会使用公开默认值，不需要任何
+`storage-next` 只需自身四条接收 edge 的 keyring；development 会使用公开默认值，不需要任何
 出站 internal URL。MinIO 管理凭据只注入 `storage-next`。本地设置
 `MINIO_PUBLIC_ENDPOINT=http://localhost:9000`、`MINIO_CORS_ALLOWED_ORIGINS=http://localhost:5174`；
 生产当前设置为 `https://mathpilot.tangentpi.com` 及实际 Web origin。预签名 URL 不入库。

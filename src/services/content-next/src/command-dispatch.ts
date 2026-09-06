@@ -146,18 +146,3 @@ export async function dispatchKtqCommands(
     }
   }
 }
-
-export type AutoPrivateRepository = Pick<
-  CandidateRepository,
-  "pendingAutoPrivateCandidates" | "decide"
->;
-
-/** Approval is a teacher decision, never a background polling side effect. */
-export async function dispatchAutoPrivateApprovals(
-  repository: AutoPrivateRepository,
-  log: DispatchLog,
-  signal?: AbortSignal,
-): Promise<void> {
-  // Kept as a no-op for older composition roots importing this symbol.
-  void repository; void log; void signal;
-}

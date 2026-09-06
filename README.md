@@ -1,72 +1,67 @@
-# 数学智元（MathPilot）— 高中数学知识掌握诊断与学习规划 Agent
+# 数学智元（MathPilot）
 
-数学智元（MathPilot）是一套面向高中数学学习与教学管理的**证据型诊断教学系统**：聊天式一题一诊断 + 错因归因追问 + 传统程序科学基准
-（BKT/保持率）+ Dream 画像大模型最终更新 + 1-4 周学习计划。
+面向高中数学的诊断教学系统：学生通过对话练习、测评并查看学习记录；教师导入与复核
+K/T/Q/E/R 内容、管理题库和组卷。学习后台使用 Temporal 编排任务、科学内核与 Dream 画像。
 
-## 产品定位（一句话）
+## 仓库结构
 
-> 学生以聊天 + 可选草稿做题，每次作答变成可追溯的判定、程序基准与教学总结；
-> 跨题证据由画像模型整理成可展开的状态与计划；教师复核内容与诊断，改判以
-> "取代 + 重放"呈现，让每个结论都能回到原始学习证据。
-
-## 核心设计
-
-| 设计要点 | 位置 |
+| 路径 | 职责 |
 |---|---|
-| 设计宪法与完整规格 | `design-docs/系统设计v3.3-…md`、`架构修订v4`、`科学内核与Dream设计v1` |
-| 产品决策与需求溯源 | `design-docs/产品重构基线v1-用户任务与信息架构.md` |
-| 用户呈现形式（界面规格） | `design-docs/用户呈现形式v1` |
-| 标准运行时 Skills | `/opt/mathpilot-skills` 统一九项树；数学智元六项源于 `src/services/agent-runtime/skills/`，Core/Search/Edu 源于固定 Qwen-MM 本地克隆 |
-| 任务策略源 | `policies/`（只管理任务目标、prompt_version 与主/辅模型角色） |
-| 算法侧车（pyBKT） | `sidecars/pybkt/`（ADR-001：Python 只作算法侧车） |
+| `src/apps/web-next/` | 唯一前端；`public/defense/` 保存线上答辩静态页及资源 |
+| `src/services/api-next/` | Better Auth、账户与学习 HTTP 网关、授权及读模型 |
+| `src/services/learning-next/` | 学习对话、测评工具、Temporal 工作流、科学内核与 Dream |
+| `src/services/pi-chat-runtime/` | 教师资料对话、Pi 会话与沙箱能力 |
+| `src/services/content-next/` | 内容候选、教师复核、题库、试卷和官方内容导入 |
+| `src/services/storage-next/` | 私有对象管理与预签名上传下载 |
+| `src/services/group-next/` | 试卷与答案 PDF 渲染 |
+| `src/packages/` | contracts、content-integrity、internal-service、self-test、providers/ocr |
+| `db/` | 主库迁移、`pi/` 线程库迁移、`migration-data/` 清单、`tools/` 数据转换 |
+| `deploy/dev/` | 唯一 Compose 组合根及开发初始化 |
+| `tests/e2e/` | 在线只读和容器沙箱冒烟；单元/集成测试随各 workspace 保存 |
+| `docs/` | 当前开发、部署和数据操作说明 |
+| `design-docs/`、`architecture/` | 产品设计、答辩原稿、架构决策与历史审计 |
+| `competition-info/`、`data/` | 赛题原始资料、固定导入输入及派生快照 |
+| `references/` | 忽略入库的参考源码和本地档案 |
 
-## 架构
+`-next` 是现有 workspace、镜像与服务标识，当前目录均为正式实现。
+PostgreSQL 保存业务事实；Pi JSONL/工作区与 MinIO 对象也需要独立备份，CSV 不是运行时事实源。
 
-```text
-apps/web-next（正式对话前端：assistant-ui Thread / ThreadList / Generative UI）
-services/api-next（Better Auth 网关与账户/线程授权）
-services/pi-chat-runtime（自托管 react-pi 线程宿主：Pi JSONL/工作区/附件/卡片）
-services/content-next（新对话的规范化 K/T/Q/E/R、候选复核、ER handoff、内容包）
-services/storage-next（私有 MinIO 对象登记、校验、浏览器预签名直传直下）
-services/agent-runtime（既有批处理 Pi 宿主；不承载 next 对话线程）
-services/content（旧 learning 链保留实现；不作为 Next 内容事实入口）
-services/learning（一题一 Session：判答→错因归因→追问卡→双产物）
-services/profile（画像采集→Dream 三段式（pyBKT Roster 基准+画像大模型）→快照/计划）
-services/review（教师复核：supersede+重放+修订 SLR）
-packages/contracts（21 契约 schema） mastery（OATutor 移植+保持率） selector（选题） providers/{model,ocr}
-db/（主 PostgreSQL：身份/学习/审计）+ mathpilot_pi（线程归属/ACL/卡片事件）+ MinIO（归档）
-```
-
-## 快速启动（开发环境）
+## 开发与验证
 
 ```sh
-nix develop            # 进入开发环境（python312+gcc 用于侧车）
-test -d references/qwen-mm-plugins/.git || git clone https://github.com/QwenLM/Qwen-MM-Plugins.git references/qwen-mm-plugins
-git -C references/qwen-mm-plugins checkout dd029da3bcadfe497de4b4ca8976b11177997cf0
-cd deploy/dev && cp .env.example .env   # 配置 MODEL_API_KEY / OCR_API_TOKEN
-docker compose up -d   # 主库+Pi 库+MinIO+领域服务+next 对话入口(8080)
+nix develop
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm contracts:validate
+pnpm --filter @mathpilot/web-next build
 ```
 
-- 前端：http://localhost:8080（assistant-ui 正式对话入口）
-- next 开发与容器数据边界：`docs/pi-chat-development.md`
-- home 切换和旧库保留：`docs/home-next-deployment.md`
-- 无外部调用现状回归：`bash tests/e2e/current-state-smoke.sh`
-- 无外部调用浏览器回归：按 `deploy/dev/README.md` 的命令在 Agent Runtime 中运行 `browser-visual-smoke.mjs`
-- 真实端到端（会调用模型，并可能按 Agent 判断调用 OCR）：`bash tests/e2e/real-smoke.sh`
-- 侧车：`nix develop -c bash sidecars/pybkt/setup.sh` 建 venv；`test.sh` 跑对拍测试
+数据库集成测试通过对应测试文件中声明的环境变量启用；未配置时会报告跳过。
+在线验证见 [tests/e2e/README.md](tests/e2e/README.md)。
 
-## 验证现状
+## 启动
 
-- 全 workspace `tsc --noEmit` 全绿；mastery（BKT 对拍）/retention/selector 契约测试全绿；
-- 统一九项 Skill 树通过 `skill-creator` 结构检查；自动测试覆盖元数据、模板、上游固定提交、有效输出与危险/损坏输出拒绝；
-- 21 契约 schema 样例校验通过；PaddleOCR-VL 接口、原件/版面/图片持久化与 Agent 路由已接入；
-- 官方初始内容由 home 已提取的 K/T/Q/E/R 五份清单一次导入，共 174 个固定修订；学生案例不导入。教师新内容经普通 Pi KTQ/ER 会话、独立复核页和班级发布生成；
-- 无模型 key 时所有模型路径**显式 502 不伪造**（严禁回退方案纪律）。
+在 `nix develop` 中从仓库根执行：
 
-## 项目资料索引
+```sh
+test -d references/qwen-mm-plugins/.git || git clone https://github.com/QwenLM/Qwen-MM-Plugins.git references/qwen-mm-plugins
+git -C references/qwen-mm-plugins checkout dd029da3bcadfe497de4b4ca8976b11177997cf0
+cd deploy/dev
+test -f .env || cp .env.example .env
+# 配置供应商密钥、数据库及内部服务参数后：
+docker compose up -d --build
+```
 
-- 代码仓库：本仓库（含 README/部署说明）
-- 官方初始清单：`db/migration-data/official-content-manifest.csv` → `data/` 中五份已核验 CSV（导入后 PostgreSQL 为事实源）
-- 产品与交互：`design-docs/产品重构基线v1-用户任务与信息架构.md`、`design-docs/Web信息架构与响应式交互重构v2.md`
-- Agent 架构：`design-docs/统一Pi-Agent能力壳与工作区会话架构v1.md`、`design-docs/架构修订v4-Pi原生运行时与成品复用.md`
-- 数据说明：`docs/数据整理说明.md`
+前端默认地址为 <http://localhost:8080>。完整配置见 [部署说明](deploy/dev/README.md)，
+线上环境见 [home 部署](docs/home-next-deployment.md)，对话边界见 [Pi 开发说明](docs/pi-chat-development.md)。
+
+## 资料与维护
+
+- [目录约定](AGENTS.md)与[当前架构布局](architecture/decisions/ADR-002-repository-layout.md)
+- [数据库迁移](db/README.md)与[数据整理说明](docs/数据整理说明.md)
+- [答辩材料](design-docs/defense/README.md)
+- [本次清理、线上同步和验证记录](docs/repository-maintenance.md)
+
+提交源码、资源、迁移、环境模板和锁文件；密钥、会话导出、运行时数据、备份、依赖及
+构建产物保持本地。过往设计与迁移保留原始语义，历史路径不代表当前部署入口。
